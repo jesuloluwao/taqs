@@ -92,3 +92,24 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - `useQuery(api.userCrud.getMe)` returns `undefined` while loading, `null` if user not found, or the user object — check `=== undefined` for loading state
   - AuthGate pattern: check `!isLoaded || (isSignedIn && me === undefined)` to avoid flash of redirect before data loads
 ---
+
+## 2026-02-24 - US-007
+- Created convex/onboarding.ts: saveUserType (step 1), saveFreelancerProfile (step 2a), saveSmeProfile (step 2b) mutations
+- Updated convex/schema.ts: added `industry` and `annualTurnoverRange` optional fields to entities table
+- Updated convex/_generated/api.d.ts: registered onboarding module
+- Created apps/web/src/pages/Onboarding.tsx: full 4-step wizard skeleton with steps 1 & 2 implemented:
+  - StepIndicator: "Step X of 4" label + animated progress bar + step dots
+  - Step 1: Freelancer/SME selectable cards with highlight state, checkmark, Continue button disabled until selection
+  - Step 2 (Freelancer): firstName/lastName grid, profession dropdown, currency toggle buttons; inline validation
+  - Step 2 (SME): businessName input, businessType toggle, industry/turnoverRange dropdowns; inline validation
+  - Steps 3 & 4: stubs (to be replaced in US-008)
+  - Pre-fills form from existing user data on mount
+  - Auth guards: redirect unauthenticated → /sign-in, onboardingComplete → /app/dashboard
+- Updated apps/web/src/App.tsx: replaced OnboardingPlaceholder with real Onboarding component, removed placeholder function
+- **Learnings for future iterations:**
+  - Select elements need `appearance-none` + manual chevron or custom styling to override browser defaults in Tailwind
+  - Pre-filling form from Convex query: use useEffect with dependency on `me`, split fullName on first space
+  - Wizard state is all in component-level useState — no need for URL params or context for a 4-step linear flow
+  - Step stubs should be kept in the same file so US-008 can fill them in without file restructuring
+  - useMutation hooks should be called at component top level, not inside event handlers
+---

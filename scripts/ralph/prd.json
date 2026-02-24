@@ -158,7 +158,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: US-008/US-009 — See '§4.3 Screen Layouts' for Onboarding layout with step indicator"
     },
     {
