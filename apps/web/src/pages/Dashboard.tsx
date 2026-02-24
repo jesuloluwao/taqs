@@ -1,7 +1,17 @@
 import { useQuery } from 'convex/react';
+import { Link } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
+import { useEntity } from '../contexts/EntityContext';
+import {
+  TrendingUp,
+  TrendingDown,
+  Calculator,
+  Upload,
+  Receipt,
+  Banknote,
+} from 'lucide-react';
 
-function formatKoboToNaira(kobo: number): string {
+function formatNaira(kobo: number): string {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
@@ -9,96 +19,235 @@ function formatKoboToNaira(kobo: number): string {
   }).format(kobo / 100);
 }
 
-export default function Dashboard() {
-  const summary = useQuery(api.queries.getDashboardSummary);
-
-  if (summary === undefined) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading...</div>
+/** Reusable empty state block: icon + headline + subtext + CTA */
+function EmptyState({
+  icon: Icon,
+  headline,
+  subtext,
+  ctaLabel,
+  ctaTo,
+}: {
+  icon: React.ElementType;
+  headline: string;
+  subtext: string;
+  ctaLabel: string;
+  ctaTo: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center animate-slide-up">
+      {/* Illustration */}
+      <div className="w-16 h-16 rounded-2xl bg-primary-light flex items-center justify-center mb-4">
+        <Icon className="w-8 h-8 text-primary" strokeWidth={1.5} />
       </div>
-    );
-  }
+      <p className="text-heading-md text-neutral-900 mb-1">{headline}</p>
+      <p className="text-body-sm text-neutral-500 mb-5 max-w-xs">{subtext}</p>
+      <Link
+        to={ctaTo}
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
+      >
+        {ctaLabel}
+      </Link>
+    </div>
+  );
+}
 
-  if (summary === null) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Please sign in to view your dashboard.</div>
-      </div>
-    );
-  }
+/** Stat card: label, value, icon, colour */
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  colour,
+  isEmpty,
+}: {
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  colour: 'green' | 'red' | 'blue';
+  isEmpty: boolean;
+}) {
+  const colourMap = {
+    green: {
+      bg: 'bg-success/10',
+      text: 'text-success',
+      value: 'text-success',
+    },
+    red: {
+      bg: 'bg-danger/10',
+      text: 'text-danger',
+      value: 'text-danger',
+    },
+    blue: {
+      bg: 'bg-accent/10',
+      text: 'text-accent',
+      value: 'text-accent',
+    },
+  };
+  const c = colourMap[colour];
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Dashboard</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-2">
-            Monthly Income
-          </h3>
-          <p className="text-2xl font-bold text-green-600">
-            {formatKoboToNaira(summary.monthlyIncome)}
-          </p>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-2">
-            Monthly Expenses
-          </h3>
-          <p className="text-2xl font-bold text-red-600">
-            {formatKoboToNaira(summary.monthlyExpense)}
-          </p>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-2">
-            Year-to-Date Income
-          </h3>
-          <p className="text-2xl font-bold text-green-600">
-            {formatKoboToNaira(summary.ytdIncome)}
-          </p>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-2">
-            Year-to-Date Expenses
-          </h3>
-          <p className="text-2xl font-bold text-red-600">
-            {formatKoboToNaira(summary.ytdExpense)}
-          </p>
-        </div>
+    <div className="bg-white rounded-xl border border-border shadow-soft p-5 flex items-start gap-4 animate-slide-up">
+      <div className={`w-10 h-10 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0`}>
+        <Icon className={`w-5 h-5 ${c.text}`} />
       </div>
-
-      <div className="mt-8 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Quick Actions
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <a
-            href="/app/income"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <h3 className="font-medium text-gray-900 mb-1">Add Income</h3>
-            <p className="text-sm text-gray-600">Record a new income transaction</p>
-          </a>
-          <a
-            href="/app/expenses"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <h3 className="font-medium text-gray-900 mb-1">Add Expense</h3>
-            <p className="text-sm text-gray-600">Record a new expense transaction</p>
-          </a>
-          <a
-            href="/app/reports"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <h3 className="font-medium text-gray-900 mb-1">Generate Report</h3>
-            <p className="text-sm text-gray-600">View tax reports and summaries</p>
-          </a>
-        </div>
+      <div className="min-w-0">
+        <p className="text-label text-neutral-500 mb-0.5">{label}</p>
+        <p className={`text-heading-md ${isEmpty ? 'text-neutral-500' : c.value} font-semibold leading-tight`}>
+          {value}
+        </p>
       </div>
     </div>
   );
 }
 
+export default function Dashboard() {
+  const { activeEntityId } = useEntity();
+  const summary = useQuery(
+    api.dashboard.getSummary,
+    activeEntityId ? { entityId: activeEntityId } : 'skip',
+  );
+
+  const currentYear = new Date().getFullYear();
+  const hasTransactions = summary !== null && summary !== undefined && summary.transactionCount > 0;
+  const isLoading = summary === undefined;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-heading-xl text-neutral-900 font-display">Dashboard</h1>
+          {summary?.entityName && (
+            <p className="text-body-sm text-neutral-500 mt-0.5">{summary.entityName}</p>
+          )}
+        </div>
+        <span className="text-label text-neutral-500 mt-1">
+          {new Date().toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+        </span>
+      </div>
+
+      {/* Tax Position Summary card */}
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <div>
+            <h2 className="text-heading-md text-neutral-900">Tax Position Summary</h2>
+            <p className="text-body-sm text-neutral-500 mt-0.5">{currentYear} Tax Year</p>
+          </div>
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-label font-medium bg-primary-light text-primary">
+            Live
+          </span>
+        </div>
+
+        {!hasTransactions ? (
+          <EmptyState
+            icon={Receipt}
+            headline="No transactions yet"
+            subtext="Add or import transactions to see your tax position for the year."
+            ctaLabel="Import Now"
+            ctaTo="/app/transactions"
+          />
+        ) : (
+          <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-label text-neutral-500">Total Income</p>
+              <p className="text-heading-md text-success font-semibold">{formatNaira(summary!.totalIncomeKobo)}</p>
+            </div>
+            <div>
+              <p className="text-label text-neutral-500">Total Expenses</p>
+              <p className="text-heading-md text-danger font-semibold">{formatNaira(summary!.totalExpensesKobo)}</p>
+            </div>
+            <div>
+              <p className="text-label text-neutral-500">Net Income</p>
+              <p className="text-heading-md text-neutral-900 font-semibold">{formatNaira(summary!.netIncomeKobo)}</p>
+            </div>
+            <div>
+              <p className="text-label text-neutral-500">Est. Tax</p>
+              <p className="text-heading-md text-accent font-semibold">{formatNaira(summary!.estimatedTaxKobo)}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Quick Stats row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard
+          label="Total Income"
+          value={hasTransactions ? formatNaira(summary!.totalIncomeKobo) : '₦0.00'}
+          icon={TrendingUp}
+          colour="green"
+          isEmpty={!hasTransactions}
+        />
+        <StatCard
+          label="Total Expenses"
+          value={hasTransactions ? formatNaira(summary!.totalExpensesKobo) : '₦0.00'}
+          icon={TrendingDown}
+          colour="red"
+          isEmpty={!hasTransactions}
+        />
+        <StatCard
+          label="Tax Estimate"
+          value={hasTransactions ? formatNaira(summary!.estimatedTaxKobo) : '₦0.00'}
+          icon={Calculator}
+          colour="blue"
+          isEmpty={!hasTransactions}
+        />
+      </div>
+
+      {/* Recent Transactions */}
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h2 className="text-heading-md text-neutral-900">Recent Transactions</h2>
+          {hasTransactions && (
+            <Link
+              to="/app/transactions"
+              className="text-body-sm text-primary font-medium hover:underline"
+            >
+              View all
+            </Link>
+          )}
+        </div>
+
+        {!hasTransactions ? (
+          <EmptyState
+            icon={Banknote}
+            headline="No transactions yet"
+            subtext="Import a bank statement to get started."
+            ctaLabel="Import Now"
+            ctaTo="/app/transactions"
+          />
+        ) : (
+          <div className="p-5">
+            {/* Populated state handled in future story */}
+            <p className="text-body-sm text-neutral-500">Transactions will appear here.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Import CTA banner — shown when no transactions */}
+      {!hasTransactions && (
+        <div className="rounded-xl border border-primary/20 bg-primary-light px-5 py-4 flex items-center justify-between gap-4 animate-slide-up">
+          <div>
+            <p className="text-body font-medium text-neutral-900">Ready to get started?</p>
+            <p className="text-body-sm text-neutral-500 mt-0.5">
+              Import a bank statement or add transactions manually.
+            </p>
+          </div>
+          <Link
+            to="/app/transactions"
+            className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
+          >
+            <Upload className="w-4 h-4" />
+            Import Now
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
