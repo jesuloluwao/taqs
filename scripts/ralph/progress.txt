@@ -113,3 +113,19 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - Step stubs should be kept in the same file so US-008 can fill them in without file restructuring
   - useMutation hooks should be called at component top level, not inside event handlers
 ---
+
+## 2026-02-24 - US-008
+- Added `saveNinAndTin` mutation to `convex/onboarding.ts`: validates 11-digit NIN, saves `nin` and optional `firsTin` to users table
+- Replaced Step3Stub with real Step3: NTA 2025 explanatory text, security callout, NIN input with numeric filtering + 11-digit inline validation, optional FIRS TIN field
+- Replaced Step4Stub with real Step4: 4 import option cards (bank statement, connect bank, Paystack/Flutterwave, Payoneer/Wise) marked "Coming soon", plus always-active "I'll do this later" card + "Finish Setup" button
+- Updated handleStep3Continue: calls saveNinAndTin then advances to step 4
+- Updated handleFinish: calls createDefaultPreferences + completeOnboarding + toast.success("You're all set! Add transactions when you're ready.")
+- Installed `sonner` toast library; added `<Toaster richColors position="top-center" />` to App.tsx inside BrowserRouter
+- Back buttons work across Steps 3 and 4
+- **Learnings for future iterations:**
+  - sonner toast persists through React Router navigation because Toaster is mounted at the app level (above Routes)
+  - NIN numeric filtering: use `e.target.value.replace(/\D/g, '').slice(0, 11)` in onChange to enforce digits-only input
+  - Import option "coming soon" cards: use `opacity-70 cursor-not-allowed` without `disabled` attr (not a button) for visual disabled state
+  - convex/onboarding.ts already imported by api.d.ts via ApiFromModules — no api.d.ts update needed when adding new mutations to existing modules
+  - Toaster must be placed inside BrowserRouter (not outside) if it might render links
+---

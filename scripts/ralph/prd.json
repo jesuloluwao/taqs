@@ -178,7 +178,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: US-010/US-011 — See '§4.3 Screen Layouts' for Onboarding layout. Step 4 connections are deferred to PRD-1/PRD-8."
     },
     {
