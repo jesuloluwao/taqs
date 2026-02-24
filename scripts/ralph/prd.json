@@ -199,7 +199,7 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: US-013 — See '§4.3 Screen Layouts' for Side Drawer spec and '§4.4 Platform Behaviour' for mobile vs web drawer"
     },
     {

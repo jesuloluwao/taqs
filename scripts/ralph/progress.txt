@@ -129,3 +129,18 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - convex/onboarding.ts already imported by api.d.ts via ApiFromModules — no api.d.ts update needed when adding new mutations to existing modules
   - Toaster must be placed inside BrowserRouter (not outside) if it might render links
 ---
+
+## 2026-02-25 - US-009
+- Created `apps/web/src/contexts/EntityContext.tsx`: EntityProvider + useEntity hook; holds activeEntityId state, initialises to user's default entity via useQuery(api.entityCrud.list), exposes setActiveEntityId
+- Rewrote `apps/web/src/components/AppShell.tsx`: full side drawer with dark (neutral-900) sidebar, mobile overlay from left + desktop persistent sidebar, user avatar/initials + name/email at top, entity selector dropdown (visible for 2+ entities), main nav (Dashboard/Transactions/Invoices/Tax Summary/Filing/Reports), secondary nav (Settings/Help & Support/Documents), SignOutButton at bottom, active items use bg-primary-light + text-primary, header with hamburger (mobile only), app title, notification bell
+- Added `slide-in-left` keyframe + animation to `apps/web/tailwind.config.js` for mobile drawer entry
+- Created placeholder pages: `Transactions.tsx`, `Invoices.tsx`, `TaxSummary.tsx`, `Filing.tsx`, `HelpSupport.tsx`, `Documents.tsx`
+- Updated `apps/web/src/App.tsx`: added all new routes (/app/transactions, /app/invoices, /app/tax-summary, /app/filing, /app/help, /app/documents), wrapped AppShell with EntityProvider inside AuthGate
+- **Learnings for future iterations:**
+  - EntityContext needs to live inside AuthGate+AppShell (not at app root) so useQuery(api.entityCrud.list) only fires when authenticated
+  - `EntityProvider` wraps `AppShell` in App.tsx — AppShell and all page children can use `useEntity()` to read/set active entity
+  - Mobile drawer uses `fixed inset-0 z-40` overlay div with backdrop + `absolute left-0 top-0 bottom-0 w-72` drawer panel
+  - Clerk `<SignOutButton>` works as a render-prop wrapper around a `<button>`; don't forget `w-full` on the inner button for full-width items in sidebar
+  - `bg-primary-light` (#E8F5F0) active item on dark sidebar creates a strong visual contrast "pill" — effective design pattern
+  - `sticky top-0 h-screen` on the desktop sidebar keeps it fixed while page content scrolls
+---
