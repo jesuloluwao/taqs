@@ -144,3 +144,22 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - `bg-primary-light` (#E8F5F0) active item on dark sidebar creates a strong visual contrast "pill" — effective design pattern
   - `sticky top-0 h-screen` on the desktop sidebar keeps it fixed while page content scrolls
 ---
+
+## 2026-02-25 - US-010
+- Rewrote `apps/web/src/pages/Dashboard.tsx`: full dashboard shell with empty states
+  - Page header: "Dashboard" title + entity name subtext + current date
+  - Tax Position Summary card: "2026 Tax Year" badge, empty state (Receipt icon + "No transactions yet") or populated 2×2 grid
+  - Quick Stats row: 3 StatCard components (income, expenses, tax estimate) with zero placeholders
+  - Recent Transactions section: empty state (Banknote icon + "No transactions yet. Import a bank statement to get started." + "Import Now" CTA)
+  - Import CTA banner at bottom when no transactions
+  - All CTAs point to /app/transactions
+  - Uses `useEntity()` hook for activeEntityId → passes to `api.dashboard.getSummary`
+  - Uses `'skip'` pattern for query when no entity selected
+  - Consistent design: shadow-soft, rounded-xl, border-border, animate-slide-up, animate-fade-in
+- **Learnings for future iterations:**
+  - `useQuery(api.x.y, condition ? { args } : 'skip')` is the pattern for conditional Convex queries
+  - Empty state pattern: icon in primary-light rounded-2xl + headline + subtext + Link CTA
+  - `summary === undefined` = loading; `summary === null` = not found/error; `summary` with transactionCount=0 = empty
+  - `formatNaira` converts kobo (integer) to ₦ string via Intl.NumberFormat 'en-NG'
+  - StatCard components with colour variants (green/red/blue) avoid repetition for the quick stats row
+---
