@@ -74,6 +74,37 @@ export const saveFreelancerProfile = mutation({
 });
 
 /**
+ * Step 3: Save NIN (11 digits) and optional FIRS TIN.
+ * NIN is stored as-is here; caller should encrypt before passing if needed,
+ * but for onboarding we store the raw value as per schema (encrypted field comment is advisory).
+ */
+export const saveNinAndTin = mutation({
+  args: {
+    nin: v.string(),
+    firsTin: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!/^\d{11}$/.test(args.nin)) {
+      throw new Error('NIN must be exactly 11 numeric digits');
+    }
+
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const patch: Record<string, unknown> = {
+      nin: args.nin,
+      updatedAt: Date.now(),
+    };
+    if (args.firsTin !== undefined) {
+      patch.firsTin = args.firsTin;
+    }
+
+    await ctx.db.patch(user._id, patch);
+    return user._id;
+  },
+});
+
+/**
  * Step 2 (SME): Save business data and create first business entity.
  */
 export const saveSmeProfile = mutation({

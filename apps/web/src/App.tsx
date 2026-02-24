@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { Toaster } from 'sonner';
 import Landing from './pages/Landing';
 import AppShell from './components/AppShell';
 import Dashboard from './pages/Dashboard';
@@ -44,6 +45,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <Toaster richColors position="top-center" />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/sign-in/*" element={<SignInPage />} />

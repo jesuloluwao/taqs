@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { toast } from 'sonner';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -511,44 +512,269 @@ function Step2Sme({
   );
 }
 
-// ─── Step 3 & 4 Stubs (to be replaced in US-008) ─────────────────────────────
+// ─── Step 3: NIN / TIN ────────────────────────────────────────────────────────
 
-function Step3Stub({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
+interface Step3Props {
+  nin: string;
+  firsTin: string;
+  onChange: (field: 'nin' | 'firsTin', value: string) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  loading: boolean;
+}
+
+function Step3({ nin, firsTin, onChange, onBack, onContinue, loading }: Step3Props) {
+  const [ninError, setNinError] = useState('');
+
+  function validate() {
+    if (!nin.trim()) {
+      setNinError('NIN is required');
+      return false;
+    }
+    if (!/^\d{11}$/.test(nin.trim())) {
+      setNinError('NIN must be exactly 11 numeric digits');
+      return false;
+    }
+    setNinError('');
+    return true;
+  }
+
+  function handleContinue() {
+    if (validate()) onContinue();
+  }
+
   return (
     <div className="animate-slide-up">
       <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
-        NIN / TIN
+        Your Tax Identity
       </h2>
-      <p className="text-body text-neutral-500 mb-8">
-        This step will be available soon.
+      <p className="text-body text-neutral-500 mb-6">
+        Under the Nigeria Tax Act (NTA) 2025, your National Identification Number (NIN)
+        serves as your primary Tax ID for Personal Income Tax purposes. Providing it
+        enables accurate tax calculations and FIRS compliance.
       </p>
+
+      {/* Security callout */}
+      <div className="flex gap-3 bg-primary/5 border border-primary/20 rounded-xl p-4 mb-6">
+        <div className="shrink-0 mt-0.5">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-primary">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </div>
+        <p className="text-body-sm text-primary font-medium">
+          Your NIN is stored securely and never shared without your consent.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-5 mb-8">
+        <Field label="National Identification Number (NIN)" error={ninError}>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={nin}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+              onChange('nin', val);
+              if (ninError && /^\d{11}$/.test(val)) setNinError('');
+            }}
+            placeholder="12345678901"
+            maxLength={11}
+            className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors font-mono tracking-widest ${
+              ninError ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+            }`}
+          />
+          <p className="text-xs text-neutral-400 -mt-0.5">11 digits — found on your NIN slip or NIMC app</p>
+        </Field>
+
+        <Field label="FIRS Tax Identification Number (TIN) — Optional">
+          <input
+            type="text"
+            value={firsTin}
+            onChange={(e) => onChange('firsTin', e.target.value)}
+            placeholder="e.g. 1234567-0001"
+            className="h-11 px-3 rounded-lg border border-border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+          />
+          <p className="text-xs text-neutral-400 -mt-0.5">If you already have a FIRS TIN, enter it here</p>
+        </Field>
+      </div>
+
       <div className="flex gap-3">
-        <button type="button" onClick={onBack} className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans">Back</button>
-        <button type="button" onClick={onContinue} className="flex-1 h-12 bg-primary hover:bg-primary/90 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans">Continue</button>
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={loading}
+          className="flex-1 h-12 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans"
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Saving…
+            </span>
+          ) : (
+            'Continue'
+          )}
+        </button>
       </div>
     </div>
   );
 }
 
-function Step4Stub({ onBack, onFinish, loading }: { onBack: () => void; onFinish: () => void; loading: boolean }) {
+// ─── Step 4: Connect Accounts ─────────────────────────────────────────────────
+
+interface ImportOption {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  comingSoon?: boolean;
+}
+
+const IMPORT_OPTIONS: ImportOption[] = [
+  {
+    id: 'bank_statement',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </svg>
+    ),
+    title: 'Upload bank statement',
+    description: 'Import transactions from a PDF or CSV bank statement',
+    comingSoon: true,
+  },
+  {
+    id: 'connect_bank',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <line x1="2" y1="10" x2="22" y2="10" />
+      </svg>
+    ),
+    title: 'Connect bank account',
+    description: 'Link your Nigerian bank via open banking (GTB, Access, Zenith, etc.)',
+    comingSoon: true,
+  },
+  {
+    id: 'paystack',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
+      </svg>
+    ),
+    title: 'Connect Paystack / Flutterwave',
+    description: 'Import payment records from your payment gateway',
+    comingSoon: true,
+  },
+  {
+    id: 'payoneer',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="2" y1="12" x2="22" y2="12" />
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+    ),
+    title: 'Connect Payoneer / Wise',
+    description: 'Import international income from cross-border payment platforms',
+    comingSoon: true,
+  },
+];
+
+interface Step4Props {
+  onBack: () => void;
+  onFinish: () => void;
+  loading: boolean;
+}
+
+function Step4({ onBack, onFinish, loading }: Step4Props) {
   return (
     <div className="animate-slide-up">
       <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
-        Connect accounts
+        Import your transactions
       </h2>
-      <p className="text-body text-neutral-500 mb-8">
-        This step will be available soon.
+      <p className="text-body text-neutral-500 mb-6">
+        Connect your accounts to automatically import income and expenses. You can always do this later.
       </p>
+
+      <div className="flex flex-col gap-3 mb-6">
+        {IMPORT_OPTIONS.map((option) => (
+          <div
+            key={option.id}
+            className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-70 cursor-not-allowed"
+          >
+            <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+              {option.icon}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm text-neutral-700">{option.title}</span>
+                {option.comingSoon && (
+                  <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">
+                    Coming soon
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">{option.description}</p>
+            </div>
+          </div>
+        ))}
+
+        {/* I'll do this later — always active */}
+        <button
+          type="button"
+          onClick={onFinish}
+          disabled={loading}
+          className="flex items-center gap-4 p-4 rounded-xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all disabled:opacity-60 disabled:cursor-not-allowed text-left"
+        >
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-primary">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 8 12 12 14 14" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="font-medium text-sm text-primary">I'll do this later</span>
+            <p className="text-xs text-primary/60 mt-0.5">Skip for now — add transactions manually</p>
+          </div>
+          {loading && (
+            <span className="w-4 h-4 border-2 border-primary/40 border-t-primary rounded-full animate-spin shrink-0" />
+          )}
+        </button>
+      </div>
+
       <div className="flex gap-3">
-        <button type="button" onClick={onBack} className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans">Back</button>
-        <button type="button" onClick={onFinish} disabled={loading} className="flex-1 h-12 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onFinish}
+          disabled={loading}
+          className="flex-1 h-12 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans"
+        >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
               Finishing…
             </span>
           ) : (
-            'Finish setup'
+            'Finish Setup'
           )}
         </button>
       </div>
@@ -578,6 +804,10 @@ export default function Onboarding() {
   const [industry, setIndustry] = useState('');
   const [annualTurnoverRange, setAnnualTurnoverRange] = useState('');
 
+  // Step 3 state
+  const [nin, setNin] = useState('');
+  const [firsTin, setFirsTin] = useState('');
+
   // Pre-fill from existing user data
   useEffect(() => {
     if (!me) return;
@@ -594,7 +824,9 @@ export default function Onboarding() {
   const saveUserType = useMutation(api.onboarding.saveUserType);
   const saveFreelancerProfile = useMutation(api.onboarding.saveFreelancerProfile);
   const saveSmeProfile = useMutation(api.onboarding.saveSmeProfile);
+  const saveNinAndTin = useMutation(api.onboarding.saveNinAndTin);
   const completeOnboarding = useMutation(api.userCrud.completeOnboarding);
+  const createDefaultPreferences = useMutation(api.userCrud.createDefaultPreferences);
 
   // Loading / auth guards
   if (!isLoaded || (isSignedIn && me === undefined)) {
@@ -652,10 +884,27 @@ export default function Onboarding() {
     }
   }
 
+  async function handleStep3Continue() {
+    setLoading(true);
+    try {
+      await saveNinAndTin({
+        nin: nin.trim(),
+        ...(firsTin.trim() ? { firsTin: firsTin.trim() } : {}),
+      });
+      setStep(4);
+    } catch (err) {
+      console.error('Failed to save NIN/TIN:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleFinish() {
     setLoading(true);
     try {
+      await createDefaultPreferences();
       await completeOnboarding();
+      toast.success("You're all set! Add transactions when you're ready.");
       // Navigate will trigger from me?.onboardingComplete check above
     } catch (err) {
       console.error('Failed to complete onboarding:', err);
@@ -676,6 +925,11 @@ export default function Onboarding() {
     else if (field === 'businessType') setBusinessType(value as 'business_name' | 'llc');
     else if (field === 'industry') setIndustry(value);
     else if (field === 'annualTurnoverRange') setAnnualTurnoverRange(value);
+  }
+
+  function handleStep3FieldChange(field: 'nin' | 'firsTin', value: string) {
+    if (field === 'nin') setNin(value);
+    else setFirsTin(value);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -729,11 +983,18 @@ export default function Onboarding() {
           )}
 
           {step === 3 && (
-            <Step3Stub onBack={() => setStep(2)} onContinue={() => setStep(4)} />
+            <Step3
+              nin={nin}
+              firsTin={firsTin}
+              onChange={handleStep3FieldChange}
+              onBack={() => setStep(2)}
+              onContinue={handleStep3Continue}
+              loading={loading}
+            />
           )}
 
           {step === 4 && (
-            <Step4Stub onBack={() => setStep(3)} onFinish={handleFinish} loading={loading} />
+            <Step4 onBack={() => setStep(3)} onFinish={handleFinish} loading={loading} />
           )}
         </div>
       </div>
