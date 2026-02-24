@@ -38,6 +38,8 @@ export default defineSchema({
     vatThresholdExceeded: v.optional(v.boolean()),
     isDefault: v.optional(v.boolean()),
     taxYearStart: v.optional(v.number()),
+    industry: v.optional(v.string()),
+    annualTurnoverRange: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
   })
     .index('by_userId', ['userId']),

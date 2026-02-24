@@ -11,6 +11,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
+import Onboarding from './pages/Onboarding';
 
 function LoadingSpinner() {
   return (
@@ -40,38 +41,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Placeholder for onboarding wizard — built in US-007 */
-function OnboardingPlaceholder() {
-  const { isSignedIn, isLoaded } = useAuth();
-  const me = useQuery(api.userCrud.getMe);
-
-  if (!isLoaded || (isSignedIn && me === undefined)) {
-    return <LoadingSpinner />;
-  }
-
-  if (!isSignedIn) {
-    return <Navigate to="/sign-in" replace />;
-  }
-
-  if (me?.onboardingComplete) {
-    return <Navigate to="/app/dashboard" replace />;
-  }
-
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <div className="text-center animate-slide-up">
-        <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <span className="text-white font-display font-bold text-xl">T</span>
-        </div>
-        <h1 className="text-heading-lg font-display text-neutral-900 mb-2">
-          Welcome to TaxEase
-        </h1>
-        <p className="text-body text-neutral-500">Onboarding wizard coming soon…</p>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   return (
     <BrowserRouter>
@@ -79,7 +48,7 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
-        <Route path="/app/onboarding" element={<OnboardingPlaceholder />} />
+        <Route path="/app/onboarding" element={<Onboarding />} />
         <Route
           path="/app"
           element={

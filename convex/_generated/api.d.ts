@@ -15,6 +15,7 @@ import type * as entityCrud from "../entityCrud.js";
 import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as mutations from "../mutations.js";
+import type * as onboarding from "../onboarding.js";
 import type * as queries from "../queries.js";
 import type * as userCrud from "../userCrud.js";
 import type * as userMutations from "../userMutations.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   http: typeof http;
   mutations: typeof mutations;
+  onboarding: typeof onboarding;
   queries: typeof queries;
   userCrud: typeof userCrud;
   userMutations: typeof userMutations;
