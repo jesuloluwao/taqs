@@ -9,6 +9,8 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as categories from "../categories.js";
+import type * as dashboard from "../dashboard.js";
 import type * as entityCrud from "../entityCrud.js";
 import type * as files from "../files.js";
 import type * as http from "../http.js";
@@ -26,6 +28,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  categories: typeof categories;
+  dashboard: typeof dashboard;
   entityCrud: typeof entityCrud;
   files: typeof files;
   http: typeof http;
