@@ -36,3 +36,17 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - Webhook handler should be in a separate file (webhooks.ts) imported by http.ts, not defined inline
   - `anyApi` in api.js handles runtime calls dynamically; only api.d.ts needs updating for TypeScript
 ---
+
+## 2026-02-24 - US-003
+- Created convex/userCrud.ts: getMe, getPreferences queries; updateProfile, updateNin (validates 11-digit NIN), completeOnboarding, uploadAvatar, createDefaultPreferences (idempotent), updatePreferences mutations; deleteAccount action (Convex data cascade via userMutations.deleteUserFromClerk + Clerk API DELETE)
+- Created convex/entityCrud.ts: list (excludes soft-deleted), get (with ownership check) queries; create (auto-sets default for first entity), update, setDefault (clears others first), remove (soft-delete via deletedAt) mutations
+- Created convex/files.ts: generateUploadUrl mutation wrapping ctx.storage.generateUploadUrl()
+- Updated convex/_generated/api.d.ts: registered entityCrud, files, userCrud modules
+- **Learnings for future iterations:**
+  - Convex actions use ctx.auth.getUserIdentity() directly (no getCurrentUser helper — that uses QueryCtx); ctx.db is not available in ActionCtx
+  - Soft-delete pattern: set deletedAt timestamp; all queries/mutations filter out entities where deletedAt is set
+  - Entity `remove` mutation can't be named `delete` (reserved JS keyword) — use `remove` instead
+  - Convex storage upload flow: client calls generateUploadUrl → uploads file → passes storageId back to a mutation
+  - deleteAccount must be an action (not mutation) because it needs to call external HTTP (Clerk API)
+  - CLERK_SECRET_KEY env var accessed via process.env in Convex actions
+---

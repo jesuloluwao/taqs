@@ -81,7 +81,7 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: See '§6.2 Users', '§6.3 Entities', '§6.6 Files' for function specs"
     },
     {
