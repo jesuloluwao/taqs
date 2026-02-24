@@ -6,13 +6,18 @@ import { Toaster } from 'sonner';
 import Landing from './pages/Landing';
 import AppShell from './components/AppShell';
 import Dashboard from './pages/Dashboard';
-import Income from './pages/Income';
-import Expenses from './pages/Expenses';
+import Transactions from './pages/Transactions';
+import Invoices from './pages/Invoices';
+import TaxSummary from './pages/TaxSummary';
+import Filing from './pages/Filing';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import HelpSupport from './pages/HelpSupport';
+import Documents from './pages/Documents';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import Onboarding from './pages/Onboarding';
+import { EntityProvider } from './contexts/EntityContext';
 
 function LoadingSpinner() {
   return (
@@ -55,16 +60,22 @@ function App() {
           path="/app"
           element={
             <AuthGate>
-              <AppShell />
+              <EntityProvider>
+                <AppShell />
+              </EntityProvider>
             </AuthGate>
           }
         >
           <Route index element={<Navigate to="/app/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="income" element={<Income />} />
-          <Route path="expenses" element={<Expenses />} />
+          <Route path="transactions" element={<Transactions />} />
+          <Route path="invoices" element={<Invoices />} />
+          <Route path="tax-summary" element={<TaxSummary />} />
+          <Route path="filing" element={<Filing />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<HelpSupport />} />
+          <Route path="documents" element={<Documents />} />
         </Route>
       </Routes>
     </BrowserRouter>
