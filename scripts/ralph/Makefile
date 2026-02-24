@@ -1,0 +1,2 @@
+all:
+	node x.js

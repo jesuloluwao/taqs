@@ -1,0 +1,452 @@
+# Ralph Progress Log
+Started: January 29, 2026
+Branch: ralph/practice-management-platform
+---
+
+## Codebase Patterns
+- Project uses Next.js 14+ with App Router, TypeScript, Tailwind CSS
+- lib/utils.ts contains cn() helper (clsx + tailwind-merge) already
+- Convex is pre-configured with convex/ folder and _generated types
+- Run `pnpm build` to verify typecheck and build
+- Add ShadCN components with `pnpm dlx shadcn@latest add <component>`
+- ShadCN uses New York style with zinc colors (see components.json)
+- Root layout uses `dynamic = 'force-dynamic'` to handle placeholder Clerk keys
+- Provider order: ClerkProvider > html > body > ConvexClientProvider > children
+- Convex auth uses ConvexProviderWithClerk from "convex/react-clerk" with useAuth from @clerk/nextjs
+- For webhooks: use public mutations (not internalMutation) when called from Next.js API routes
+- If Convex types aren't generated, use string fn reference: `convex.mutation("module:function", args)`
+- Progress component extended with indicatorClassName prop for custom colors
+- workItemSections table stores sections within work items; workItemTasks.sectionId references it via v.id("workItemSections")
+- deleteWorkItemSection takes deleteTasks flag: true = cascade delete, false = move to uncategorized
+- Automators use Convex action for runAutomator since it calls multiple mutations; actions import from api.* for internal calls
+- Schedule config uses nested v.object() for type-safe complex configurations
+- Undo pattern: sonner toast with action prop: `toast("msg", { action: { label: "Undo", onClick: fn }, duration: 5000 })`
+- Hover-reveal buttons: use `group` on parent + `opacity-0 group-hover:opacity-100` on button
+- @dnd-kit pattern: useSortable hook for items, SortableContext wrapper, DragOverlay for visual feedback
+- View toggle pattern: use ToggleGroup with Tooltip wrapped in TooltipProvider; store viewType in useState
+- Kanban board: closestCorners collision detection; useDroppable for columns; status columns array of objects
+- Saved views: context field filters views per module (e.g., "work"); ViewConfig stores viewType, filters, sortColumn, sortDirection
+- Hover buttons in dropdown: use stopPropagation to prevent item click; use `opacity-0 group-hover:opacity-100`
+- Bulk operations pattern: Selection as Set<string>, bulk mutations return {successCount, failureCount, errors}
+- Radix Checkbox indeterminate: use `checked="indeterminate"` (string value), not separate prop
+- Column customization: Use ContextMenu on TableHead for right-click "Hide Column", absolute-positioned resize handle with mouse events
+- Inline editing pattern: Use local state (editingField, editValue), useRef for auto-focus, onBlur for auto-save, savedField state with setTimeout for success animation
+- Queue architecture: queues.organizationId links to organizations table; connectedInboxes.queueId links to queues; every inbox feeds exactly one queue
+- Queue membership roles: 'member' can view/work tickets, 'manager' can edit queue settings; at least one manager required per queue
+- Category hierarchy: ticketCategories.parentId creates 2-level structure; create mutation enforces max depth
+- URL-based filtering: use useSearchParams/useRouter for filter state in URL; sync with useState for UI; enables bookmarking/sharing
+- Collapsible sections: ShadCN Collapsible with ChevronRight icon (rotate-90 when open); persist state in localStorage
+- Template schedule types: ScheduleConfig (from template-schedule-settings) has frequency/daySpecification/dueDateOffsetDays/leadTimeDays; AutomatorScheduleConfig is different (dayOfMonth/months/etc.)
+- Type aliasing for conflicts: Use `import type { X as Y } from "..."` when local type names collide with imports
+- Actions calling internal functions: Move internal queries/mutations to separate file (e.g., webhooksInternal.ts) to avoid circular reference errors; reference via internal.moduleName.*
+- Explicit return types on action handlers: Add Promise<ReturnType> annotation to break TypeScript circular inference chains
+- External API middleware: /api/v1/* uses API key auth (lib/api/auth.ts); use lib/api/response.ts helpers for standardized responses
+- Rate limiting: @upstash/ratelimit with in-memory fallback for dev; rate limit by API key prefix (first 16 chars)
+- API responses: Use successResponse(), errorResponse(), listResponse() from lib/api/response.ts; all include meta with requestId and timestamp
+- ClientLink component: Use `<ClientLink clientId={x} clientName={y} />` for clickable client names; navigates to /contacts/organizations/{clientId}; handles missing data gracefully
+- Custom field editing: workItems don't have tenantId - access control via Clerk auth is sufficient; use Popover+Calendar for date pickers
+- Status field values: Can be string (stageId) or object ({ stageId, changedAt }) - handle both formats in display and edit
+- Contextual search pattern: Pass searchResults and isSearchActive props to list components to override normal data fetching
+- Convex search indexes: Use .searchIndex() with searchField and filterFields for full-text search
+- Search relevance scoring: exact match (100) > starts-with (90) > contains (80) + recency boost (30 - days since update)
+- Search debounce: Use useRef for timer, 300ms delay for list search, 200ms for in-document search
+- Multi-client time tracking (CHANGE-035): workItem.clientIds is the array, clientNames provides enriched {id, name} for display; use createMultiClientTimeEntries mutation with allocationType "split" | "full"; TimeAllocationDialog handles UI; multiClientTimeTrackingMode setting stored as "split_equally" | "full_to_each" | "ask_each_time"
+- Tiptap rich text editor: Use named imports (not default); TextStyle and Color are in @tiptap/extension-text-style; sync editor content with useEffect when props change
+- Tiptap mention badges: Use @tiptap/extension-mention with suggestion config; MentionList component renders popup; mention-suggestion.tsx creates config factory; CSS in globals.css @layer components for .mention-badge styling
+- Tiptap editor in ticket replies: EditorContent replaces Textarea; toolbar uses editor.chain().focus().toggleX().run(); drafts save/restore HTML; mention IDs extracted from editor.getJSON() tree walk
+- Calendar sync: actions scheduled via `ctx.scheduler.runAfter(0, internal.calendarSync.syncCalendar, args)`; sync uses internalQuery/internalMutation for action-to-DB communication; syncToken stored on connectedCalendars for incremental sync
+- Personal email queues: queues with `isPersonal: true` and `ownerUserId` are personal; connectedInboxes also has these fields; personal queue tickets filtered by ownerUserId in queries; sidebar shows Personal section via `queues.getPersonalQueues`
+- Convex cron jobs: Use `cronJobs()` from "convex/server" in convex/crons.ts; `crons.interval("name", { minutes: N }, internal.module.fn)` for recurring; export default crons
+- Webhook fallback tracking: connectedInboxes has webhookFallbackAt, lastReregistrationAttemptAt, reregistrationAttempts, persistentAlertSentAt fields for polling fallback state
+- Webhook failure logging: webhookFailureLogs table stores all failures with inboxId, subscriptionId, error, attemptNumber, context for debugging
+- EML generation: generateEmlContent() in convex/tickets.ts generates RFC 822 compliant .eml files; generateEmlForMessage action provides standalone EML generation for any message by ID
+- Node.js actions: Convex actions using Node packages (resend, etc.) MUST be in a separate file with `"use node"` directive; use `internalAction` for scheduler-only functions; reference via `internal.moduleName.fnName`
+- Email notifications: Resend provider in convex/notificationEmails.ts; env vars: RESEND_API_KEY, NOTIFICATION_FROM_EMAIL, NEXT_PUBLIC_APP_URL; preferences checked via internalQuery from notifications.ts
+- Push notifications: web-push in convex/pushNotifications.ts; env vars: NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT; service worker at public/sw.js; hook at hooks/use-push-notifications.ts; triggered via ctx.scheduler.runAfter(0, ...) from notification mutations
+- Ticket sidebar: Use usePermissions() hook to check isAdmin; use useRouter() for navigation to `/settings/views`; share icons for shared views use Share2 from lucide-react
+- Settings pages: Use PermissionPageGate for access control; full-height flex container with fixed header and scrollable content; Table component from ui/table for data display
+- Admin pages pattern: Create layout in app/(dashboard)/settings/[feature]/page.tsx with PermissionPageGate wrapping content
+
+---
+
+## Feb 7, 2026 - US-509: Consolidated views sidebar with Manage Views button
+- Added Manage Views gear icon button to Views section header (admin-only)
+- Icon navigates to /settings/views using useRouter()
+- Added usePermissions hook to check isAdmin status
+- Updated shared view icon from Users to Share2 (more semantic)
+- Added Settings and Share2 icons to imports
+- All acceptance criteria met: Views/Personal/Queues sections with proper hierarchy, localStorage persistence, admin-only gear button, lock icons on system views, share icons on shared views
+- Files changed: components/tickets/views-sidebar.tsx
+- **Learnings for future iterations:**
+  - usePermissions() hook returns { isAdmin } - use this for admin-only UI features
+  - Always use e.stopPropagation() when adding buttons within clickable parents to prevent unintended navigation
+  - Share2 icon is more appropriate than Users for "shared" concept in the UI
+
+---
+
+## Feb 7, 2026 - US-510a: Views Management page with System Views section
+- Created /settings/views admin page for managing system and shared views
+- Added "Views" link to Settings sidebar navigation (Tickets section) with LayoutGrid icon
+- Implemented System Views table showing: drag handle, name, description, Modified badge (if customized), Edit and Reset buttons
+- Included 5 system views: All Tickets, My Tickets, Unassigned, New, Pending
+- Added PermissionPageGate with manage_settings permission for access control
+- Non-admins attempting to access are blocked by permission gate
+- Files changed: app/(dashboard)/settings/page.tsx, app/(dashboard)/settings/views/page.tsx (new)
+- **Learnings for future iterations:**
+  - PermissionPageGate pattern for admin-only pages
+  - Settings pages use full-height flex layout with fixed header
+  - Table component from @/components/ui/table for structured data display
+  - System view hardcoded list matches sidebar definitions
+- Added Manage Views gear icon button to Views section header (admin-only)
+- Icon navigates to /settings/views using useRouter()
+- Added usePermissions hook to check isAdmin status
+- Updated shared view icon from Users to Share2 (more semantic)
+- Added Settings and Share2 icons to imports
+- All acceptance criteria met: Views/Personal/Queues sections with proper hierarchy, localStorage persistence, admin-only gear button, lock icons on system views, share icons on shared views
+- Files changed: components/tickets/views-sidebar.tsx
+- **Learnings for future iterations:**
+  - usePermissions() hook returns { isAdmin } - use this for admin-only UI features
+  - Always use e.stopPropagation() when adding buttons within clickable parents to prevent unintended navigation
+  - Share2 icon is more appropriate than Users for "shared" concept in the UI
+---
+
+
+## Feb 7, 2026 - US-510b: System View edit dialog
+- Implemented system view edit dialog with 4 tabs: Filters, Columns, Sort, Grouping
+- Added warning banner indicating changes affect all users
+- Reused filter builder logic from create-view-dialog with all filter field types and operators
+- Implemented Columns tab with show/hide toggles and drag-to-reorder using dnd-kit
+- Implemented Sort tab with sortBy field and sort order selection
+- Implemented Grouping tab with group by field selection
+- Added Reset to Default button with confirmation dialog showing system view defaults
+- Created ensureSystemViewsExist mutation to initialize system views in database on first access
+- Created resetSystemViewToDefault mutation to reset views to default configuration
+- Updated Views Management page to:
+  - Call ensureSystemViewsExist on mount
+  - Make Edit button open dialog with view data
+  - Make Reset button (on customized views) trigger direct reset with confirmation
+  - Handle both edit and reset flows
+- Files changed: components/tickets/system-view-edit-dialog.tsx (new), app/(dashboard)/settings/views/page.tsx, convex/views.ts
+- **Learnings for future iterations:**
+  - dnd-kit setup requires sensors (PointerSensor, KeyboardSensor) and closestCenter collision detection
+  - DndContext wraps SortableContext which wraps individual sortable items
+  - useSortable hook provides attributes, listeners, transform for each item
+  - CSV.Transform.toString(transform) applies drag transform to element
+  - System views need to be initialized in database; use mutation to check and create if needed
+  - Convex mutations can be called from useEffect via useMutation hook
+  - Confirmation dialogs on Reset prevent accidental changes affecting all users
+---
+
+## Feb 7, 2026 - US-510c: Shared Views section with CRUD and reordering
+- Extended ticketViews schema with sharing fields: createdBy, sharedWithEveryone, sharedWithUserIds, sharedWithTeamIds
+- Added backend mutations: listSharedViews, createSharedView, duplicateSharedView, deleteSharedView, updateSharedViewSharing, reorderViews
+- Created shared-view-edit-dialog component with Filters, Sort, and Sharing tabs
+- Updated Views Management page with Shared Views section below System Views
+- Implemented drag-and-drop reordering for both System Views and Shared Views using @dnd-kit
+- Reordering saves automatically with toast notification "View order updated"
+- Added Create Shared View button and action menu with Duplicate/Delete options
+- Sharing options: Everyone (radio), Specific Teams (placeholder), Specific Users (multi-select)
+- Delete confirmation shows: "Delete this view? Users who have it favorited will lose access."
+- Duplicate creates copy with "(Copy)" suffix and opens in edit mode
+- Empty state: "No shared views yet. Create a shared view to make filtered views available to your team members."
+- Displayed "Shared With" column showing sharing configuration
+- Displayed "Created By" and "Created Date" columns with relative time formatting
+- Files changed: convex/schema.ts, convex/views.ts, app/(dashboard)/settings/views/page.tsx, components/tickets/shared-view-edit-dialog.tsx (new)
+- **Learnings for future iterations:**
+  - Drag-and-drop within separate sections using section prefix in IDs (e.g., "system-${viewId}", "shared-${viewId}")
+  - Need to track activeDragSection to prevent dragging across sections (closestCorners allows any drop target)
+  - Use local state (localSystemViews, localSharedViews) for immediate visual feedback, revert on error
+  - Sharing configuration stored as separate boolean/array fields in schema for simplicity
+  - formatDistanceToNow from date-fns provides user-friendly relative timestamps
+  - DropdownMenu component used for action menus (Duplicate, Delete) with icon buttons
+  - Empty state for table uses colSpan to span all columns
+  - Input value prop requires String() conversion for unknown types to satisfy TypeScript
+---
+
+## Feb 7, 2026 - US-511a: Multi-select hover checkboxes and select mode
+- Implemented multi-select functionality with hover checkboxes and select mode
+- Added state tracking: isSelectMode, hoveredRowId, lastClickedTicketId
+- Checkboxes hidden by default, appear on hover or in select mode
+- First checkbox click enters select mode with smooth animation
+- Generous hover area on entire checkbox cell for easy activation
+- In select mode, all checkboxes become visible with visual feedback
+- Single click toggles individual ticket selection in select mode
+- Shift+click selects range between last clicked and current (inclusive, bidirectional)
+- Header checkbox appears with animation when entering select mode
+- Select all respects current filters (only selects visible tickets)
+- Exit select mode when clearing selection or changing views/pages
+- Updated handleSelectTicket to accept shiftKey parameter for range selection
+- Updated handleSelectAll to enter select mode on first use
+- Updated handleClearSelection to exit select mode
+- Added transition classes to TableRow for smooth select mode entry
+- Files changed: components/tickets/ticket-list-table.tsx
+- **Learnings for future iterations:**
+  - Checkbox visibility controlled with opacity and scale transitions for smooth UX
+  - pointer-events-none on checkbox when using cell-level onClick to prevent double-handling
+  - Track hoveredRowId separately from hoveredTicketId (used for quick actions) for better state management
+  - Shift+click range selection uses findIndex on tickets array to calculate range
+  - Math.min/Math.max ensures range works in both directions (up or down)
+  - Exit select mode on view/page changes to reset state cleanly
+  - Generous hover area = entire cell is clickable, not just the checkbox itself
+---
+
+## Feb 7, 2026 - US-511b: Bulk actions bar and selection clearing
+- Implemented bulk actions bar that slides up from bottom when entering select mode
+- Bar shows selection count: 'X ticket(s) selected' with proper pluralization
+- Added 'Clear selection' button with X icon in bulk actions bar
+- Implemented Escape key handler to clear selection and exit select mode
+- Added click-outside handler with proper boundaries:
+  - Clicking in header, sidebar, or preview pane clears selection
+  - Clicking in filter bar, dropdowns, or dialogs does NOT clear selection
+- Added loading states during bulk operations: spinner and "Processing..." text
+- All action buttons disabled during bulk operations to prevent concurrent mutations
+- Selection clears when changing view (already implemented in US-511a)
+- Fixed pre-existing nested button hydration error in views sidebar (Settings button was inside CollapsibleTrigger button)
+- Files changed: components/tickets/bulk-actions-bar.tsx, components/tickets/ticket-list-table.tsx, components/tickets/views-sidebar.tsx
+- **Learnings for future iterations:**
+  - Fixed positioning with slide-in-from-bottom animation creates smooth UX for action bars
+  - Click-outside handlers need careful boundary detection - use closest() to check for UI elements that shouldn't trigger clearing
+  - Nested buttons cause hydration errors - restructure to have siblings in flex container instead
+  - Loading state should disable all interactive elements to prevent race conditions
+  - Use tableContainerRef to detect clicks inside/outside the table area
+---
+
+
+## Feb 7, 2026 - US-512: Multi-select in preview view (Outlook-style)
+- Implemented multi-select functionality for preview mode (card list view)
+- Added state management: selectedTickets (Set), lastClickedTicketId for range selection tracking
+- Cmd/Ctrl+click toggles individual ticket selection (cross-platform detection)
+- Shift+click selects range from last clicked to current (bidirectional, uses Math.min/max)
+- Single click without modifiers selects one ticket and clears multi-selection
+- Visual selection indicator: primary/10 background + primary left border on selected cards
+- Preview pane shows "X tickets selected" message when multi-selection is active
+- Escape key clears selection (keyboard shortcut)
+- Selection automatically clears when changing views
+- Integrated BulkActionsBar component at bottom of card list
+- Loading states during bulk operations: spinner overlay on affected card avatars, "Processing..." text in bar
+- Added onProcessingChange callback to BulkActionsBar to track processing state
+- Multi-select state reported to parent via onMultiSelectChange callback
+- Files changed: app/(dashboard)/tickets/page.tsx, components/tickets/ticket-card-list.tsx, components/tickets/bulk-actions-bar.tsx
+- **Learnings for future iterations:**
+  - Platform detection for Cmd/Ctrl: use navigator.platform.toUpperCase().indexOf("MAC") >= 0
+  - Range selection with Shift: findIndex on array, then slice(Math.min(start, end), Math.max(start, end) + 1)
+  - Pass React.MouseEvent through onClick handlers to access metaKey/ctrlKey/shiftKey
+  - Loading spinner overlay pattern: absolute positioned div over avatar with bg-background/80 and Loader2 icon
+  - BulkActionsBar already has isProcessing state - just need to expose via callback
+  - Multi-select state in card list doesn't interfere with single selection in preview pane (separate state)
+  - Preview pane placeholder shows when selectedTickets.size > 0, takes priority over single selection
+---
+
+## Feb 7, 2026 - US-513a: Archive ticket backend (schema and mutations)
+- Added archivedBy field to tickets schema to track who archived the ticket
+- Added index on tenantId and isArchived for efficient filtering
+- Updated archiveTicket mutation to set archivedBy field
+- Updated unarchiveTicket mutation to clear archivedBy field
+- Updated bulkArchiveTickets mutation to set archivedBy field
+- Created bulkRestoreTickets mutation for bulk unarchiving tickets
+- Added archivedOnly filter parameter to listTickets query
+- Archive filtering logic: archivedOnly shows only archived, includeArchived shows all, default excludes archived
+- Archive operations do NOT change ticket status or send notifications
+- Files changed: convex/schema.ts, convex/tickets.ts
+- **Learnings for future iterations:**
+  - Archive mutations already existed but lacked archivedBy tracking
+  - Restore is synonym for unarchive in this codebase
+  - Archive filtering has three modes: archivedOnly (only archived), includeArchived (all), default (exclude archived)
+  - Timeline events are recorded for archive/unarchive actions
+  - Bulk operations follow pattern: iterate tickets, skip if already in target state, count as success
+  - Bulk operations return {successCount, failureCount, errors[]} for granular feedback
+---
+
+## Feb 7, 2026 - US-513b: Archive ticket UI (hover action, undo, bulk)
+- Added archive icon button to QuickActions component in ticket-list-table (hover reveal on last column)
+- Added archive icon button to TicketCard component in ticket-card-list (hover reveal, appears next to assign button)
+- Implemented handleArchive with archiveTicket and unarchiveTicket mutations
+- Toast notification includes Undo action button with 5 second duration
+- Undo restores ticket immediately by calling unarchiveTicket mutation
+- Bulk archive functionality already existed in BulkActionsBar, added undo support
+- Bulk archive shows confirmation: 'Archive X tickets?'
+- After successful bulk archive, toast includes Undo button calling bulkRestoreTickets
+- Added keyboard shortcut 'E' for archiving: works on hovered ticket OR selected tickets
+- Error handling: permission errors, network errors with retry button, user-friendly messages
+- Archive icon uses ArchiveIcon from lucide-react for clear recognition
+- All acceptance criteria met: hover actions, single-click archive, undo with 5s timeout, bulk with confirmation, keyboard shortcut 'E', error handling
+- Files changed: components/tickets/ticket-list-table.tsx, components/tickets/ticket-card-list.tsx, components/tickets/bulk-actions-bar.tsx
+- Typecheck passes
+- **Learnings for future iterations:**
+  - Undo pattern: sonner toast with action prop { label: "Undo", onClick: fn }, duration controls toast visibility and undo availability
+  - Hover-reveal buttons: use group on parent + opacity-0 group-hover:opacity-100 on button for smooth reveal
+  - Keyboard shortcuts: check for modifiers (ctrl/meta/alt) and avoid input/textarea/contentEditable elements
+  - Multi-select keyboard actions: use Array.from(selectedSet) as Id<"type">[] to iterate and execute
+  - Error handling: check error.message.includes() for specific error types (permission, network)
+  - Bulk operations with undo: capture ticketIds before clearing selection, pass to restore mutation in undo handler
+  - useEffect dependency ordering: define callbacks with useCallback before useEffect that depends on them
+  - Toast action buttons automatically disappear after duration, toast remains visible but action disabled
+---
+
+## Feb 7, 2026 - US-514: View and restore archived tickets
+- Implemented show archived toggle in filter panel with Switch component
+- Added archivedOnly filter parameter to listTicketsForSystemView query
+- Made archived tickets visually distinct with 60% opacity + "Archived" badge
+- Added restore action button in quick actions (replaces archive when ticket is archived)
+- Implemented single restore handler with success toast
+- Added bulk restore button in bulk actions bar
+- Implemented bulk restore with confirmation dialog and success/error handling
+- Displayed archive date in ticket detail header badge
+- Files changed: 
+  - convex/tickets.ts (added archivedOnly param)
+  - app/(dashboard)/tickets/page.tsx (added toggle and state)
+  - components/tickets/ticket-list-table.tsx (visual styling, restore button)
+  - components/tickets/ticket-card-list.tsx (visual styling, restore button)
+  - components/tickets/bulk-actions-bar.tsx (restore operation)
+  - components/tickets/ticket-detail-header.tsx (archive date display)
+- **Learnings for future iterations:**
+  - Archive/restore pattern: conditional button based on isArchived state
+  - Restore operations don't need undo (can just re-archive)
+  - archivedOnly filter shows only archived, different from includeArchived
+  - Archive date already exists in schema as archivedAt (number timestamp)
+  - Quick actions button icons can be conditional with ternary in JSX
+  - Bulk operations need confirmation messages and success toasts per type
+---
+
+## Feb 7, 2026 - US-515: Fixed submit button in preview mode
+- Changed submit button positioning in preview mode from relative to fixed at bottom-right
+- Added absolute positioning container with z-index 10 to overlay reply editor
+- Submit button appears at bottom-right of preview pane viewport (not document)
+- Added shadow-lg to submit button and shadow-md to advance checkbox for visual separation
+- Button stays visible when scrolling conversation
+- Reply editor has full available height (button doesn't push it up)
+- Advance checkbox appears next to submit button in fixed position
+- Wrapped button and checkbox in pointer-events-none container with pointer-events-auto on interactive elements
+- Used absolute positioning relative to parent with relative class
+- Files changed: components/tickets/ticket-preview-pane.tsx, components/tickets/ticket-reply-editor.tsx
+- **Learnings for future iterations:**
+  - Fixed positioning in preview mode requires absolute + z-index approach since parent is scrollable
+  - pointer-events-none on container with pointer-events-auto on children allows overlaying without blocking content
+  - Shadow effects improve visual hierarchy for overlaid elements
+  - Preview mode and full-screen mode require different layout approaches due to different container contexts
+  - Relative positioning on parent container enables absolute positioning of fixed overlay elements
+---
+
+## Feb 7, 2026 - US-516: One-click status submit with split button
+- Implemented split button design for submit button (main button + dropdown arrow)
+- Main button submits with current/default status stored in selectedStatus state
+- Dropdown shows all valid status options: Open, Pending, On Hold, Solved
+- Each dropdown option is an ACTION that calls handleSubmit(statusValue) immediately
+- Added status color indicators to dropdown options using circular badges:
+  - Open: Blue (bg-blue-500)
+  - Pending: Amber (bg-amber-500)
+  - On Hold: Orange (bg-orange-500)
+  - Solved: Emerald/Green (bg-emerald-500)
+- Added sendingStatus state to track which dropdown option is submitting
+- Loading state: spinner appears next to the clicked dropdown option during submission
+- Error handling: errors keep dropdown open and show error message (re-throw in handleSubmit)
+- Success: closes dropdown automatically and shows toast notification
+- Updated handleSubmit to accept optional statusOverride parameter
+- Wrapped all onClick handlers with arrow functions to satisfy TypeScript
+- Implemented in both preview mode and full-screen mode submit buttons
+- Keyboard navigation works via Radix UI defaults (Enter submits, arrow keys navigate)
+- Files changed: components/tickets/ticket-reply-editor.tsx
+- **Learnings for future iterations:**
+  - Split button pattern: separate main action from dropdown trigger, both share Button styling
+  - Dropdown actions: use async onClick with try/catch, re-throw errors to keep dropdown open on failure
+  - Per-item loading state: track which item is processing (sendingStatus) to show spinner on correct option
+  - Status colors should match existing badge colors for consistency (check shared/status-badge.tsx)
+  - Radix DropdownMenuItem already handles keyboard navigation (arrow keys, Enter)
+  - TypeScript: handlers that accept parameters need arrow function wrappers in onClick
+---
+
+## Feb 7, 2026 - US-517a: Hierarchical assignment dropdown structure
+- Implemented hierarchical assignment dropdown with teams and users
+- Created listUsersWithTeams query in convex/users.ts returning users, teams, and memberships
+- Replaced AssigneeCombobox with hierarchical tree structure
+- Teams show with ChevronRight icon that rotates when expanded
+- Teams display member count in format "Team Name (3)"
+- Click chevron to toggle expand/collapse, click team name to assign to team
+- Users shown with avatar and name under their team when expanded
+- Users without team membership shown in "No Team" section at bottom
+- Current assignee/team shown with checkmark indicator
+- "Unassign" option clears assigneeId, teamId, and groupId
+- Assignment mutations clear conflicting fields (e.g., clear teamId when assigning to user)
+- Expanded teams tracked in local state with Set<string>
+- Wider popover (w-80 instead of w-64) to accommodate hierarchy
+- Files changed: convex/users.ts, components/tickets/ticket-properties-panel.tsx
+- **Learnings for future iterations:**
+  - Team memberships stored in separate teamMemberships table with teamId and userId
+  - Teams can have multiple members, users can belong to multiple teams
+  - Tickets support teamId field (CHANGE-031) alongside legacy groupId
+  - Build team-user maps client-side from memberships array for efficient lookups
+  - Chevron toggle requires stopPropagation to prevent parent CommandItem click
+  - Wrap chevron in button with hover styling for clear clickable area
+  - Assignment should clear conflicting fields (teamId/groupId/assigneeId mutually exclusive in practice)
+  - listUsersWithTeams query filters by active status for users and teams
+---
+
+## Feb 7, 2026 - US-517b: Hierarchical assignment search and keyboard navigation
+- Implemented enhanced search that filters both team names AND user names (including users within collapsed teams)
+- Added keyboard navigation: Arrow Up/Down navigates between items, Arrow Right expands collapsed team, Arrow Left collapses expanded team, Enter selects, Escape closes
+- Added visual highlight (bg-accent) for currently keyboard-focused item
+- Implemented team expansion state logic: teams start collapsed, currently assigned team starts expanded, expansion state does NOT persist across sessions
+- Added search match highlighting using yellow background for matched text
+- Built flat navItems array for efficient keyboard navigation indexing
+- Enhanced search logic: teams shown if name matches OR any member matches search query
+- Files changed: components/tickets/ticket-properties-panel.tsx
+- **Learnings for future iterations:**
+  - Keyboard navigation requires flat list (navItems array) to track focus index across hierarchical structure
+  - onKeyDown handler should be on PopoverContent, not individual items, to capture all key events
+  - Visual highlight uses focusedIndex === itemIndex comparison with bg-accent class
+  - Search highlighting pattern: split string by match, wrap match in span with bg-yellow-200
+  - Team expansion state should be reset on dropdown open/close (useEffect with open dependency)
+  - Currently assigned team should start expanded for better UX (initialize expandedTeams with currentTeamId)
+  - Enhanced search: filter teams if team name matches OR any member name/email matches
+  - Filter team members by search even when team is expanded to hide non-matching members
+---
+
+## Feb 7, 2026 - US-518a: Attach message dialog search and results
+- Removed tabs interface (Current Ticket / Search) - now search-only
+- Created searchMessagesByRequester backend query filtering messages by requester email (sender or recipient)
+- Pre-populated search field with requester email on dialog open
+- Added "Messages with {requester name/email}" label below search when showing requester results
+- Debounced search by 300ms, triggers immediately on Enter key
+- Clear button (X) appears when search has text, clicking triggers immediate search clear
+- Loading states: Loader2 spinner in search input, skeleton loaders for results
+- Results show: subject, sender, date, snippet, ticket context ("From ticket: {subject}")
+- Pagination with ChevronLeft/ChevronRight buttons when results exceed page size
+- Added requesterName optional prop to TicketReplyEditor and passed through to AttachMessageDialog
+- Updated all 4 call sites: ticket-preview-pane, ticket-tab-content, full page view, and dialog itself
+- Removed unused filters (date, client, direction) and tab navigation
+- Files changed: convex/tickets.ts, components/tickets/attach-message-dialog.tsx, components/tickets/ticket-reply-editor.tsx, components/tickets/ticket-preview-pane.tsx, components/tickets/ticket-tab-content.tsx, app/(dashboard)/tickets/[ticketId]/page.tsx
+- **Learnings for future iterations:**
+  - Pre-population pattern: useEffect with open dependency to set initial search on dialog open
+  - Debounce with immediate trigger for specific value: check if value matches special case (requesterEmail) and use delay = 0
+  - Search query design: base query filters by requester, additional searchQuery parameter narrows results further
+  - Loading indicator placement: absolute positioned spinner in input field (right side) shows during query execution
+  - Dialog simplification: removed complex tab/filter UI in favor of focused search-only interface
+  - Prop threading: new display props (requesterName) need to be added to all call sites for consistency
+---
+
+## Feb 7, 2026 - US-518b: Attach message selection, filters, and empty state
+- Implemented advanced filtering in attach message dialog
+- Added filter UI with toggle button: direction (inbound/outbound/all), date range (from/to with calendar pickers), client (dropdown)
+- Filter panel shows "Clear all" button to reset filters
+- Updated backend query searchMessagesByRequester to support filter parameters
+- Direction filter applied in memory
+- Date range filter includes end-of-day handling for dateTo parameter
+- Client filter queries ticket.clientId for each message
+- Enhanced empty state with proper UX:
+  - Search icon in circular background
+  - Clear message: "No messages found matching your search"
+  - Suggestion: "Try adjusting your filters or search terms"
+  - "Clear search" button to reset everything
+- Updated selection count format: "X messages selected (max 10)" with proper pluralization
+- "No messages selected" shown when count is zero
+- "Selection limit reached" badge shown when at max
+- Clear search handler now resets to requester email (not blank)
+- Files changed: convex/tickets.ts, components/tickets/attach-message-dialog.tsx
+- **Learnings for future iterations:**
+  - Advanced filters pattern: collapsible panel with toggle button, visual indicator (bg-accent) when active
+  - Date range filtering: use getTime() for timestamps, add one day minus 1ms to dateTo for end-of-day
+  - Filter state should reset on "Clear all" but search should reset to initial value (requester email)
+  - Calendar disabled prop can use function to disable dates before dateFrom
+  - Empty states should provide actionable next steps (Clear search button)
+  - Selection count format should be specific and include limits in parentheses
+---

@@ -13,25 +13,6 @@ export const getMyUser = query({
 });
 
 /**
- * Get the user's profile.
- */
-export const getMyProfile = query({
-  handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
-    if (!user) {
-      return null;
-    }
-
-    const profile = await ctx.db
-      .query('profiles')
-      .withIndex('by_user_id', (q) => q.eq('userId', user._id))
-      .first();
-
-    return profile;
-  },
-});
-
-/**
  * Get dashboard summary (monthly and YTD totals).
  */
 export const getDashboardSummary = query({
@@ -124,4 +105,3 @@ export const listTransactions = query({
     return transactions;
   },
 });
-

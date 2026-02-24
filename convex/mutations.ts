@@ -3,14 +3,18 @@ import { getOrCreateCurrentUser } from './auth';
 import { v } from 'convex/values';
 
 /**
- * Upsert user profile.
+ * Update user profile fields (previously upsertProfile on the profiles table).
  */
-export const upsertProfile = mutation({
+export const updateUser = mutation({
   args: {
-    userType: v.union(v.literal('freelancer'), v.literal('business'), v.literal('mixed')),
-    businessName: v.optional(v.string()),
-    tin: v.optional(v.string()),
-    currency: v.optional(v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))),
+    fullName: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    userType: v.optional(v.union(v.literal('freelancer'), v.literal('sme'))),
+    profession: v.optional(v.string()),
+    preferredCurrency: v.optional(
+      v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))
+    ),
+    onboardingComplete: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await getOrCreateCurrentUser(ctx);
@@ -18,30 +22,12 @@ export const upsertProfile = mutation({
       throw new Error('Not authenticated');
     }
 
-    const existing = await ctx.db
-      .query('profiles')
-      .withIndex('by_user_id', (q) => q.eq('userId', user._id))
-      .first();
+    await ctx.db.patch(user._id, {
+      ...args,
+      updatedAt: Date.now(),
+    });
 
-    const now = Date.now();
-    const data = {
-      userId: user._id,
-      userType: args.userType,
-      businessName: args.businessName,
-      tin: args.tin,
-      currency: args.currency || 'NGN',
-      updatedAt: now,
-    };
-
-    if (existing) {
-      await ctx.db.patch(existing._id, data);
-      return existing._id;
-    } else {
-      return await ctx.db.insert('profiles', {
-        ...data,
-        createdAt: now,
-      });
-    }
+    return user._id;
   },
 });
 
@@ -101,4 +87,3 @@ export const deleteTransaction = mutation({
     await ctx.db.delete(args.id);
   },
 });
-

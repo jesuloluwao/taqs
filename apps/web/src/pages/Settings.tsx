@@ -3,30 +3,27 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 
 export default function Settings() {
-  const profile = useQuery(api.queries.getMyProfile);
-  const upsertProfile = useMutation(api.mutations.upsertProfile);
+  const user = useQuery(api.queries.getMyUser);
+  const updateUser = useMutation(api.mutations.updateUser);
 
-  const [userType, setUserType] = useState<'freelancer' | 'business' | 'mixed'>('freelancer');
-  const [businessName, setBusinessName] = useState('');
-  const [tin, setTin] = useState('');
+  const [userType, setUserType] = useState<'freelancer' | 'sme'>('freelancer');
+  const [profession, setProfession] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (profile) {
-      setUserType(profile.userType);
-      setBusinessName(profile.businessName || '');
-      setTin(profile.tin || '');
+    if (user) {
+      setUserType(user.userType ?? 'freelancer');
+      setProfession(user.profession ?? '');
     }
-  }, [profile]);
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await upsertProfile({
+      await updateUser({
         userType,
-        businessName: businessName || undefined,
-        tin: tin || undefined,
+        profession: profession || undefined,
       });
       alert('Profile saved successfully!');
     } catch (error) {
@@ -51,39 +48,25 @@ export default function Settings() {
             </label>
             <select
               value={userType}
-              onChange={(e) => setUserType(e.target.value as any)}
+              onChange={(e) => setUserType(e.target.value as 'freelancer' | 'sme')}
               className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none"
               required
             >
               <option value="freelancer">Freelancer</option>
-              <option value="business">Business Owner</option>
-              <option value="mixed">Mixed Income</option>
+              <option value="sme">SME / Business Owner</option>
             </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Business Name (optional)
+              Profession (optional)
             </label>
             <input
               type="text"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
+              value={profession}
+              onChange={(e) => setProfession(e.target.value)}
               className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none placeholder:text-gray-400"
-              placeholder="Enter your business name"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              TIN (Tax Identification Number) (optional)
-            </label>
-            <input
-              type="text"
-              value={tin}
-              onChange={(e) => setTin(e.target.value)}
-              className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none placeholder:text-gray-400"
-              placeholder="Enter your TIN"
+              placeholder="e.g. Software Engineer, Consultant"
             />
           </div>
 
@@ -101,4 +84,3 @@ export default function Settings() {
     </div>
   );
 }
-
