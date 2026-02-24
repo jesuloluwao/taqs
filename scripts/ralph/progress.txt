@@ -50,3 +50,14 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - deleteAccount must be an action (not mutation) because it needs to call external HTTP (Clerk API)
   - CLERK_SECRET_KEY env var accessed via process.env in Convex actions
 ---
+
+## 2026-02-24 - US-004
+- Created convex/categories.ts: `seed` mutation (idempotent — skips existing by name+type) seeding 18 system categories; `listAll` query returning system + user-created categories
+- Created convex/dashboard.ts: `getSummary` query stub returning empty/placeholder summary for an entity (verifies entity ownership, returns zeroed aggregates)
+- Updated convex/_generated/api.d.ts: registered categories and dashboard modules
+- **Learnings for future iterations:**
+  - Unused imports (e.g. `v` from 'convex/values') cause TS6133 errors — remove if not used in the file
+  - Idempotent seed pattern: query by index + filter before inserting; skip if found
+  - System categories have no userId (undefined); user categories use `by_userId` index
+  - Dashboard stub returns zero values — will aggregate transactions in a future story
+---

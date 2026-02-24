@@ -100,7 +100,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: See '§7.2 Categories Seed Data' for full category list and '§6.7 Dashboard' for stub queries"
     },
     {
