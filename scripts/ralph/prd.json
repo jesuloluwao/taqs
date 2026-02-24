@@ -137,7 +137,7 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: US-001/US-002/US-003/US-005/US-007 — See '§4.3 Screen Layouts' for Welcome, Sign Up, Log In layouts"
     },
     {

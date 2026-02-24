@@ -78,3 +78,17 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - Install shadcn deps at workspace level: `npm install --workspace=apps/web clsx tailwind-merge class-variance-authority`
   - Path alias `@` must be added to both vite.config.ts (resolve.alias) AND tsconfig.json (paths) to work for both runtime and typechecking
 ---
+
+## 2026-02-24 - US-006
+- Replaced Landing.tsx with polished Welcome screen: hero illustration, headline 'Tax compliance, made simple for Nigerians', subline, 'Get Started' CTA → /sign-up, 'I already have an account' link → /sign-in
+- Added redirect logic to Landing: authenticated + onboarding complete → /app/dashboard, authenticated + incomplete → /app/onboarding
+- Restyled SignInPage.tsx: custom branded layout (logo, heading), Clerk <SignIn> with appearance API matching design system (primary #1A7F5E, DM Sans font, custom element classes)
+- Restyled SignUpPage.tsx: same approach as SignIn; includes Terms/Privacy footer, 'Already have an account?' link
+- Updated App.tsx: replaced ProtectedRoute with AuthGate (checks onboardingComplete via getMe query); added /app/onboarding route with OnboardingPlaceholder stub; changed /sign-in and /sign-up to wildcard routes (/sign-in/*) for Clerk sub-routes (e.g. /sign-in/factor-one)
+- **Learnings for future iterations:**
+  - Convex import alias is `@convex/*` (maps to `../../convex/*`), NOT relative paths — always use `@convex/_generated/api`
+  - Clerk <SignIn routing="path"> requires wildcard routes in React Router: `/sign-in/*` not just `/sign-in`
+  - Clerk appearance API `elements.card: 'shadow-none border-0 p-0'` removes the default card wrapper so you can apply your own container
+  - `useQuery(api.userCrud.getMe)` returns `undefined` while loading, `null` if user not found, or the user object — check `=== undefined` for loading state
+  - AuthGate pattern: check `!isLoaded || (isSignedIn && me === undefined)` to avoid flash of redirect before data loads
+---
