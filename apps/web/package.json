@@ -12,11 +12,14 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
     "@taxassist/shared": "*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "convex": "^1.11.0",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.0"
+    "react-router-dom": "^6.21.0",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
@@ -34,4 +37,3 @@
     "vite": "^5.0.8"
   }
 }
-

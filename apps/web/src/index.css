@@ -2,80 +2,126 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* ============================================================
+   TaxEase Nigeria — Design System
+   Primary: #1A7F5E | Accent: #2B6CB0 | Fonts: Outfit + DM Sans
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* Brand design tokens (PRD §4.1) */
+    --color-primary: #1A7F5E;
+    --color-primary-light: #E8F5F0;
+    --color-accent: #2B6CB0;
+    --color-success: #38A169;
+    --color-warning: #D69E2E;
+    --color-danger: #E53E3E;
+    --color-neutral-900: #1A202C;
+    --color-neutral-500: #718096;
+    --color-neutral-100: #F7FAFC;
+    --color-white: #FFFFFF;
+
+    /* shadcn/ui CSS variable tokens (HSL format) */
+    --background: 210 40% 98%;      /* neutral-100 */
+    --foreground: 220 26% 14%;      /* neutral-900 */
+    --card: 0 0% 100%;
+    --card-foreground: 220 26% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 26% 14%;
+    --primary: 160 65% 30%;         /* #1A7F5E */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 158 50% 93%;       /* primary-light */
+    --secondary-foreground: 160 65% 25%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 220 10% 51%; /* neutral-500 */
+    --accent: 213 60% 43%;          /* #2B6CB0 */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 75% 56%;       /* danger */
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 20% 90%;
+    --input: 210 20% 90%;
+    --ring: 160 65% 30%;            /* primary */
+    --radius: 0.5rem;
+
+    /* Typography */
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background-color: #f9fafb;
-  color: #111827;
-}
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-#root {
-  width: 100%;
-  min-height: 100vh;
-}
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+  }
 
-/* Form Elements - Light Theme */
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="number"],
-input[type="date"],
-input[type="tel"],
-input[type="url"],
-input[type="search"],
-textarea,
-select {
-  background-color: #ffffff;
-  color: #111827;
-  border: 1px solid #d1d5db;
-}
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
 
-input[type="text"]::placeholder,
-input[type="email"]::placeholder,
-input[type="password"]::placeholder,
-input[type="number"]::placeholder,
-input[type="date"]::placeholder,
-input[type="tel"]::placeholder,
-input[type="url"]::placeholder,
-input[type="search"]::placeholder,
-textarea::placeholder {
-  color: #9ca3af;
-}
+  #root {
+    width: 100%;
+    min-height: 100vh;
+  }
 
-input[type="text"]:focus,
-input[type="email"]:focus,
-input[type="password"]:focus,
-input[type="number"]:focus,
-input[type="date"]:focus,
-input[type="tel"]:focus,
-input[type="url"]:focus,
-input[type="search"]:focus,
-textarea:focus,
-select:focus {
-  outline: none;
-  border-color: #16a34a;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
-}
+  /* Form elements */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    background-color: #ffffff;
+    color: var(--color-neutral-900);
+    border: 1px solid hsl(var(--border));
+  }
 
-/* Select dropdown arrow */
-select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-  background-position: right 0.5rem center;
-  background-repeat: no-repeat;
-  background-size: 1.5em 1.5em;
-  padding-right: 2.5rem;
-}
+  input[type="text"]::placeholder,
+  input[type="email"]::placeholder,
+  input[type="password"]::placeholder,
+  input[type="number"]::placeholder,
+  input[type="date"]::placeholder,
+  input[type="tel"]::placeholder,
+  input[type="url"]::placeholder,
+  input[type="search"]::placeholder,
+  textarea::placeholder {
+    color: var(--color-neutral-500);
+  }
 
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  input[type="number"]:focus,
+  input[type="date"]:focus,
+  input[type="tel"]:focus,
+  input[type="url"]:focus,
+  input[type="search"]:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(26, 127, 94, 0.2);
+  }
+
+  /* Select dropdown arrow */
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+  }
+}
