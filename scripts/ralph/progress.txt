@@ -1,3 +1,21 @@
 # Ralph Progress Log
 Started: Tue Feb 24 23:14:08 WAT 2026
 ---
+
+## 2026-02-24 - US-001
+- Overhauled convex/schema.ts: expanded users table, removed profiles table, added entities/categories/userPreferences/connectedAccounts tables with all required indexes
+- Updated convex/mutations.ts: replaced upsertProfile with updateUser (user-centric, no separate profiles table)
+- Updated convex/queries.ts: removed getMyProfile, kept getMyUser and other queries intact
+- Updated packages/shared/src/types.ts: new EntityType, CategoryType, ConnectedAccountStatus, UncategorisedAlertFrequency types + new interfaces for all tables
+- Updated packages/shared/src/schemas.ts: new Zod schemas for entity, category, userPreferences, connectedAccount; updated userType to 'freelancer'|'sme'
+- Fixed packages/shared/tsconfig.json: added "noEmit": false to resolve conflict with composite:true + inherited noEmit:true from root
+- Fixed apps/web/src/components/ConvexClientProvider.tsx: switched to ConvexProviderWithClerk (convex/react-clerk) — old custom fetch approach not valid in Convex 1.x
+- Fixed apps/web/src/pages/Settings.tsx: updated to use getMyUser + updateUser instead of removed getMyProfile/upsertProfile
+- Added apps/web/src/vite-env.d.ts: vite/client reference for ImportMeta.env types
+- **Learnings for future iterations:**
+  - Convex 1.x Clerk integration uses ConvexProviderWithClerk from 'convex/react-clerk', NOT custom fetch in ConvexReactClientOptions
+  - packages/shared tsconfig must set "noEmit": false when composite:true is used (conflicts with root noEmit:true)
+  - Vite projects need a vite-env.d.ts with /// <reference types="vite/client" /> for import.meta.env types
+  - When removing a table, must update all queries/mutations that reference it
+  - Always add vite-env.d.ts when tsconfig doesn't include vite types
+---

@@ -44,7 +44,7 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: See '§2 Entities' for TypeScript interfaces and '§7 Data Models' for table/index specs"
     },
     {
