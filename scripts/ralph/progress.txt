@@ -61,3 +61,20 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - System categories have no userId (undefined); user categories use `by_userId` index
   - Dashboard stub returns zero values — will aggregate transactions in a future story
 ---
+
+## 2026-02-24 - US-005
+- Installed shadcn/ui peer dependencies: clsx, tailwind-merge, class-variance-authority
+- Added Google Fonts via index.html preload: Outfit (display/headings) + DM Sans (body)
+- Added `antialiased` class to body in index.html
+- Updated tailwind.config.js: custom fontFamily (display/sans), brand color palette (primary #1A7F5E, accent #2B6CB0, success, warning, danger, neutral scale), shadcn CSS-variable colors, shadow-soft/shadow-medium, fade-in/slide-up animations, typography scale (heading-xl/lg/md, body, body-sm, label)
+- Updated src/index.css: CSS design tokens as :root variables, shadcn HSL variables, body with font-sans + antialiased, headings with font-display
+- Created src/lib/utils.ts: cn() utility (clsx + tailwind-merge)
+- Created components.json: shadcn/ui configuration for Vite project
+- Updated tsconfig.json + vite.config.ts: added `@` → `./src` path alias
+- **Learnings for future iterations:**
+  - This is a Vite/React app (NOT Next.js) — use Google Fonts via index.html link, NOT next/font/google
+  - shadcn/ui CSS variable convention: define HSL values (without hsl()) in :root, reference with `hsl(var(--token))`
+  - `antialiased` on `<body class="antialiased">` in index.html works; also applied via @apply in CSS
+  - Install shadcn deps at workspace level: `npm install --workspace=apps/web clsx tailwind-merge class-variance-authority`
+  - Path alias `@` must be added to both vite.config.ts (resolve.alias) AND tsconfig.json (paths) to work for both runtime and typechecking
+---
