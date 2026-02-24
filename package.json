@@ -16,7 +16,8 @@
     "packages/*"
   ],
   "dependencies": {
-    "convex": "^1.11.0"
+    "convex": "^1.11.0",
+    "svix": "^1.86.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -28,4 +29,3 @@
     "npm": ">=9.0.0"
   }
 }
-

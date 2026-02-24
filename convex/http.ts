@@ -1,5 +1,6 @@
 import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
+import { clerkWebhook } from './webhooks';
 
 const http = httpRouter();
 
@@ -15,5 +16,11 @@ http.route({
   }),
 });
 
-export default http;
+// Clerk webhook — syncs user.created / user.updated / user.deleted events
+http.route({
+  path: '/clerk-webhook',
+  method: 'POST',
+  handler: clerkWebhook,
+});
 
+export default http;
