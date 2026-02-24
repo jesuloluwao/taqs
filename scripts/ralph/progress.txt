@@ -19,3 +19,20 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - When removing a table, must update all queries/mutations that reference it
   - Always add vite-env.d.ts when tsconfig doesn't include vite types
 ---
+
+## 2026-02-24 - US-002
+- Created convex/webhooks.ts: POST /clerk-webhook HTTP action using svix Webhook to verify signatures
+- Created convex/userMutations.ts: createUserFromClerk, updateUserFromClerk, deleteUserFromClerk mutations
+  - createUserFromClerk is idempotent (skips if user already exists)
+  - deleteUserFromClerk cascades: entities → connectedAccounts → userPreferences → categories → transactions → documents → user
+- Updated convex/http.ts: registered /clerk-webhook POST route
+- Updated convex/auth.ts: getOrCreateCurrentUser no longer auto-creates users; relies on webhook-created records
+- Updated convex/_generated/api.d.ts: added userMutations and webhooks modules
+- Installed svix ^1.86.0 at root (used in Convex HTTP actions)
+- **Learnings for future iterations:**
+  - Convex _generated/api.d.ts must be manually updated when adding new convex modules (Convex CLI regenerates it on `convex dev`, but for CI/typecheck we update it directly)
+  - Convex HTTP actions can import third-party packages (svix works fine in Convex runtime)
+  - CLERK_WEBHOOK_SECRET must be set as a Convex environment variable (in Convex dashboard or via `convex env set`)
+  - Webhook handler should be in a separate file (webhooks.ts) imported by http.ts, not defined inline
+  - `anyApi` in api.js handles runtime calls dynamically; only api.d.ts needs updating for TypeScript
+---

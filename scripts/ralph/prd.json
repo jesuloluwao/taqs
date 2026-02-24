@@ -62,7 +62,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: See '§6.1 Auth' for webhook spec. Clerk webhook must be registered in Clerk dashboard pointing to Convex HTTP endpoint."
     },
     {
