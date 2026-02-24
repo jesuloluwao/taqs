@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
+import { useQuery } from 'convex/react';
+import { api } from '@convex/_generated/api';
 import Landing from './pages/Landing';
 import AppShell from './components/AppShell';
 import Dashboard from './pages/Dashboard';
@@ -10,22 +12,64 @@ import Settings from './pages/Settings';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, isLoaded } = useAuth();
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
 
-  if (!isLoaded) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading...</div>
-      </div>
-    );
+/** Redirects unauthenticated users to sign-in; authenticated without onboarding to /app/onboarding */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { isSignedIn, isLoaded } = useAuth();
+  const me = useQuery(api.userCrud.getMe);
+
+  if (!isLoaded || (isSignedIn && me === undefined)) {
+    return <LoadingSpinner />;
   }
 
   if (!isSignedIn) {
     return <Navigate to="/sign-in" replace />;
   }
 
+  if (!me?.onboardingComplete) {
+    return <Navigate to="/app/onboarding" replace />;
+  }
+
   return <>{children}</>;
+}
+
+/** Placeholder for onboarding wizard — built in US-007 */
+function OnboardingPlaceholder() {
+  const { isSignedIn, isLoaded } = useAuth();
+  const me = useQuery(api.userCrud.getMe);
+
+  if (!isLoaded || (isSignedIn && me === undefined)) {
+    return <LoadingSpinner />;
+  }
+
+  if (!isSignedIn) {
+    return <Navigate to="/sign-in" replace />;
+  }
+
+  if (me?.onboardingComplete) {
+    return <Navigate to="/app/dashboard" replace />;
+  }
+
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="text-center animate-slide-up">
+        <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <span className="text-white font-display font-bold text-xl">T</span>
+        </div>
+        <h1 className="text-heading-lg font-display text-neutral-900 mb-2">
+          Welcome to TaxEase
+        </h1>
+        <p className="text-body text-neutral-500">Onboarding wizard coming soon…</p>
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -33,14 +77,15 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/sign-in" element={<SignInPage />} />
-        <Route path="/sign-up" element={<SignUpPage />} />
+        <Route path="/sign-in/*" element={<SignInPage />} />
+        <Route path="/sign-up/*" element={<SignUpPage />} />
+        <Route path="/app/onboarding" element={<OnboardingPlaceholder />} />
         <Route
           path="/app"
           element={
-            <ProtectedRoute>
+            <AuthGate>
               <AppShell />
-            </ProtectedRoute>
+            </AuthGate>
           }
         >
           <Route index element={<Navigate to="/app/dashboard" replace />} />
@@ -56,4 +101,3 @@ function App() {
 }
 
 export default App;
-
