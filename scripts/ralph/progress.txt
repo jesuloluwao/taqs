@@ -858,3 +858,39 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - internalMutation imported from `./_generated/server` (same as mutation); callable from crons via `(internal as any).module.fn`
   - `metadata` field on connectedAccounts uses `v.optional(v.object({...}))` — each sub-field also optional to allow partial updates
 ---
+
+## 2026-02-25 - US-051
+- Created `convex/lib/providers/types.ts`: shared ProviderTokens, ProviderAccountDetails, ProviderTransaction interfaces + PROVIDER_ENV_VARS constants
+- Created `convex/lib/providers/mono.ts`: Mono Connect client (account_id model — no bearer tokens; stores account_id as accessToken; API calls use MONO_SECRET_KEY)
+- Created `convex/lib/providers/stitch.ts`: Stitch OAuth2 + GraphQL client (exchangeCode, account/transactions via GraphQL)
+- Created `convex/lib/providers/paystack.ts`: Paystack API key client (validate via /balance, /integration for business name, paginated /transaction)
+- Created `convex/lib/providers/flutterwave.ts`: Flutterwave API key client (validate via /v3/balances, paginated /v3/transactions with major→kobo conversion)
+- Created `convex/lib/providers/payoneer.ts`: Payoneer OAuth2 client (token exchange, /payees/me account details, /accounts/charges transactions)
+- Created `convex/lib/providers/wise.ts`: Wise OAuth2 client (profiles API, multi-currency balance statements, statement.json transactions)
+- Created `convex/accountsHelpers.ts`: internal mutations/queries
+  - `getUserByClerkId` internalQuery for clerkUserId → user._id lookup in actions
+  - `getConnectedAccount`, `findByProviderAccountId` (optional entityId for webhook use)
+  - `upsertConnectedAccount` internalMutation: create or update by providerAccountId+entityId
+  - `updateAccountStatus` internalMutation: status, lastSyncedAt, errorMessage
+  - `createSyncJob` internalMutation: creates bank_api importJob for sync pipeline
+- Updated `convex/oauthStates.ts`: added `_validateAndConsume` internalMutation (no auth check — for action context)
+- Created `convex/accountsActions.ts` ("use node"):
+  - `handleOAuthCallback` action: validates state, exchanges code, AES-256-GCM encrypts tokens, upserts connectedAccount, triggers syncAccount (fire-and-forget); user cancel (error=access_denied) returns { cancelled: true }
+  - `addApiKeyAccount` action: validates Paystack/Flutterwave key via getAccountDetails (throws "Invalid API key..." on 401/403), encrypts key, stores SHA-256 apiKeyHash in metadata, creates account, triggers sync
+  - `syncAccount` internalAction: decrypt token, createSyncJob, fetch 30 days of transactions, batchInsert, setJobComplete/Failed, updateAccountStatus
+- Updated `convex/webhooks.ts`:
+  - `oauthCallbackWebview`: returns HTML page with postMessage script for WebView bridge (ReactNativeWebView + opener fallback + web redirect)
+  - `bankNotification`: Mono (x-mono-webhook-secret plain), Stitch (HMAC-SHA256 via Web Crypto), Paystack (HMAC-SHA256); looks up account by providerAccountId, triggers syncAccount
+- Updated `convex/http.ts`: routes GET+POST /webhooks/oauth-callback → oauthCallbackWebview; POST /webhooks/bank-notification → bankNotification
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Mono's auth model: code → account_id (no access token); store account_id as accessToken; use MONO_SECRET_KEY header for all API calls — NOT a standard OAuth bearer token model
+  - For `addApiKeyAccount`, need user._id from Clerk identity: add `getUserByClerkId` internalQuery to accountsHelpers, call via `(internal as any).accountsHelpers.getUserByClerkId` from "use node" action
+  - `HeadersInit` DOM type not available in Convex tsconfig — use `Record<string, string>` for fetch headers in provider modules
+  - httpAction handlers can call `ctx.runQuery/runMutation/runAction` like regular Convex functions — no additional setup needed
+  - Web Crypto API (`crypto.subtle.importKey`, `crypto.subtle.sign`) available in httpAction handlers without "use node" — use for HMAC-SHA256 verification
+  - For HMAC comparison: constant-time check prevents timing attacks — XOR each char code and check diff === 0
+  - Provider-specific API key formats: Paystack uses last 8 chars as providerAccountId slug; Flutterwave same pattern
+  - Flutterwave amounts in major units (Naira), Mono amounts already in kobo — always check provider docs for unit conventions
+  - `syncAccount` internalAction can be triggered from webhooks (httpAction → ctx.runAction), from OAuth callback (action → ctx.runAction), and from scheduled crons
+---

@@ -1125,7 +1125,7 @@
         "Typecheck passes"
       ],
       "priority": 51,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-8: US-804 through US-809 — See '§6.3 Connected Accounts Actions' and 'Appendix B Provider Matrix'"
     },
     {
