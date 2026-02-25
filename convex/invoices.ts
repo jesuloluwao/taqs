@@ -636,6 +636,147 @@ export const remove = mutation({
   },
 });
 
+// ================== SCHEDULED / CRON INTERNAL MUTATIONS ==================
+
+/**
+ * Helper: advance a date by a recurring interval.
+ */
+function advanceByInterval(date: Date, interval: 'monthly' | 'quarterly'): Date {
+  const next = new Date(date);
+  if (interval === 'monthly') {
+    next.setMonth(next.getMonth() + 1);
+  } else {
+    // quarterly = 3 months
+    next.setMonth(next.getMonth() + 3);
+  }
+  return next;
+}
+
+/**
+ * Internal mutation: mark all 'sent' invoices whose dueDate is in the past as 'overdue'.
+ * Intended to be called daily at 09:00 WAT (08:00 UTC) via cron.
+ */
+export const _checkOverdue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    // Collect all 'sent' invoices then JS-filter those past their due date
+    const sentInvoices = await ctx.db
+      .query('invoices')
+      .filter((q) => q.eq(q.field('status'), 'sent'))
+      .collect();
+
+    const overdue = sentInvoices.filter((inv) => inv.dueDate < now);
+
+    for (const inv of overdue) {
+      await ctx.db.patch(inv._id, {
+        status: 'overdue',
+        updatedAt: now,
+      });
+    }
+
+    console.log(`[checkOverdue] Marked ${overdue.length} invoice(s) as overdue`);
+    return overdue.length;
+  },
+});
+
+/**
+ * Internal mutation: auto-generate new draft invoices from recurring templates.
+ * Finds invoices where isRecurring=true AND nextIssueDate ≤ now, clones them
+ * with a fresh invoice number, then advances the template's nextIssueDate.
+ * Intended to be called daily at 07:00 WAT (06:00 UTC) via cron.
+ */
+export const _generateRecurring = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    // Collect all recurring invoices; JS-filter to those due for generation
+    const allRecurring = await ctx.db
+      .query('invoices')
+      .filter((q) => q.eq(q.field('isRecurring'), true))
+      .collect();
+
+    const due = allRecurring.filter(
+      (inv) => inv.nextIssueDate !== undefined && inv.nextIssueDate <= now
+    );
+
+    let generated = 0;
+
+    for (const template of due) {
+      // Fetch line items from the template invoice
+      const items = await ctx.db
+        .query('invoiceItems')
+        .withIndex('by_invoiceId', (q) => q.eq('invoiceId', template._id))
+        .collect();
+
+      if (items.length === 0) {
+        console.warn(`[generateRecurring] Template ${template._id} has no line items — skipping`);
+        continue;
+      }
+
+      const newIssueDate = template.nextIssueDate!;
+      // Preserve due-date offset (e.g. 30 days from issue)
+      const dueDateOffsetMs = template.dueDate - template.issueDate;
+      const newDueDate = newIssueDate + dueDateOffsetMs;
+
+      // Generate sequential invoice number for the new year
+      const year = new Date(newIssueDate).getFullYear();
+      const invoiceNumber = await generateInvoiceNumber(ctx, template.entityId as string, year);
+
+      // Insert cloned invoice as 'draft'
+      const newInvoiceId = await ctx.db.insert('invoices', {
+        entityId: template.entityId,
+        userId: template.userId,
+        clientId: template.clientId,
+        clientName: template.clientName,
+        clientEmail: template.clientEmail,
+        invoiceNumber,
+        status: 'draft',
+        issueDate: newIssueDate,
+        dueDate: newDueDate,
+        currency: template.currency,
+        subtotal: template.subtotal,
+        whtRate: template.whtRate,
+        whtAmount: template.whtAmount,
+        vatAmount: template.vatAmount,
+        totalDue: template.totalDue,
+        amountNgn: template.amountNgn,
+        notes: template.notes,
+        // New invoice is NOT itself a recurring template
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Clone all line items into the new invoice
+      for (const item of items) {
+        await ctx.db.insert('invoiceItems', {
+          invoiceId: newInvoiceId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        });
+      }
+
+      // Advance the template's nextIssueDate by the recurring interval
+      const interval = template.recurringInterval ?? 'monthly';
+      const nextIssueDateMs = advanceByInterval(new Date(newIssueDate), interval).getTime();
+
+      await ctx.db.patch(template._id, {
+        nextIssueDate: nextIssueDateMs,
+        updatedAt: now,
+      });
+
+      generated++;
+    }
+
+    console.log(`[generateRecurring] Generated ${generated} recurring invoice(s)`);
+    return generated;
+  },
+});
+
 // ================== INTERNAL HELPERS FOR ACTIONS ==================
 
 /**
