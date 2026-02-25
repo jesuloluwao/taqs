@@ -799,3 +799,23 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `exportPdf` uses the same pattern as `invoiceActions.ts`: fetch NestJS → Buffer.from(arrayBuffer) → ctx.storage.store(blob) → ctx.storage.getUrl(storageId)
   - Year-on-year fallback: when taxYearSummaries haven't been cached yet, sum transactions directly — keeps the query useful even before refreshSummaryCache is called
 ---
+
+## 2026-02-25 - US-048
+- Rewrote `apps/web/src/pages/Reports.tsx`: full 3-tab reports UI (Income | Expenses | Year-on-Year)
+- Date range segmented control at top (This Year / Last Year / Custom); persists across tab switches; custom mode shows date pickers
+- Income tab: 3 summary cards (Total Income, Foreign Income, Avg Monthly); SVG bar chart (12 bars, primary green, click tooltip above bar with month + amount); category breakdown list with inline progress bars and percentage
+- Expenses tab: 3 summary cards (Total, Deductible, Non-Deductible); SVG doughnut chart (segments <3% grouped into 'Other', interactive centre shows total or selected segment details); category list with Deductible badges in green
+- Year-on-Year tab: 3 comparison cards with TrendingUp/Down % change chips; dual-line SVG charts for monthly income and expenses (current year = green, prior = neutral grey); prior year summary row
+- Empty states per tab: BarChart2 illustration + 'No [income/expense] data for this period' + 'Import Transactions' CTA
+- Skeleton loading states (3 card shimmer rows + chart + list items)
+- SVG charts built with pure SVG (no additional chart library dependencies needed)
+- All Convex queries use `(api as any).reports.*` pattern; queries skip when no entityId or custom range incomplete
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - SVG doughnut: handle full-circle edge case (single segment at 100%) by drawing two half-arcs — avoids degenerate arc path from identical start/end points
+  - Bar chart tooltip: clamp x to `Math.max(0, Math.min(x - halfTip, SVG_W - tipWidth - 4))` to stay in-bounds for first and last bars
+  - `(api as any).reports.getIncome` pattern — reports module not in generated api.d.ts; use `as IncomeReport | null | undefined` cast on the result
+  - For Convex conditional queries: always call `useQuery` unconditionally, pass `'skip'` when tab is inactive; prevents React hooks rule violations
+  - Doughnut <3% grouping: split categoryBreakdown into large/small arrays in useMemo, push 'Other' segment if small.length > 0
+  - ChangeChip component: `lowerIsBetter` prop inverts the good/bad color logic (green for expenses going down)
+---
