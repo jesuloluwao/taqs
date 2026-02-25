@@ -217,3 +217,25 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - Preferences upsert: `updatePreferences` in convex/userCrud.ts handles both create (if no prefs row) and update; `createDefaultPreferences` is idempotent and called when prefs === null on first page load
   - `deadlineReminderDays: 0` is the convention for "disabled" since the field is `v.optional(v.number())` and 0 is a valid number; check `> 0` for enabled state in UI
 ---
+
+## 2026-02-25 - US-014
+- Created `apps/web/src/components/Skeleton.tsx`: reusable `animate-pulse` skeleton placeholder for loading states
+- Replaced spinners with skeleton layouts in 4 data-dependent pages:
+  - `Dashboard.tsx`: skeleton matching full page structure (header, tax card, stat grid, transactions)
+  - `Settings.tsx`: skeleton matching profile form (avatar, fields)
+  - `TaxEntities.tsx`: skeleton matching entity list cards
+  - `Notifications.tsx`: skeleton matching preference cards
+- Updated 7 placeholder pages with consistent empty state pattern (icon in primary-light rounded-2xl + headline + subtext + "Coming soon" badge):
+  - `Transactions.tsx`, `Invoices.tsx`, `TaxSummary.tsx`, `Filing.tsx`, `Reports.tsx`, `Documents.tsx`, `HelpSupport.tsx`
+  - HelpSupport upgraded to 3 SupportCard items instead of plain text
+- Polished `AppShell.tsx` nav: added `transition-all duration-150` + `hover:translate-x-0.5` + `group-hover:scale-110` on icons for all nav items and logout button
+- Fixed Settings nav active detection to include sub-paths (`startsWith(item.href + '/')`)
+- Toaster already configured correctly: `richColors position="top-center"` in App.tsx
+- Confirmation dialogs already follow spec: LogoutConfirmDialog (AppShell) and DeleteDialog (TaxEntities)
+- **Learnings for future iterations:**
+  - Edit tool requires the file to have been Read in the same session — always Re-read before editing if the file was read in a prior session context
+  - `Skeleton` with `animate-pulse bg-neutral-200` is the simplest effective pattern; no separate shimmer animation needed
+  - Placeholder pages should still get proper page headers + empty state pattern, not just bare "coming soon" text
+  - `transition-all` + `hover:translate-x-0.5` on nav items gives a subtle but satisfying feel; combine with `group` + `group-hover:scale-110` on icons
+  - When replacing a spinner loading block, remove the old `if (false)` remnant if you accidentally leave dead code
+---

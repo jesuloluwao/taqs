@@ -295,7 +295,7 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: DESIGN — See '§4.5 Global Components' for toast, empty state, and dialog patterns. Polish pass after core functionality."
     }
   ]
