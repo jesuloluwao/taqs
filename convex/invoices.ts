@@ -169,12 +169,27 @@ export const list = query({
       }
     }
 
+    // Compute per-status counts across all entity invoices
+    const statusCounts = {
+      all: allEntityInvoices.length,
+      draft: 0,
+      sent: 0,
+      paid: 0,
+      overdue: 0,
+      cancelled: 0,
+    };
+    for (const inv of allEntityInvoices) {
+      const s = inv.status as keyof typeof statusCounts;
+      if (s in statusCounts) statusCounts[s]++;
+    }
+
     return {
       invoices: paginated,
       totalCount,
       hasMore: offset + limit < totalCount,
       outstanding,
       paidThisYear,
+      statusCounts,
     };
   },
 });
