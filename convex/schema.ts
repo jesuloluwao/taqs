@@ -437,6 +437,8 @@ export default defineSchema({
     ),
     /** Unix timestamp (ms) for next auto-issue date on recurring invoices */
     nextIssueDate: v.optional(v.number()),
+    /** WHT rate applied to this invoice (0, 5, or 10) */
+    whtRate: v.optional(v.number()),
     /** Convex storage ID for the generated PDF */
     pdfStorageId: v.optional(v.string()),
     createdAt: v.number(),

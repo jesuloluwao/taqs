@@ -1,4 +1,4 @@
-import { mutation, query } from './_generated/server';
+import { mutation, query, internalMutation, internalQuery } from './_generated/server';
 import { getOrCreateCurrentUser, getCurrentUser } from './auth';
 import { v } from 'convex/values';
 
@@ -278,6 +278,7 @@ export const create = mutation({
       dueDate: args.dueDate,
       currency: args.currency,
       subtotal,
+      whtRate: args.whtRate,
       whtAmount: args.whtRate > 0 ? whtAmount : undefined,
       vatAmount: applyVat ? vatAmount : undefined,
       totalDue,
@@ -390,6 +391,7 @@ export const update = mutation({
     if (args.isRecurring !== undefined) patch.isRecurring = args.isRecurring;
     if (args.recurringInterval !== undefined) patch.recurringInterval = args.recurringInterval;
     if (args.nextIssueDate !== undefined) patch.nextIssueDate = args.nextIssueDate;
+    if (args.whtRate !== undefined) patch.whtRate = args.whtRate;
 
     // Recalculate totals if line items or whtRate are being updated
     if (args.lineItems !== undefined) {
@@ -456,5 +458,239 @@ export const update = mutation({
 
     await ctx.db.patch(args.id, patch);
     return args.id;
+  },
+});
+
+// ================== LIFECYCLE MUTATIONS ==================
+
+/**
+ * Mark an invoice as paid.
+ * Atomically:
+ *  1. Sets invoice status='paid' and paidAt=now
+ *  2. Creates an income transaction (invoice-to-transaction bridge)
+ *
+ * For foreign-currency invoices the caller must provide amountNgn (the
+ * actual NGN amount received, which may differ from the rate at invoice time).
+ *
+ * Idempotent: throws if the invoice is already paid.
+ */
+export const markPaid = mutation({
+  args: {
+    id: v.id('invoices'),
+    /** Required for non-NGN invoices; amount received in NGN kobo */
+    amountNgn: v.optional(v.number()),
+    /** Actual payment date timestamp (ms); defaults to now */
+    paidAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) throw new Error('Invoice not found');
+
+    const entity = await ctx.db.get(invoice.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      throw new Error('Entity not found or unauthorized');
+    }
+
+    // Idempotency guard
+    if (invoice.status === 'paid') {
+      throw new Error('Invoice is already marked as paid');
+    }
+
+    if (invoice.status === 'cancelled') {
+      throw new Error('Cannot mark a cancelled invoice as paid');
+    }
+
+    if (invoice.status === 'draft') {
+      throw new Error('Cannot mark a draft invoice as paid — send it first');
+    }
+
+    // For non-NGN invoices, amountNgn must be supplied by caller
+    if (invoice.currency !== 'NGN' && args.amountNgn === undefined) {
+      throw new Error(
+        'amountNgn (NGN equivalent in kobo) is required for foreign-currency invoices'
+      );
+    }
+
+    const transactionAmountNgn =
+      invoice.currency === 'NGN' ? invoice.amountNgn : args.amountNgn!;
+
+    const now = Date.now();
+    const paidAt = args.paidAt ?? now;
+
+    // Find the "Freelance/Client Income" system category
+    const category = await ctx.db
+      .query('categories')
+      .withIndex('by_type', (q) => q.eq('type', 'income'))
+      .filter((q) => q.eq(q.field('name'), 'Freelance/Client Income'))
+      .first();
+
+    const taxYear = new Date(paidAt).getFullYear();
+
+    // Create the bridged income transaction
+    await ctx.db.insert('transactions', {
+      entityId: invoice.entityId,
+      userId: user._id,
+      date: paidAt,
+      description: `Payment for Invoice ${invoice.invoiceNumber} — ${invoice.clientName}`,
+      amount: invoice.totalDue,
+      currency: invoice.currency,
+      amountNgn: transactionAmountNgn,
+      direction: 'credit',
+      type: 'income',
+      categoryId: category?._id,
+      whtDeducted: invoice.whtAmount,
+      whtRate: invoice.whtRate ?? 0,
+      invoiceId: args.id,
+      taxYear,
+      reviewedByUser: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Mark invoice paid
+    await ctx.db.patch(args.id, {
+      status: 'paid',
+      paidAt,
+      updatedAt: now,
+    });
+
+    return args.id;
+  },
+});
+
+/**
+ * Cancel an invoice (draft or sent only). Does not create or remove transactions.
+ */
+export const cancel = mutation({
+  args: {
+    id: v.id('invoices'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) throw new Error('Invoice not found');
+
+    const entity = await ctx.db.get(invoice.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      throw new Error('Entity not found or unauthorized');
+    }
+
+    if (invoice.status !== 'draft' && invoice.status !== 'sent') {
+      throw new Error(
+        `Only draft or sent invoices can be cancelled (current status: ${invoice.status})`
+      );
+    }
+
+    await ctx.db.patch(args.id, {
+      status: 'cancelled',
+      updatedAt: Date.now(),
+    });
+
+    return args.id;
+  },
+});
+
+/**
+ * Hard delete a draft invoice and all its line items.
+ * Only draft invoices may be deleted.
+ */
+export const remove = mutation({
+  args: {
+    id: v.id('invoices'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) throw new Error('Invoice not found');
+
+    const entity = await ctx.db.get(invoice.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      throw new Error('Entity not found or unauthorized');
+    }
+
+    if (invoice.status !== 'draft') {
+      throw new Error(
+        `Only draft invoices can be deleted (current status: ${invoice.status})`
+      );
+    }
+
+    // Delete all line items first
+    const items = await ctx.db
+      .query('invoiceItems')
+      .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
+      .collect();
+
+    for (const item of items) {
+      await ctx.db.delete(item._id);
+    }
+
+    // Hard delete the invoice
+    await ctx.db.delete(args.id);
+  },
+});
+
+// ================== INTERNAL HELPERS FOR ACTIONS ==================
+
+/**
+ * Internal query: fetch a full invoice with its line items.
+ * Used by the PDF/send actions to assemble data without duplicating logic.
+ */
+export const _getInvoiceWithItems = internalQuery({
+  args: { id: v.id('invoices') },
+  handler: async (ctx, args) => {
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) return null;
+
+    const items = await ctx.db
+      .query('invoiceItems')
+      .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
+      .collect();
+
+    // Resolve entity name for PDF header
+    const entity = await ctx.db.get(invoice.entityId);
+
+    return { ...invoice, items, entityName: entity?.name ?? '' };
+  },
+});
+
+/**
+ * Internal mutation: store PDF storageId and set invoice status='sent'.
+ * Called by the `send` action after generating the PDF and sending email.
+ */
+export const _setPdfAndSent = internalMutation({
+  args: {
+    id: v.id('invoices'),
+    pdfStorageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      pdfStorageId: args.pdfStorageId,
+      status: 'sent',
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Internal mutation: store PDF storageId only (no status change).
+ * Called by the `generatePdf` action.
+ */
+export const _setPdf = internalMutation({
+  args: {
+    id: v.id('invoices'),
+    pdfStorageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      pdfStorageId: args.pdfStorageId,
+      updatedAt: Date.now(),
+    });
   },
 });
