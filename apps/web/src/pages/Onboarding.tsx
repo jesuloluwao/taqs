@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import type { Id } from '@convex/_generated/dataModel';
 import { toast } from 'sonner';
+import { Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -628,77 +630,93 @@ function Step3({ nin, firsTin, onChange, onBack, onContinue, loading }: Step3Pro
 
 // ─── Step 4: Connect Accounts ─────────────────────────────────────────────────
 
-interface ImportOption {
-  id: string;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  comingSoon?: boolean;
-}
+/** Inline API-key form for Paystack / Flutterwave within onboarding */
+function ApiKeyForm({
+  provider,
+  entityId,
+  onSuccess,
+}: {
+  provider: 'paystack' | 'flutterwave';
+  entityId: Id<'entities'>;
+  onSuccess: () => void;
+}) {
+  const addApiKeyAction = useAction((api as any).accountsActions.addApiKeyAccount);
+  const [apiKey, setApiKey] = useState('');
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const label = provider === 'paystack' ? 'Paystack' : 'Flutterwave';
 
-const IMPORT_OPTIONS: ImportOption[] = [
-  {
-    id: 'bank_statement',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
-      </svg>
-    ),
-    title: 'Upload bank statement',
-    description: 'Import transactions from a PDF or CSV bank statement',
-    comingSoon: true,
-  },
-  {
-    id: 'connect_bank',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <line x1="2" y1="10" x2="22" y2="10" />
-      </svg>
-    ),
-    title: 'Connect bank account',
-    description: 'Link your Nigerian bank via open banking (GTB, Access, Zenith, etc.)',
-    comingSoon: true,
-  },
-  {
-    id: 'paystack',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
-    ),
-    title: 'Connect Paystack / Flutterwave',
-    description: 'Import payment records from your payment gateway',
-    comingSoon: true,
-  },
-  {
-    id: 'payoneer',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-        <circle cx="12" cy="12" r="10" />
-        <line x1="2" y1="12" x2="22" y2="12" />
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-      </svg>
-    ),
-    title: 'Connect Payoneer / Wise',
-    description: 'Import international income from cross-border payment platforms',
-    comingSoon: true,
-  },
-];
+  const handleConnect = async () => {
+    if (!apiKey.trim()) { setError('Secret key is required'); return; }
+    if (apiKey.trim().length < 20) { setError('Key appears too short — check and try again'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      await addApiKeyAction({ entityId, provider, apiKey: apiKey.trim() });
+      toast.success(`${label} connected!`);
+      onSuccess();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Connection failed';
+      setError(msg.toLowerCase().includes('invalid api key') ? 'Invalid API key — please check and try again.' : msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 p-4 bg-neutral-50 rounded-xl border border-border space-y-3">
+      <div>
+        <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Secret Key</label>
+        <div className="relative mt-1">
+          <input
+            type={show ? 'text' : 'password'}
+            value={apiKey}
+            onChange={(e) => { setApiKey(e.target.value); if (error) setError(''); }}
+            placeholder={provider === 'paystack' ? 'sk_...' : 'FLWSECK...'}
+            autoComplete="off"
+            className={`w-full text-sm px-3 py-2.5 pr-10 bg-white border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono placeholder:font-sans placeholder:text-neutral-400 ${error ? 'border-red-400' : 'border-border'}`}
+          />
+          <button type="button" onClick={() => setShow(!show)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600" tabIndex={-1}>
+            {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      </div>
+
+      <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+        <ShieldCheck className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-primary/80">Encrypted with AES-256-GCM. Never shared or transmitted in plaintext.</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={loading || !apiKey.trim()}
+        className="w-full flex items-center justify-center gap-2 h-10 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+      >
+        {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Validating…</> : `Connect ${label}`}
+      </button>
+    </div>
+  );
+}
 
 interface Step4Props {
   onBack: () => void;
   onFinish: () => void;
   loading: boolean;
+  entityId?: Id<'entities'> | null;
 }
 
-function Step4({ onBack, onFinish, loading }: Step4Props) {
+function Step4({ onBack, onFinish, loading, entityId }: Step4Props) {
+  const [activeForm, setActiveForm] = useState<'paystack' | 'flutterwave' | null>(null);
+  const [linked, setLinked] = useState<Set<string>>(new Set());
+
+  const handleLinked = (provider: string) => {
+    setLinked((prev) => new Set([...prev, provider]));
+    setActiveForm(null);
+  };
+
   return (
     <div className="animate-slide-up">
       <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
@@ -709,29 +727,155 @@ function Step4({ onBack, onFinish, loading }: Step4Props) {
       </p>
 
       <div className="flex flex-col gap-3 mb-6">
-        {IMPORT_OPTIONS.map((option) => (
-          <div
-            key={option.id}
-            className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-70 cursor-not-allowed"
+        {/* Upload bank statement */}
+        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-neutral-700">Upload bank statement</span>
+              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">After setup</span>
+            </div>
+            <p className="text-xs text-neutral-400 mt-0.5">Available from the Transactions section</p>
+          </div>
+        </div>
+
+        {/* Connect bank account */}
+        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <rect x="2" y="5" width="20" height="14" rx="2" />
+              <line x1="2" y1="10" x2="22" y2="10" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-neutral-700">Connect bank account</span>
+              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">Coming soon</span>
+            </div>
+            <p className="text-xs text-neutral-400 mt-0.5">GTBank, Access, Zenith via open banking</p>
+          </div>
+        </div>
+
+        {/* Connect Paystack */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setActiveForm(activeForm === 'paystack' ? null : 'paystack')}
+            className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
+              linked.has('paystack')
+                ? 'border-emerald-300 bg-emerald-50'
+                : activeForm === 'paystack'
+                ? 'border-primary bg-primary/5'
+                : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-50'
+            }`}
           >
-            <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
-              {option.icon}
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${linked.has('paystack') ? 'bg-emerald-100' : 'bg-neutral-100'}`}>
+              {linked.has('paystack') ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-neutral-500">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm text-neutral-700">{option.title}</span>
-                {option.comingSoon && (
-                  <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">
-                    Coming soon
-                  </span>
+                <span className={`font-medium text-sm ${linked.has('paystack') ? 'text-emerald-700' : 'text-neutral-700'}`}>
+                  Connect Paystack
+                </span>
+                {linked.has('paystack') && (
+                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Connected</span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400 mt-0.5">{option.description}</p>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                {linked.has('paystack') ? 'Your Paystack account is linked' : 'Import payment records from your Paystack business account'}
+              </p>
             </div>
-          </div>
-        ))}
+          </button>
+          {activeForm === 'paystack' && entityId && (
+            <ApiKeyForm provider="paystack" entityId={entityId} onSuccess={() => handleLinked('paystack')} />
+          )}
+          {activeForm === 'paystack' && !entityId && (
+            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <p className="text-xs text-amber-700">Complete the previous steps first to create your entity.</p>
+            </div>
+          )}
+        </div>
 
-        {/* I'll do this later — always active */}
+        {/* Connect Flutterwave */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setActiveForm(activeForm === 'flutterwave' ? null : 'flutterwave')}
+            className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
+              linked.has('flutterwave')
+                ? 'border-emerald-300 bg-emerald-50'
+                : activeForm === 'flutterwave'
+                ? 'border-primary bg-primary/5'
+                : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-50'
+            }`}
+          >
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${linked.has('flutterwave') ? 'bg-emerald-100' : 'bg-neutral-100'}`}>
+              {linked.has('flutterwave') ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-neutral-500">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`font-medium text-sm ${linked.has('flutterwave') ? 'text-emerald-700' : 'text-neutral-700'}`}>
+                  Connect Flutterwave
+                </span>
+                {linked.has('flutterwave') && (
+                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Connected</span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                {linked.has('flutterwave') ? 'Your Flutterwave account is linked' : 'Import transactions from your Flutterwave merchant account'}
+              </p>
+            </div>
+          </button>
+          {activeForm === 'flutterwave' && entityId && (
+            <ApiKeyForm provider="flutterwave" entityId={entityId} onSuccess={() => handleLinked('flutterwave')} />
+          )}
+          {activeForm === 'flutterwave' && !entityId && (
+            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <p className="text-xs text-amber-700">Complete the previous steps first to create your entity.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Payoneer / Wise */}
+        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-neutral-700">Connect Payoneer / Wise</span>
+              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">Coming soon</span>
+            </div>
+            <p className="text-xs text-neutral-400 mt-0.5">Import international income from cross-border platforms</p>
+          </div>
+        </div>
+
+        {/* I'll do this later */}
         <button
           type="button"
           onClick={onFinish}
@@ -745,8 +889,14 @@ function Step4({ onBack, onFinish, loading }: Step4Props) {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-sm text-primary">I'll do this later</span>
-            <p className="text-xs text-primary/60 mt-0.5">Skip for now — add transactions manually</p>
+            <span className="font-medium text-sm text-primary">
+              {linked.size > 0 ? 'Continue to dashboard' : "I'll do this later"}
+            </span>
+            <p className="text-xs text-primary/60 mt-0.5">
+              {linked.size > 0
+                ? `${linked.size} account${linked.size > 1 ? 's' : ''} connected — set up more in Settings`
+                : 'Skip for now — add transactions manually'}
+            </p>
           </div>
           {loading && (
             <span className="w-4 h-4 border-2 border-primary/40 border-t-primary rounded-full animate-spin shrink-0" />
@@ -787,6 +937,7 @@ function Step4({ onBack, onFinish, loading }: Step4Props) {
 export default function Onboarding() {
   const { isSignedIn, isLoaded } = useAuth();
   const me = useQuery(api.userCrud.getMe);
+  const entities = useQuery(api.entityCrud.list);
 
   const [step, setStep] = useState(1);
   const [userType, setUserType] = useState<UserType | null>(null);
@@ -994,7 +1145,12 @@ export default function Onboarding() {
           )}
 
           {step === 4 && (
-            <Step4 onBack={() => setStep(3)} onFinish={handleFinish} loading={loading} />
+            <Step4
+              onBack={() => setStep(3)}
+              onFinish={handleFinish}
+              loading={loading}
+              entityId={entities?.[0]?._id ?? null}
+            />
           )}
         </div>
       </div>

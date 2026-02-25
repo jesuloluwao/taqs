@@ -29,6 +29,9 @@ import HelpSupport from './pages/HelpSupport';
 import Documents from './pages/Documents';
 import Categories from './pages/Categories';
 import ConnectedAccounts from './pages/ConnectedAccounts';
+import AccountDetail from './pages/AccountDetail';
+import AddAccount from './pages/AddAccount';
+import ConnectApiKey from './pages/ConnectApiKey';
 import AiInsights from './pages/AiInsights';
 import Declarations from './pages/Declarations';
 import SignInPage from './pages/SignInPage';
@@ -106,6 +109,9 @@ function App() {
           <Route path="settings/notifications" element={<Notifications />} />
           <Route path="settings/categories" element={<Categories />} />
           <Route path="settings/accounts" element={<ConnectedAccounts />} />
+          <Route path="settings/accounts/add" element={<AddAccount />} />
+          <Route path="settings/accounts/connect/:provider" element={<ConnectApiKey />} />
+          <Route path="settings/accounts/:id" element={<AccountDetail />} />
           <Route path="settings/delete-account" element={<DeleteAccount />} />
           <Route path="ai-insights" element={<AiInsights />} />
           <Route path="declarations" element={<Declarations />} />

@@ -3,6 +3,33 @@ import { getCurrentUser } from './auth';
 import { v } from 'convex/values';
 
 /**
+ * List the most recent sync jobs for a connected account (for sync history).
+ */
+export const listByAccount = query({
+  args: {
+    connectedAccountId: v.id('connectedAccounts'),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+
+    const account = await ctx.db.get(args.connectedAccountId);
+    if (!account || account.userId !== user._id) return [];
+
+    const jobs = await ctx.db
+      .query('importJobs')
+      .withIndex('by_connectedAccountId', (q) =>
+        q.eq('connectedAccountId', args.connectedAccountId)
+      )
+      .order('desc')
+      .take(args.limit ?? 5);
+
+    return jobs;
+  },
+});
+
+/**
  * Get a single import job by ID (with ownership check).
  */
 export const get = query({
