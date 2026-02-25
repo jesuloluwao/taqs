@@ -1053,7 +1053,7 @@
         "Typecheck passes"
       ],
       "priority": 47,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-7: See '§6 API Requirements' for all query/export contracts"
     },
     {

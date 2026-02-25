@@ -779,3 +779,23 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `listByUser` entity join: simple `ctx.db.get(entityId)` inside Promise.all with in-memory Map cache — fast for small record sets
   - `(api as any).filing.listByUser` pattern needed for filing module (not in generated api.d.ts)
 ---
+
+## 2026-02-25 - US-047
+- Created `convex/reports.ts`: three public queries + two internal queries for CSV export
+  - `getIncome`: fetches credit transactions via `by_entityId_taxYear` (when taxYear provided) or `by_entityId_date` (date range); returns totalIncome, foreignIncome, averageMonthlyIncome, monthlyBreakdown[12], categoryBreakdown[] with percentages; entity ownership validated via getCurrentUser
+  - `getExpenses`: fetches debit transactions; returns totalExpenses, deductibleExpenses (amountNgn × deductiblePercent/100 for isDeductible=true rows), nonDeductibleExpenses, monthlyBreakdown[12], categoryBreakdown[] with isDeductible flag and percentages
+  - `getYearOnYear`: reads taxYearSummaries for current + prior year (by_entityId_taxYear); falls back to live transaction computation if no cached summary; includes monthly income + expense overlays for both years; computes percentage changes (returns null when prior=0)
+  - `_getIncomeRows` (internalQuery): full transaction rows with resolved category names; used by exportCsv action
+  - `_getExpenseRows` (internalQuery): full transaction rows with deductible amounts; used by exportCsv action
+- Created `convex/reportActions.ts` ("use node"):
+  - `exportCsv`: dispatches to income/expenses/yearOnYear CSV builders; calls internal row queries via `ctx.runQuery((internal as any).reports._getIncomeRows|_getExpenseRows)` and public `(api as any).reports.getYearOnYear`; returns `{ csvContent, filename }` (UTF-8 BOM prepended, ISO 8601 dates, RFC 4180 escaping)
+  - `exportPdf`: calls all three summary queries in parallel; converts kobo→Naira for payload; POSTs to NestJS `/pdf/report`; stores PDF via `ctx.storage.store(Blob)`; returns `{ storageId, downloadUrl }`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `internalQuery` from `'./_generated/server'` — same import as query/mutation; callable from actions via `ctx.runQuery((internal as any).module.fn, args)`
+  - For reports queries: use `by_entityId_taxYear` when taxYear provided, else use `by_entityId_date` and JS-filter for date range (safer than conditional Convex filter chaining)
+  - CSV UTF-8 BOM: prepend `'\uFEFF'` to the CSV string; client receives it and can use `new Blob([csv], { type: 'text/csv;charset=utf-8' })` for download
+  - `exportCsv` returns the CSV string directly (no Convex Storage) — fine for MVP; 1MB action return limit is not a concern for typical transaction lists
+  - `exportPdf` uses the same pattern as `invoiceActions.ts`: fetch NestJS → Buffer.from(arrayBuffer) → ctx.storage.store(blob) → ctx.storage.getUrl(storageId)
+  - Year-on-year fallback: when taxYearSummaries haven't been cached yet, sum transactions directly — keeps the query useful even before refreshSummaryCache is called
+---
