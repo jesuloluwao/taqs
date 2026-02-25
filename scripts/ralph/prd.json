@@ -560,7 +560,7 @@
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: US-110 through US-114 — See '§4.2 Import Transactions Screen' for upload flow states"
     },
     {

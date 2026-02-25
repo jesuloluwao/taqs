@@ -131,3 +131,26 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - For edit forms, keeping `isDirty` state and showing a discard dialog before cancelling is good UX (implemented via DiscardChangesDialog)
   - When a category is selected in an edit form, auto-apply `isDeductibleDefault` from that category
 ---
+
+## 2026-02-25 - US-020
+- Created `apps/web/src/pages/ImportTransactions.tsx`: full Import Transactions screen at `/app/import`
+  - Method tabs: Upload Statement | Connect Bank (placeholder) | Connect Fintech (placeholder) | Manual Entry
+  - Upload tab with drag-and-drop zone (web); accepts PDF and CSV files
+  - State machine: idle → uploading (progress bar) → processing (indeterminate bar + "Processing your statement…") → complete/error
+  - Upload flow: generateUploadUrl → fetch POST to Convex Storage → initiateImport mutation → processImport action (fire-and-forget) → subscribe to importJobs.get via ImportJobWatcher component
+  - Complete state: results summary card showing "X transactions imported, Y duplicates skipped" with CTA to view batch or go to transactions
+  - Error state: error message with "Try again" button (resets to idle)
+  - Duplicate explanation info box (always visible on idle; conditional on complete)
+  - ImportJobWatcher uses useQuery on importJobs.get for real-time Convex reactivity
+  - Connect Bank / Connect Fintech tabs: placeholder with "Coming soon" badge
+  - Manual Entry tab: redirects to /app/transactions
+- Updated `apps/web/src/pages/Transactions.tsx`: Import button now navigates to `/app/import` (removed toast placeholder)
+- Updated `apps/web/src/App.tsx`: added `/app/import` route → `ImportTransactions`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex Storage upload: POST to generateUploadUrl result with Content-Type header; response JSON has `storageId`
+  - `useAction` from convex/react is needed for calling Convex actions (vs `useMutation` for mutations)
+  - For real-time job status: subscribe via useQuery on importJobs.get; use a ref to avoid double-notifying on re-renders
+  - `CloudUpload` is not exported from lucide-react — use `UploadCloud` instead
+  - Fire-and-forget pattern for actions: call `.catch()` to handle errors but don't await in main flow; job watcher handles success/failure
+---
