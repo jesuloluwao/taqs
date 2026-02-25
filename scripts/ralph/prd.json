@@ -999,7 +999,7 @@
         "Typecheck passes"
       ],
       "priority": 44,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-6: US-601 through US-604 — See '§4.2 Filing Checklist Screen' and '§4.3 Pre-Filing Review'"
     },
     {

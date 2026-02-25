@@ -681,3 +681,31 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `void activeAccounts` suppression anti-pattern: just delete the unused variable; TS6133 is a hard error
   - `getFilingChecklist` uses by_userId index on invoices + JS filter for entityId — invoices table lacks a plain by_entityId index
 ---
+
+## 2026-02-25 - US-044
+- Rewrote `apps/web/src/pages/Filing.tsx`: full filing checklist screen
+  - Tax year selector in header (select dropdown with Calendar icon)
+  - Readiness meter: horizontal progress bar with dynamic colour (green ≥90%, amber ≥60%, red <60%) and percent label
+  - Grouped checklist using `api.tax.getFilingChecklist` response; groups rendered as cards with item count badge
+  - ChecklistRow: StatusIcon (CheckCircle2/AlertTriangle/XCircle), label, badge ('Done'/'Needs attention'/'Missing'), description on non-complete items, ChevronRight
+  - Navigation: each item key maps to a target route (nin→/settings, entityType→/settings/entities, categorisation→/triage, rentDeclared→/declarations, invoicesMatched→/invoices, etc.)
+  - 'Start Filing Review →' CTA: gated at ≥90% readiness; disabled state shows percent and descriptive label
+  - Skeleton loading state; no-entity empty state with CTA to /settings/entities
+- Created `apps/web/src/pages/FilingReview.tsx`: pre-filing review screen at /app/filing/review
+  - Uses `api.tax.getSummary` for live reactive tax computation
+  - Four review cards: Income (gross, expenses, assessable profit), Deductions & Reliefs (conditional relief rows, total, taxable income), Tax Computation Bands (BandRow per band with rate badge + tax amount), Credits & Net Payable (WHT credits, net payable, effective rate)
+  - BandRow: coloured rate badge (neutral/green/amber/orange/red) + taxable in band + tax in band; zero-income bands hidden
+  - Relief rows conditional: only shown when value > 0 (pension, NHF, NHIS, life assurance, rent, personal)
+  - Amber flagged issues callout: uncategorisedCount, unsupportedCurrencies, minimumTaxApplied, isNilReturn
+  - Blue tip card: 'You can still make amendments after generation'
+  - Sticky footer (md:left-64 for sidebar): 'Go Back to Fix Issues' shown only if flags exist; 'Generate Self-Assessment Form' primary CTA
+  - Nil return badge in header
+- Updated `apps/web/src/App.tsx`: added `/app/filing/review` route → `FilingReview`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useQuery` with `'skip'` literal: safe pattern when `activeEntityId` is null — avoids firing with invalid args
+  - `(api as any).tax.getFilingChecklist` needed since `tax` module may not be in generated api.d.ts types
+  - Sticky footer for review screens: `fixed bottom-0 left-0 right-0 md:left-64 bg-white/95 backdrop-blur border-t` — matches sidebar width on desktop
+  - Relief rows should be conditional (only render when > 0) to avoid cluttering the review with zero rows
+  - Checklist groups from backend use keys: 'Identity & Entity', 'Accounts', 'Transactions', 'Reliefs', 'Invoices & WHT'
+---
