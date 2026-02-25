@@ -1017,7 +1017,7 @@
         "Typecheck passes"
       ],
       "priority": 45,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-6: US-605/US-606/US-607/US-614 — See '§6.2 generateSelfAssessment contract' and '§4.4 Preview Screen'"
     },
     {

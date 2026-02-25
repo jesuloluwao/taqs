@@ -709,3 +709,41 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Relief rows should be conditional (only render when > 0) to avoid cluttering the review with zero rows
   - Checklist groups from backend use keys: 'Identity & Entity', 'Accounts', 'Transactions', 'Reliefs', 'Invoices & WHT'
 ---
+
+## 2026-02-25 - US-045
+- Created `convex/filingHelpers.ts`: internal internalQuery/internalMutation helpers for the "use node" action
+  (getGenerationContext, initiateFilingInternal, applyGeneratedFiling, getFilingForPreview)
+- Created `convex/filingActions.ts` ("use node"): `generateSelfAssessment` action
+  - Calls `ctx.runQuery((api as any).tax.getSummary, ...)` for live tax engine output
+  - Snapshots output as JSON.stringify at generation time (immutable audit record)
+  - Builds PDF: tries NEST_PDF_URL env var first, falls back to inline minimal PDF-1.4 builder (pure Node.js, no deps)
+  - Inline PDF builder: constructs valid PDF from raw bytes; escapes ₦→"NGN", latin1 content stream, precise xref offsets
+  - Stores PDF via `ctx.storage.store(new Blob([buffer], {type:'application/pdf'}))`
+  - Calls `applyGeneratedFiling` internal mutation to mark record as 'generated' with snapshot fields
+  - Blocks regeneration if status is submitted/payment_pending/payment_confirmed/tcc_obtained
+- Updated `convex/filing.ts` `get` query: resolves `selfAssessmentPdfId` to `pdfUrl` via `ctx.storage.getUrl`
+- Updated `apps/web/src/pages/FilingReview.tsx`:
+  - Added `GenerateConfirmDialog` component (shows nil return notice or net payable amount)
+  - Added generating overlay with Loader2 spinner and "Generating your self-assessment…" message
+  - Wired `useAction((api as any).filingActions.generateSelfAssessment)` to footer button
+  - On success: `toast.success` + navigate to `/app/filing/preview/:filingId`
+- Created `apps/web/src/pages/FilingPreview.tsx`: document-style self-assessment preview
+  - Document watermark bar: FIRS header + generation timestamp
+  - Section 1: Taxpayer Details (name, email, entity, type, TIN, NIN masked, tax year, engine version)
+  - Section 2: Income Schedule (gross income, business expenses, assessable profit)
+  - Section 3: Deductions & Reliefs (pension, NHF, NHIS, life assurance, rent relief, consolidated relief)
+  - Section 4: Tax Computation (PIT bands with rate badges + tax per band, CGT/CIT/VAT if applicable)
+  - Section 5: WHT Credits & Net Payable (whtCredits, net payable, effective rate; nil return shown in green)
+  - Immutable snapshot notice with generation timestamp; "Regenerate to update" inline link
+  - Sticky footer: Re-generate button (draft/generated only), Download PDF button, "Proceed to Submit" button
+  - PDF download: fetches pdfUrl from filing record, triggers browser download with filename TaxEase_SelfAssessment_{EntityName}_{TaxYear}.pdf
+- Updated `apps/web/src/App.tsx`: added `/app/filing/preview/:filingId` route
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Inline PDF-1.4 builder: track byte offsets BEFORE adding each object buffer; must be precise for valid xref table
+  - ₦ (U+20A6) is NOT latin1 — always replace with "NGN" in PDF content streams
+  - `ctx.storage.getUrl(storageId)` works in both queries and actions; add it to public queries to avoid extra round-trips
+  - `useAction((api as any).filingActions.generateSelfAssessment)` — filingActions module uses same (api as any) pattern
+  - For PDF download from Convex Storage: use fetch(pdfUrl) + URL.createObjectURL for clean browser download trigger
+  - The `filing.get` public query is the right place to resolve pdfUrl (not a separate query) — one reactive subscription covers both record state and URL
+---
