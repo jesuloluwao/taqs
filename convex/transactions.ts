@@ -39,6 +39,7 @@ export const list = query({
     entityId: v.id('entities'),
     taxYear: v.optional(v.number()),
     type: v.optional(transactionTypeValidator),
+    direction: v.optional(directionValidator),
     categoryId: v.optional(v.id('categories')),
     connectedAccountId: v.optional(v.id('connectedAccounts')),
     startDate: v.optional(v.number()),
@@ -98,6 +99,10 @@ export const list = query({
       );
     }
 
+    if (args.direction) {
+      transactions = transactions.filter((t) => t.direction === args.direction);
+    }
+
     if (args.startDate) {
       transactions = transactions.filter((t) => t.date >= args.startDate!);
     }
@@ -116,17 +121,19 @@ export const list = query({
       );
     }
 
-    // Resolve category names (batch)
+    // Resolve category details (batch)
     const categoryIds = [...new Set(transactions.flatMap((t) => (t.categoryId ? [t.categoryId] : [])))];
-    const categoryMap = new Map<string, string>();
+    const categoryMap = new Map<string, { name: string; color?: string; icon?: string }>();
     for (const catId of categoryIds) {
       const cat = await ctx.db.get(catId);
-      if (cat) categoryMap.set(catId, cat.name);
+      if (cat) categoryMap.set(catId, { name: cat.name, color: cat.color, icon: cat.icon });
     }
 
     const enriched = transactions.map((t) => ({
       ...t,
-      categoryName: t.categoryId ? (categoryMap.get(t.categoryId) ?? null) : null,
+      categoryName: t.categoryId ? (categoryMap.get(t.categoryId)?.name ?? null) : null,
+      categoryColor: t.categoryId ? (categoryMap.get(t.categoryId)?.color ?? null) : null,
+      categoryIcon: t.categoryId ? (categoryMap.get(t.categoryId)?.icon ?? null) : null,
     }));
 
     // Sorting
