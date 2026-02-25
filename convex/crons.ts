@@ -28,4 +28,16 @@ crons.daily(
   (internal as any).invoices._checkOverdue
 );
 
+/**
+ * Hourly: delete expired oauthStates entries.
+ *
+ * OAuth state tokens have a 10-minute TTL; this job removes any that
+ * were never consumed (e.g. user abandoned the OAuth flow).
+ */
+crons.hourly(
+  'cleanupExpiredOauthStates',
+  { minuteUTC: 5 },
+  (internal as any).oauthStates._cleanupExpired
+);
+
 export default crons;

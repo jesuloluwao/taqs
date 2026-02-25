@@ -92,9 +92,37 @@ export default defineSchema({
       v.union(v.literal('active'), v.literal('expired'), v.literal('error'), v.literal('disconnected'))
     ),
     errorMessage: v.optional(v.string()),
+    /** PRD-8 enhanced metadata */
+    metadata: v.optional(v.object({
+      institutionId: v.optional(v.string()),
+      institutionLogo: v.optional(v.string()),
+      accountType: v.optional(v.string()),
+      accountNumber: v.optional(v.string()),
+      /** Link provider used: mono or stitch */
+      linkProvider: v.optional(v.union(v.literal('mono'), v.literal('stitch'))),
+      /** SHA-256 hash of API key (for display/verification without storing plaintext) */
+      apiKeyHash: v.optional(v.string()),
+    })),
   })
     .index('by_userId', ['userId'])
-    .index('by_entityId', ['entityId']),
+    .index('by_entityId', ['entityId'])
+    .index('by_providerAccountId', ['providerAccountId'])
+    .index('by_status', ['status']),
+
+  /**
+   * OAuth PKCE state tokens for bank/payment OAuth flows (PRD-8).
+   * Each entry is single-use and expires in 10 minutes.
+   */
+  oauthStates: defineTable({
+    userId: v.id('users'),
+    entityId: v.id('entities'),
+    provider: v.string(),
+    stateToken: v.string(),
+    redirectUri: v.string(),
+    expiresAt: v.number(),
+  })
+    .index('by_stateToken', ['stateToken'])
+    .index('by_expiresAt', ['expiresAt']),
 
   /**
    * Full PRD-1 transaction schema with all tax-relevant fields.
