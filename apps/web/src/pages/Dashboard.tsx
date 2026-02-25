@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react';
 import { Link } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
 import { useEntity } from '../contexts/EntityContext';
+import { Skeleton } from '../components/Skeleton';
 import {
   TrendingUp,
   TrendingDown,
@@ -112,8 +113,63 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+        {/* Header skeleton */}
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-36" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <Skeleton className="h-4 w-32 mt-1" />
+        </div>
+        {/* Tax position card skeleton */}
+        <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <Skeleton className="h-6 w-12 rounded-full" />
+          </div>
+          <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-6 w-28" />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Stat cards skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="bg-white rounded-xl border border-border shadow-soft p-5 flex items-start gap-4">
+              <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-6 w-32" />
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Recent transactions skeleton */}
+        <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <Skeleton className="h-5 w-44" />
+          </div>
+          <div className="p-5 space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="w-9 h-9 rounded-lg flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+                <Skeleton className="h-5 w-20" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

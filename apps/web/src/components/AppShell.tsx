@@ -238,13 +238,13 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
                 key={item.name}
                 to={item.href}
                 onClick={onNavItemClick}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-[13.5px] font-medium group ${
                   isActive
                     ? 'bg-primary-light text-primary'
-                    : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    : 'text-white/70 hover:bg-white/10 hover:text-white hover:translate-x-0.5'
                 }`}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
+                <Icon className={`w-5 h-5 flex-shrink-0 transition-transform duration-150 ${isActive ? '' : 'group-hover:scale-110'}`} />
                 <span>{item.name}</span>
               </Link>
             );
@@ -255,19 +255,20 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
         <div className="px-3 pt-3 pb-4 border-t border-white/10 flex-shrink-0 space-y-0.5">
           {secondaryNavItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.href;
+            const isActive = location.pathname === item.href ||
+              location.pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={onNavItemClick}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-[13.5px] font-medium group ${
                   isActive
                     ? 'bg-primary-light text-primary'
-                    : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    : 'text-white/70 hover:bg-white/10 hover:text-white hover:translate-x-0.5'
                 }`}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
+                <Icon className={`w-5 h-5 flex-shrink-0 transition-transform duration-150 ${isActive ? '' : 'group-hover:scale-110'}`} />
                 <span>{item.name}</span>
               </Link>
             );
@@ -275,9 +276,9 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
 
           <button
             onClick={() => setShowLogoutDialog(true)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-all duration-150 hover:translate-x-0.5 group"
           >
-            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <LogOut className="w-5 h-5 flex-shrink-0 transition-transform duration-150 group-hover:scale-110" />
             <span>Log Out</span>
           </button>
         </div>

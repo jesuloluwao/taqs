@@ -3,6 +3,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import { toast } from 'sonner';
 import { Bell, Clock, RefreshCcw, AlertTriangle, FileText, Smartphone } from 'lucide-react';
+import { Skeleton } from '../components/Skeleton';
 
 const DEADLINE_DAYS_OPTIONS = [30, 14, 7, 1];
 const INVOICE_OVERDUE_OPTIONS = [1, 3, 7];
@@ -122,8 +123,25 @@ export default function Notifications() {
 
   if (prefs === undefined) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="max-w-2xl mx-auto animate-fade-in">
+        <div className="mb-8 space-y-2">
+          <Skeleton className="h-8 w-44" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <div className="space-y-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="bg-card border border-border rounded-xl shadow-soft p-5 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <Skeleton className="w-9 h-9 rounded-lg flex-shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-64" />
+                </div>
+              </div>
+              <Skeleton className="w-11 h-6 rounded-full flex-shrink-0" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

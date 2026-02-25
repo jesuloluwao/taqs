@@ -3,6 +3,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { toast } from 'sonner';
+import { Skeleton } from '../components/Skeleton';
 import {
   Building2,
   Plus,
@@ -475,8 +476,26 @@ export default function TaxEntities() {
 
   if (entities === undefined) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="max-w-2xl mx-auto animate-fade-in">
+        <div className="flex items-center justify-between mb-6">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-40" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="bg-white border border-border rounded-xl p-5 flex items-start gap-4">
+              <Skeleton className="w-10 h-10 rounded-lg flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <Skeleton className="w-20 h-6 rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

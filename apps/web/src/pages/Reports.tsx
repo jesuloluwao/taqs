@@ -1,21 +1,29 @@
+import { BarChart2 } from 'lucide-react';
+
 export default function Reports() {
   return (
-    <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Reports</h1>
-
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 text-center">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Generate Annual Tax Summary
-        </h2>
-        <p className="text-gray-600 mb-6">
-          This feature is coming soon. You'll be able to generate comprehensive
-          tax reports, summaries, and export them as PDF or CSV.
+    <div className="max-w-4xl mx-auto animate-fade-in">
+      <div className="mb-6">
+        <h1 className="text-heading-xl font-display text-neutral-900">Reports</h1>
+        <p className="text-body-sm text-neutral-500 mt-0.5">
+          Generate tax reports and financial summaries
         </p>
-        <div className="inline-block bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2">
-          <p className="text-sm text-yellow-800">Coming soon</p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center animate-slide-up">
+          <div className="w-16 h-16 rounded-2xl bg-primary-light flex items-center justify-center mb-4">
+            <BarChart2 className="w-8 h-8 text-primary" strokeWidth={1.5} />
+          </div>
+          <p className="text-heading-md text-neutral-900 mb-1">No reports yet</p>
+          <p className="text-body-sm text-neutral-500 mb-5 max-w-xs">
+            Generate comprehensive tax reports and export them as PDF or CSV once you have transactions.
+          </p>
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-light text-primary text-body-sm font-medium">
+            Coming soon
+          </span>
         </div>
       </div>
     </div>
   );
 }
-

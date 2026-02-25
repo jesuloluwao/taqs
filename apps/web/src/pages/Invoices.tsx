@@ -1,8 +1,29 @@
+import { FileText } from 'lucide-react';
+
 export default function Invoices() {
   return (
-    <div>
-      <h1 className="text-heading-lg font-display text-neutral-900 mb-2">Invoices</h1>
-      <p className="text-body text-neutral-500">Coming soon — create and manage client invoices.</p>
+    <div className="max-w-4xl mx-auto animate-fade-in">
+      <div className="mb-6">
+        <h1 className="text-heading-xl font-display text-neutral-900">Invoices</h1>
+        <p className="text-body-sm text-neutral-500 mt-0.5">
+          Create and manage client invoices
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center animate-slide-up">
+          <div className="w-16 h-16 rounded-2xl bg-primary-light flex items-center justify-center mb-4">
+            <FileText className="w-8 h-8 text-primary" strokeWidth={1.5} />
+          </div>
+          <p className="text-heading-md text-neutral-900 mb-1">No invoices yet</p>
+          <p className="text-body-sm text-neutral-500 mb-5 max-w-xs">
+            Create professional invoices, track payments, and stay on top of what you're owed.
+          </p>
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-light text-primary text-body-sm font-medium">
+            Coming soon
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
