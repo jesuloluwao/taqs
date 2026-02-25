@@ -7,6 +7,7 @@ import Landing from './pages/Landing';
 import AppShell from './components/AppShell';
 import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
+import TransactionDetail from './pages/TransactionDetail';
 import Invoices from './pages/Invoices';
 import TaxSummary from './pages/TaxSummary';
 import Filing from './pages/Filing';
@@ -72,6 +73,7 @@ function App() {
           <Route index element={<Navigate to="/app/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="transactions" element={<Transactions />} />
+          <Route path="transactions/:id" element={<TransactionDetail />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="tax-summary" element={<TaxSummary />} />
           <Route path="filing" element={<Filing />} />

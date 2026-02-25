@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from 'convex/react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
+import { ManualTransactionModal } from '../components/ManualTransactionModal';
 import { toast } from 'sonner';
 import {
   Upload,
@@ -17,6 +19,7 @@ import {
   Globe,
   SlidersHorizontal,
   Check,
+  Plus,
 } from 'lucide-react';
 
 // ── Transaction type (matches convex/transactions.ts list result) ──────────
@@ -283,6 +286,7 @@ function CustomRangePicker({
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function Transactions() {
   const { activeEntityId } = useEntity();
+  const navigate = useNavigate();
 
   const [activeFilter, setActiveFilter] = useState<FilterChip>('all');
   const [searchInput, setSearchInput] = useState('');
@@ -291,6 +295,7 @@ export default function Transactions() {
   const [limit, setLimit] = useState(25);
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
+  const [showManualModal, setShowManualModal] = useState(false);
 
   const debouncedSearch = useDebounce(searchInput, 350);
 
@@ -414,13 +419,22 @@ export default function Transactions() {
               : `${totalCount.toLocaleString()} transaction${totalCount !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button
-          onClick={handleImport}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
-        >
-          <Upload className="w-4 h-4" />
-          <span>Import</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowManualModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-body-sm font-medium text-neutral-700 hover:text-neutral-900 hover:bg-muted transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add</span>
+          </button>
+          <button
+            onClick={handleImport}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Import</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -553,6 +567,7 @@ export default function Transactions() {
                     return (
                       <div
                         key={tx._id}
+                        onClick={() => navigate(`/app/transactions/${tx._id}`)}
                         className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors cursor-pointer group"
                       >
                         {/* Direction icon */}
@@ -654,6 +669,10 @@ export default function Transactions() {
           </div>
         )}
       </div>
+
+      {showManualModal && (
+        <ManualTransactionModal onClose={() => setShowManualModal(false)} />
+      )}
     </div>
   );
 }

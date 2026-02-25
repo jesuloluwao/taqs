@@ -178,12 +178,16 @@ export const get = query({
     if (!transaction || transaction.userId !== user._id) return null;
 
     let categoryName: string | null = null;
+    let categoryColor: string | null = null;
+    let categoryIcon: string | null = null;
     if (transaction.categoryId) {
       const cat = await ctx.db.get(transaction.categoryId);
       categoryName = cat?.name ?? null;
+      categoryColor = cat?.color ?? null;
+      categoryIcon = cat?.icon ?? null;
     }
 
-    return { ...transaction, categoryName };
+    return { ...transaction, categoryName, categoryColor, categoryIcon };
   },
 });
 
