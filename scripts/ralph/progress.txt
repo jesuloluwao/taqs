@@ -443,3 +443,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - invoiceId field in invoiceItems references v.id('invoices') — ensures referential consistency in queries
   - Denormalised clientName/clientEmail on invoices follows the DenormalisedClient pattern from PRD-4 overview
 ---
+
+## 2026-02-25 - US-034
+- Added `whtRate: v.optional(v.number())` to invoices table in `convex/schema.ts` (needed for invoice-to-transaction bridge)
+- Updated `convex/invoices.ts`:
+  - `create`: now stores `whtRate` on invoice record alongside whtAmount
+  - `update`: now updates `whtRate` in patch when provided
+  - Added `markPaid` mutation: validates invoice is sent/overdue (not draft/paid/cancelled); requires amountNgn for non-NGN invoices; looks up 'Freelance/Client Income' category by type+name; atomically creates income transaction (amount=totalDue, whtDeducted=whtAmount, whtRate, categoryId, invoiceId, direction='credit', type='income', reviewedByUser=true) then sets invoice status='paid' and paidAt; throws if already paid (idempotency)
+  - Added `cancel` mutation: draft/sent only → status='cancelled'; no transactions created or removed
+  - Added `remove` mutation: draft only → deletes all invoiceItems then hard-deletes invoice
+  - Added `_getInvoiceWithItems` internalQuery: fetches invoice + items + entityName (for PDF)
+  - Added `_setPdfAndSent` internalMutation: sets pdfStorageId + status='sent' (called by send action)
+  - Added `_setPdf` internalMutation: sets pdfStorageId only (called by generatePdf action)
+- Created `convex/invoiceActions.ts` ("use node" action file):
+  - `generatePdf` action: calls _getInvoiceWithItems → POSTs to NestJS PDF service → stores PDF in Convex Storage via ctx.storage.store(Blob) → calls _setPdf; returns storageId
+  - `send` action: same flow + sends email via Resend API with PDF attachment → calls _setPdfAndSent (sets status='sent'); re-send on 'sent' invoice regenerates PDF and re-emails (status stays 'sent')
+  - Environment variables: NESTJS_PDF_SERVICE_URL, RESEND_API_KEY, FROM_EMAIL
+  - `buildPdfPayload`: converts kobo amounts to naira major units for PDF display
+  - `sendInvoiceEmail`: graceful skip if RESEND_API_KEY not set (logs warning)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Invoice whtRate must be stored on the invoice record (not just derived from whtAmount) for the bridge to accurately pass it to the transaction
+  - `ctx.storage.store(blob: Blob)` works in "use node" Convex actions — wrap Buffer in `new Blob([buffer], { type: 'application/pdf' })`
+  - For send actions that need both read + write, use internalQuery for data fetch and internalMutation for DB writes — keeps "use node" action file clean
+  - markPaid: draft invoices cannot be marked paid (must be sent/overdue first) — enforces proper lifecycle
+  - amountNgn for FX invoices must be caller-provided at markPaid time since exchange rate at payment != rate at invoice time
+---

@@ -819,7 +819,7 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-4: US-406/US-407/US-408/US-408a — See '§7.5 Invoice-to-Transaction Field Mapping' for exact bridge fields"
     },
     {
