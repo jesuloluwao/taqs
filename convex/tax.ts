@@ -2,8 +2,10 @@
  * TaxEase Nigeria — Tax Engine Public API (PRD-3)
  *
  * Exports:
- *   getSummary        — reactive query: runs engine inline, re-evaluates on
- *                       any transaction / declaration / disposal change.
+ *   getSummary          — reactive query: runs engine inline, re-evaluates on
+ *                         any transaction / declaration / disposal change.
+ *   getIncomeBreakdown  — reactive query: groups income transactions into four
+ *                         buckets (freelance/client, foreign, investment, rental).
  *   refreshSummaryCache — mutation: writes engine output to taxYearSummaries
  *                         for fast dashboard reads.
  */
@@ -101,6 +103,80 @@ export const getSummary = query({
       ...result,
       engineVersionForYear: getEngineForYear(args.taxYear),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getIncomeBreakdown — group income transactions into four display buckets
+// ---------------------------------------------------------------------------
+
+/**
+ * Groups income transactions for a given entity+taxYear into four buckets:
+ *   - freelanceClient: NGN income not matching investment/rental patterns
+ *   - foreign:         income in a non-NGN currency (USD, GBP, EUR)
+ *   - investment:      income whose category name suggests dividends/interest
+ *   - rental:          income whose category name suggests property/rent
+ *
+ * Returns null when the user is not authenticated or does not own the entity.
+ */
+export const getIncomeBreakdown = query({
+  args: {
+    entityId: v.id('entities'),
+    taxYear: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) return null;
+
+    // Fetch all income transactions for this entity+year
+    const allTx = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .collect();
+
+    const incomeTx = allTx.filter((t) => t.type === 'income');
+
+    // Build a map of categoryId → category name (lowercase)
+    const categoryIds = [...new Set(
+      incomeTx.filter((t) => t.categoryId).map((t) => t.categoryId as string)
+    )];
+    const categoryMap = new Map<string, string>();
+    for (const catId of categoryIds) {
+      const cat = await ctx.db.get(catId as any);
+      if (cat) categoryMap.set(catId, (cat as any).name?.toLowerCase() ?? '');
+    }
+
+    let freelanceClient = 0;
+    let foreign = 0;
+    let investment = 0;
+    let rental = 0;
+
+    for (const t of incomeTx) {
+      const amount = t.amountNgn;
+
+      // Foreign: any non-NGN currency
+      if (t.currency && t.currency !== 'NGN') {
+        foreign += amount;
+        continue;
+      }
+
+      const catName = t.categoryId ? (categoryMap.get(t.categoryId) ?? '') : '';
+
+      if (/invest|dividend|interest|stock|share|bond|capital gain/i.test(catName)) {
+        investment += amount;
+      } else if (/rent|rental|property|real estate|lease/i.test(catName)) {
+        rental += amount;
+      } else {
+        freelanceClient += amount;
+      }
+    }
+
+    return { freelanceClient, foreign, investment, rental };
   },
 });
 
