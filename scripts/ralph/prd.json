@@ -876,7 +876,7 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-4: US-403/US-404 — See '§4.3 Create/Edit Invoice Screen' for detailed layout"
     },
     {

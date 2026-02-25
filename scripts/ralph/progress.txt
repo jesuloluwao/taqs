@@ -516,3 +516,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `w-4.5` is not a valid Tailwind class — use `w-4` or `w-[18px]` for 18px icon sizing
   - `api` import needed explicitly even when using `(api as any)` pattern
 ---
+
+## 2026-02-25 - US-037
+- Created `apps/web/src/pages/InvoiceForm.tsx`: full create/edit invoice UI
+  - §1 Invoice Details: auto-generated invoice number (readonly), currency selector (NGN/USD/GBP/EUR), issue date, due date
+  - §2 Client: search autocomplete using `clients.search` query (debounced via Convex reactivity); selecting a client auto-populates email, address, currency, whtRate; typing a new name shows "new client" hint and auto-creates client record on save; X/clear button; ✓ indicator for existing client selected
+  - §3 Line Items: responsive table (desktop: grid with header row; mobile: stacked with side-by-side qty/price); add/remove rows (min 1 row); per-row validation; amounts displayed in Naira with currency symbol prefix
+  - §4 Totals: live-computed from lineItems (Naira arithmetic); WHT segmented control (0% | 5% | 10%) with description; VAT (7.5%) shown only if entity.vatRegistered && entity.vatThresholdExceeded; Total Due prominent with primary color
+  - §5 Notes: textarea for payment terms, bank details, etc.
+  - §6 Recurring: toggle (role=switch) with monthly/quarterly interval selector and next issue date picker; shown only in non-readonly state
+  - Sticky footer: Save Draft | Preview | Send Invoice (md:left-64 sidebar offset); buttons show spinner during async operations
+  - Edit mode: pre-populated from `invoices.get` query; non-draft invoices show amber warning banner + all fields disabled
+  - Dirty form warning: `useBlocker(isDirty)` from react-router-dom shows ConfirmDialog on in-app navigation; `window.beforeunload` for browser nav
+  - Amount convention: users enter Naira, multiply by 100 (kobo) for Convex mutations; kobo÷100 when pre-populating edit form
+  - Auto-create client: `clients.create` called in `ensureClientId()` before invoice save if no clientId; non-fatal (invoice saves with clientName only if creation fails)
+  - Send flow: validates clientEmail → saveInvoice() → invoiceActions.send action → toast + navigate
+- Updated `apps/web/src/App.tsx`: added routes `/app/invoices/new` and `/app/invoices/:id/edit`
+- Updated `apps/web/src/pages/Invoices.tsx`: row click now navigates to `/app/invoices/:id/edit` (edit form handles non-draft read-only display)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useBlocker(isDirty)` (boolean form) works cleanly in react-router-dom v6.21 — call `blocker.proceed()` or `blocker.reset()` from ConfirmDialog
+  - For edit pre-population, use `initialised.current` ref to prevent re-running the effect on every re-render of the query
+  - `useAction` from convex/react for calling Convex actions (not useMutation) — required for "use node" action files like invoiceActions.ts
+  - Client autocomplete: `useQuery` with skip-if-empty pattern (`clientSearch.trim().length > 0 ? { ... } : 'skip'`) gives immediate results without debounce
+  - For form amounts: always display/accept in major currency units (Naira), multiply ×100 on submit, divide ÷100 on load
+  - `SectionCard` wrapper component keeps section layout consistent across the form
+---
