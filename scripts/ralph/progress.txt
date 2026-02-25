@@ -97,3 +97,37 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Filter chips for Income/Expenses use `direction` (credit/debit) not `type` — more intuitive for users
   - Limit-based pagination (increasing limit state) works well with Convex reactive queries — no separate accumulation needed
 ---
+
+## 2026-02-25 - US-019
+- Created `apps/web/src/pages/TransactionDetail.tsx`: full transaction detail/edit page at `/app/transactions/:id`
+  - Hero summary card: direction icon, description, naira amount, date, category badge, foreign currency badge
+  - View mode: all fields shown in labeled rows (date, amount, FX rate, currency, direction, type, category, source, invoice, taxYear)
+  - Tax information section: isDeductible toggle, deductiblePercent, whtDeducted, whtRate
+  - Notes section with edit textarea
+  - Edit mode: inline editable inputs for description, category (dropdown), type, isDeductible toggle, deductiblePercent, whtDeducted, notes
+  - Save/Cancel header buttons with dirty form tracking
+  - Discard Changes dialog shown when cancelling with unsaved edits
+  - 'Mark as Personal' one-tap action button (type=personal_expense, isDeductible=false)
+  - Delete Transaction button with confirmation dialog (permanent delete → navigate back to list)
+  - Success/error toasts on all actions
+  - Loading skeleton and 404 not-found state
+- Created `apps/web/src/components/ManualTransactionModal.tsx`: slide-up modal for manual transaction entry
+  - Fields: date, description, amount, currency, direction, FX rate (shown for non-NGN), computed NGN equivalent, category dropdown, type, isDeductible, deductiblePercent, whtDeducted, whtRate, notes
+  - Auto-sets isDeductible from category.isDeductibleDefault when category is selected
+  - Converts user-entered Naira amounts to kobo on submit
+  - Inline validation errors for required fields and range checks
+  - Closes on Escape key or backdrop click
+- Updated `convex/transactions.ts`: `get` query now returns `categoryColor` and `categoryIcon` alongside `categoryName`
+- Updated `apps/web/src/App.tsx`: added `/app/transactions/:id` route → `TransactionDetail`
+- Updated `apps/web/src/pages/Transactions.tsx`:
+  - Added `+` (Add) button next to Import button in header
+  - Transaction rows are now clickable (navigate to `/app/transactions/:id`)
+  - Added `ManualTransactionModal` rendered when showManualModal is true
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - For modal/overlay components: use `fixed inset-0 z-50` + backdrop div + animate-slide-up on panel — consistent with existing design
+  - Amount input convention: users enter in currency units (Naira), multiply by 100 to store in kobo for all monetary fields (amount, whtDeducted)
+  - `useParams<{ id: string }>()` returns string; pass directly as `Id<'transactions'>` cast to Convex — runtime validates the ID format
+  - For edit forms, keeping `isDirty` state and showing a discard dialog before cancelling is good UX (implemented via DiscardChangesDialog)
+  - When a category is selected in an edit form, auto-apply `isDeductibleDefault` from that category
+---
