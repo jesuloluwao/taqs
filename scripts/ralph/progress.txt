@@ -201,3 +201,19 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - `DetailField` helper rendered after default export is valid TypeScript (hoisting works for function declarations)
   - Unused imports from lucide-react cause TS6133 errors — always check unused imports before build
 ---
+
+## 2026-02-25 - US-013
+- Created `apps/web/src/pages/Notifications.tsx`: preferences form with 5 controls (deadline reminders toggle + lead days 30/14/7/1, VAT reminder toggle, uncategorised alert frequency daily/weekly/off, invoice overdue days 1/3/7, push notifications toggle); auto-creates defaults on first access when prefs === null; saves via updatePreferences with sonner toast
+- Created `apps/web/src/pages/DeleteAccount.tsx`: explicit danger warning listing all deleted data, email-confirmation input (must match user's actual email), calls deleteAccount action then signOut then navigate('/'); uses useAction from convex/react
+- Updated `apps/web/src/components/AppShell.tsx`: replaced SignOutButton with LogoutConfirmDialog pattern — button shows dialog 'Are you sure you want to log out?', on confirm calls useClerk().signOut() + navigate('/'); removed unused SignOutButton import
+- Updated `apps/web/src/pages/Settings.tsx`: added Notifications card linking to /app/settings/notifications (between Profile and Tax Entities sections)
+- Updated `apps/web/src/App.tsx`: added routes /app/settings/notifications (Notifications) and /app/settings/delete-account (DeleteAccount)
+- **Learnings for future iterations:**
+  - `useAction` from 'convex/react' is the correct hook for Convex actions (parallel to useMutation for mutations)
+  - `useClerk().signOut()` is the programmatic sign-out method; replaces the `<SignOutButton>` wrapper component when you need confirmation first
+  - `useNavigate` works inside components rendered inside `<BrowserRouter>` anywhere in the tree
+  - For logout confirmation: remove `<SignOutButton>` wrapper entirely; use plain button → dialog → programmatic signOut → navigate('/')
+  - Delete account re-auth: "type your email" confirmation is a clean, universal approach (works for password and OAuth users); no Clerk re-auth API needed
+  - Preferences upsert: `updatePreferences` in convex/userCrud.ts handles both create (if no prefs row) and update; `createDefaultPreferences` is idempotent and called when prefs === null on first page load
+  - `deadlineReminderDays: 0` is the convention for "disabled" since the field is `v.optional(v.number())` and 0 is a valid number; check `> 0` for enabled state in UI
+---
