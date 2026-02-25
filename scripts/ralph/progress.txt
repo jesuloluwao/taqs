@@ -819,3 +819,25 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Doughnut <3% grouping: split categoryBreakdown into large/small arrays in useMemo, push 'Other' segment if small.length > 0
   - ChangeChip component: `lowerIsBetter` prop inverts the good/bad color logic (green for expenses going down)
 ---
+
+## 2026-02-25 - US-049
+- Updated `convex/reports.ts` `getYearOnYear`: added `hasPriorData` boolean (true when prior year transactions or summary exist), `currentEffectiveTaxRate`, `priorEffectiveTaxRate` (from taxYearSummaries.effectiveTaxRate or computed), `effectiveTaxRateChange`
+- Rewrote `apps/web/src/pages/Reports.tsx` with US-049 features:
+  - `YoyCompareCard`: two-column layout showing currentYear vs priorYear side by side; shows '—' and 'N/A' when `hasPriorData=false`
+  - `ChangeChip` updated: accepts `hasPriorData` prop; shows 'N/A' text when prior year missing
+  - `LineChart` updated: `hasPriorData` prop — omits prior year polyline and legend when false; prior year shown as dashed (#A0AEC0) vs current year solid (#1A7F5E)
+  - Info banner when `!yoyData.hasPriorData`: blue callout with Info icon
+  - 4-card YoY grid: Total Income, Total Expenses, Tax Liability, Effective Tax Rate
+  - Export FAB: `fixed bottom-6 right-4 md:hidden` circular button (mobile only)
+  - Desktop export: header button `hidden md:inline-flex` for web layout
+  - `ExportSheet`: fixed bottom sheet with backdrop, CSV + PDF options with spinner loading states
+  - `handleExport`: Promise.race with 30s timeout; downloadCsvBlob helper (Blob + URL.createObjectURL); downloadPdfUrl helper; toast.success on completion; toast.error with Retry action on failure
+  - Filenames: `taxease_{tab}_{datePart}.csv/.pdf` where datePart = year or custom range
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `hasPriorData` flag: check `priorTx.length > 0 || !!priorSummary` in backend — zero amounts could mean real zero-income year, not missing data
+  - Export Promise.race pattern: `new Promise<never>((_, reject) => setTimeout(() => reject(new Error(...)), 30_000))` — clean timeout without AbortController
+  - `toast.error(msg, { action: { label: 'Retry', onClick: () => fn() } })` — sonner supports retry actions inline
+  - Unused `useQuery` (for entities list): remove or suppress with void if not used in JSX to avoid TS6133 error
+  - `hasPriorData` passed as prop to child SVG components — avoids prop drilling through intermediate components
+---

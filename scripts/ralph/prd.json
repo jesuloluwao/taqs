@@ -1090,7 +1090,7 @@
         "Typecheck passes"
       ],
       "priority": 49,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-7: US-709 through US-720 — See '§4 UI Specifications' for chart and export specs"
     },
     {
