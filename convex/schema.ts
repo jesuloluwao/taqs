@@ -153,6 +153,8 @@ export default defineSchema({
     aiCategorisingJobId: v.optional(v.id('categorisingJobs')),
     aiCategorisedAt: v.optional(v.number()),
     userOverrodeAi: v.optional(v.boolean()),
+    /** Whether the transaction amount is VAT-inclusive (for input VAT reclaimability) */
+    isVatInclusive: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -313,16 +315,30 @@ export default defineSchema({
         taxPayable: v.number(),
       })
     ),
+    /** Assessable profit (grossIncome − expenses, clamped) in kobo */
+    assessableProfit: v.number(),
     /** Gross PIT before credits, in kobo */
     grossTaxPayable: v.number(),
     /** Aggregate WHT credits in kobo */
     whtCredits: v.number(),
     /** Net PIT after WHT offset, in kobo */
     netTaxPayable: v.number(),
-    /** VAT payable (output − input) in kobo; null if not VAT-registered */
+    /** True if minimum tax rule overrode band-computed gross tax */
+    minimumTaxApplied: v.boolean(),
+    /** Total capital gains from non-exempt disposals, in kobo */
+    cgGains: v.optional(v.number()),
+    /** CGT payable (LLCs: 30% flat; individuals: 0 — gains rolled into PIT) in kobo */
+    cgtPayable: v.optional(v.number()),
+    /** VAT payable (output − input) in kobo; 0 if not VAT-registered */
     vatPayable: v.optional(v.number()),
     /** CIT payable (LLCs only) in kobo */
     citPayable: v.optional(v.number()),
+    /** Total tax liability (PIT + CGT + CIT + VAT) in kobo */
+    totalTaxPayable: v.number(),
+    /** Effective tax rate (netTaxPayable / grossIncome) as decimal */
+    effectiveTaxRate: v.number(),
+    /** Count of uncategorised transactions at time of computation */
+    uncategorisedCount: v.number(),
     /** True if no tax is owed and a nil return should be filed */
     isNilReturn: v.boolean(),
     /** Unix timestamp (ms) when computation ran */
