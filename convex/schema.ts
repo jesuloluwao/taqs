@@ -478,6 +478,48 @@ export default defineSchema({
     .index('by_date_currency', ['date', 'currency']),
 
   /**
+   * Filing records — one per entity per tax year (PRD-6).
+   * Captures an immutable TaxSummarySnapshot at generation time.
+   */
+  filingRecords: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+    /** Filing lifecycle status */
+    status: v.union(
+      v.literal('draft'),
+      v.literal('generated'),
+      v.literal('submitted'),
+      v.literal('payment_pending'),
+      v.literal('payment_confirmed'),
+      v.literal('tcc_obtained')
+    ),
+    /** Convex storage ID for the generated self-assessment PDF */
+    selfAssessmentPdfId: v.optional(v.string()),
+    /** Convex storage ID for the uploaded payment receipt */
+    paymentReceiptId: v.optional(v.string()),
+    /** Convex storage ID for the uploaded TCC document */
+    tccDocumentId: v.optional(v.string()),
+    /** Unix timestamp (ms) when marked as submitted */
+    submittedAt: v.optional(v.number()),
+    /** Net tax payable in kobo at generation time */
+    netTaxPayable: v.optional(v.number()),
+    /** JSON.stringify(TaxEngineOutput) — immutable audit snapshot at generation */
+    taxSummarySnapshot: v.optional(v.string()),
+    /** Unix timestamp (ms) when PDF was generated */
+    generatedAt: v.optional(v.number()),
+    /** Engine version used at generation time */
+    engineVersion: v.optional(v.string()),
+    /** True if no tax was owed at generation time */
+    isNilReturn: v.optional(v.boolean()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId_taxYear', ['entityId', 'taxYear'])
+    .index('by_userId', ['userId'])
+    .index('by_status', ['status']),
+
+  /**
    * Capital asset disposals for CGT computation (PRD-3).
    */
   capitalDisposals: defineTable({

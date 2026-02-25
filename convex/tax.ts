@@ -1,5 +1,5 @@
 /**
- * TaxEase Nigeria — Tax Engine Public API (PRD-3)
+ * TaxEase Nigeria — Tax Engine Public API (PRD-3 / PRD-6)
  *
  * Exports:
  *   getSummary          — reactive query: runs engine inline, re-evaluates on
@@ -8,6 +8,8 @@
  *                         buckets (freelance/client, foreign, investment, rental).
  *   refreshSummaryCache — mutation: writes engine output to taxYearSummaries
  *                         for fast dashboard reads.
+ *   getFilingChecklist  — query: computes 10 pre-filing readiness items with
+ *                         readinessPercent and grouped structure (PRD-6 §5.1).
  */
 
 import { mutation, query } from './_generated/server';
@@ -315,5 +317,237 @@ export const refreshSummaryCache = mutation({
     }
 
     return await ctx.db.insert('taxYearSummaries', summaryFields);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getFilingChecklist — pre-filing readiness checklist (PRD-6 §5.1)
+// ---------------------------------------------------------------------------
+
+type ChecklistItemStatus = 'complete' | 'incomplete' | 'warning';
+
+interface ChecklistItem {
+  key: string;
+  label: string;
+  description: string;
+  status: ChecklistItemStatus;
+  group: string;
+}
+
+/**
+ * Compute the 10-item pre-filing checklist for a given entity+taxYear.
+ *
+ * Returns:
+ *   - items: ordered list of ChecklistItem
+ *   - readinessPercent: 0–100 (complete items / total)
+ *   - grouped: Record<group, ChecklistItem[]>
+ *
+ * Gate for filing: readinessPercent >= 90 (i.e., at least 9 of 10 complete).
+ */
+export const getFilingChecklist = query({
+  args: {
+    entityId: v.id('entities'),
+    taxYear: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) return null;
+
+    // ---- Fetch supporting data in parallel (sequential in Convex, but readable) ----
+
+    // 1. Connected accounts for entity
+    const connectedAccounts = await ctx.db
+      .query('connectedAccounts')
+      .withIndex('by_entityId', (q) => q.eq('entityId', args.entityId))
+      .collect();
+
+    // 2. Transactions for entity+taxYear
+    const transactions = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .collect();
+
+    // 3. Tax declarations
+    const declaration = await ctx.db
+      .query('taxDeclarations')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .first();
+
+    // 4. Invoices for entity
+    const invoices = await ctx.db
+      .query('invoices')
+      .withIndex('by_userId', (q) => q.eq('userId', user._id))
+      .collect();
+    const entityInvoices = invoices.filter((inv) => inv.entityId === args.entityId);
+
+    // ---- Derive category names for rent check ----
+    const expenseCategoryIds = [
+      ...new Set(
+        transactions
+          .filter((t) => t.type === 'business_expense' && t.categoryId)
+          .map((t) => t.categoryId as string)
+      ),
+    ];
+    const rentCategoryIds = new Set<string>();
+    for (const catId of expenseCategoryIds) {
+      const cat = await ctx.db.get(catId as any);
+      if (cat && /rent|lease|property/i.test((cat as any).name ?? '')) {
+        rentCategoryIds.add(catId);
+      }
+    }
+
+    // ---- Compute each checklist item ----
+    const items: ChecklistItem[] = [];
+
+    // 1. NIN registered
+    items.push({
+      key: 'nin',
+      label: 'NIN registered',
+      description: 'Your National Identification Number must be on file for FIRS verification.',
+      status: user.nin ? 'complete' : 'incomplete',
+      group: 'Identity & Entity',
+    });
+
+    // 2. Entity type & TIN confirmed
+    const hasTin = !!(entity.tin || user.firsTin);
+    items.push({
+      key: 'entityType',
+      label: 'Entity type & TIN confirmed',
+      description: 'Entity classification and Tax Identification Number must be set.',
+      status: hasTin ? 'complete' : 'incomplete',
+      group: 'Identity & Entity',
+    });
+
+    // 3. Bank account linked
+    items.push({
+      key: 'bankAccounts',
+      label: 'Bank account linked',
+      description: 'At least one connected bank account or statement upload is required.',
+      status: connectedAccounts.length > 0 ? 'complete' : 'warning',
+      group: 'Accounts',
+    });
+
+    // 4. Foreign income reviewed
+    const foreignUncategorised = transactions.filter(
+      (t) => t.currency !== 'NGN' && t.type === 'uncategorised'
+    );
+    const foreignIncomeTx = transactions.filter((t) => t.currency !== 'NGN' && t.type === 'income');
+    let foreignStatus: ChecklistItemStatus;
+    if (foreignUncategorised.length > 0) {
+      foreignStatus = 'incomplete';
+    } else if (foreignIncomeTx.length > 0 && foreignIncomeTx.every((t) => t.reviewedByUser)) {
+      foreignStatus = 'complete';
+    } else if (foreignIncomeTx.length === 0) {
+      foreignStatus = 'complete'; // no foreign income — not applicable
+    } else {
+      foreignStatus = 'warning'; // foreign income exists but not all reviewed
+    }
+    items.push({
+      key: 'foreignIncome',
+      label: 'Foreign income reviewed',
+      description: 'All non-NGN income transactions must be categorised and reviewed.',
+      status: foreignStatus,
+      group: 'Transactions',
+    });
+
+    // 5. Income transactions reviewed
+    const incomeTx = transactions.filter((t) => t.type === 'income');
+    const allIncomeReviewed = incomeTx.length === 0 || incomeTx.every((t) => t.reviewedByUser);
+    items.push({
+      key: 'incomeReviewed',
+      label: 'Income transactions reviewed',
+      description: 'All income entries must be marked as reviewed before filing.',
+      status: allIncomeReviewed ? 'complete' : 'incomplete',
+      group: 'Transactions',
+    });
+
+    // 6. All transactions categorised
+    const uncategorisedCount = transactions.filter((t) => t.type === 'uncategorised').length;
+    items.push({
+      key: 'categorisation',
+      label: 'All transactions categorised',
+      description: `${uncategorisedCount} transaction(s) still need a category assigned.`,
+      status: uncategorisedCount === 0 ? 'complete' : 'incomplete',
+      group: 'Transactions',
+    });
+
+    // 7. Expenses verified
+    const expenseTx = transactions.filter((t) => t.type === 'business_expense');
+    const allExpensesVerified =
+      expenseTx.length === 0 || expenseTx.every((t) => t.reviewedByUser);
+    items.push({
+      key: 'expensesVerified',
+      label: 'Business expenses verified',
+      description: 'All business expense transactions must be reviewed and deductibility confirmed.',
+      status: allExpensesVerified ? 'complete' : 'incomplete',
+      group: 'Transactions',
+    });
+
+    // 8. Rent relief declared
+    const hasRentExpenses = transactions.some(
+      (t) => t.type === 'business_expense' && t.categoryId && rentCategoryIds.has(t.categoryId)
+    );
+    let rentStatus: ChecklistItemStatus;
+    if (!hasRentExpenses) {
+      rentStatus = 'complete'; // no rent expenses — not applicable
+    } else if (declaration && (declaration.annualRentPaid ?? 0) > 0) {
+      rentStatus = 'complete';
+    } else {
+      rentStatus = 'warning'; // rent expenses detected but not declared
+    }
+    items.push({
+      key: 'rentDeclared',
+      label: 'Rent relief declared',
+      description: 'If you pay rent, declare the annual amount to claim the 20% relief (max ₦500,000).',
+      status: rentStatus,
+      group: 'Reliefs',
+    });
+
+    // 9. Invoices matched
+    const openInvoices = entityInvoices.filter((inv) =>
+      inv.status === 'draft' || inv.status === 'sent' || inv.status === 'overdue'
+    );
+    items.push({
+      key: 'invoicesMatched',
+      label: 'Invoices matched',
+      description: 'All sent invoices should be marked paid or cancelled before filing.',
+      status: openInvoices.length === 0 ? 'complete' : 'warning',
+      group: 'Invoices & WHT',
+    });
+
+    // 10. WHT verified
+    const whtIncomeTx = transactions.filter(
+      (t) => t.type === 'income' && (t.whtRate ?? 0) > 0
+    );
+    const allWhtSet = whtIncomeTx.every((t) => (t.whtDeducted ?? 0) > 0);
+    const whtStatus: ChecklistItemStatus =
+      whtIncomeTx.length === 0 || allWhtSet ? 'complete' : 'warning';
+    items.push({
+      key: 'wht',
+      label: 'WHT credits verified',
+      description: 'Withholding tax amounts must be set on all applicable income transactions.',
+      status: whtStatus,
+      group: 'Invoices & WHT',
+    });
+
+    // ---- Compute readiness ----
+    const completeCount = items.filter((i) => i.status === 'complete').length;
+    const readinessPercent = Math.round((completeCount / items.length) * 100);
+
+    // ---- Group items ----
+    const grouped: Record<string, ChecklistItem[]> = {};
+    for (const item of items) {
+      if (!grouped[item.group]) grouped[item.group] = [];
+      grouped[item.group].push(item);
+    }
+
+    return { items, readinessPercent, grouped };
   },
 });
