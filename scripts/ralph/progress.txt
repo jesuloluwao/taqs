@@ -338,3 +338,30 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Minimum tax check: compare `grossTaxFromBands < Math.round(grossIncome × 0.005)` (not against the final minimum), then apply max(that value, ₦200k)
   - `minimumTaxApplied` boolean flag in output lets callers show a UI warning when minimum tax overrides band computation
 ---
+
+## 2026-02-25 - US-029
+- Extended `convex/taxEngine.ts`:
+  - Added `TaxEngineCapitalDisposal` interface and `getEngineForYear(taxYear)` version router
+  - Extended `TaxEngineInput` with `capitalDisposals`, `isVatRegistered`, `outputVatNgn`, `grossFixedAssetsNgn`
+  - Extended `TaxEngineOutput` with `cgtPayable`, `cgGains`, `citPayable`, `vatPayable`, `totalTaxPayable`, `effectiveTaxRate`, `uncategorisedCount`, `unsupportedCurrencies`
+  - Added `computeCit()`: small company exemption (turnover ≤₦100m AND grossFixedAssets ≤₦250m); otherwise 30%+4% dev levy
+  - Added `computeCgGains()`: sums non-exempt disposal gains (proceeds−cost per disposal, clamped to 0)
+  - Added `computeVat()`: inputVat from isVatInclusive business_expense transactions (× 7.5/107.5); outputVat passed as parameter
+  - CGT: individuals → gains rolled into grossIncome before PIT; LLCs → 30% flat cgtPayable separate
+  - Updated nil return detection: `isNilReturn = netTaxPayable === 0 || taxableIncome <= ₦800k`
+  - Added SUPPORTED_CURRENCIES constant; unsupportedCurrencies flagged in output
+- Updated `convex/schema.ts`:
+  - Added `isVatInclusive: v.optional(v.boolean())` to transactions table
+  - Extended `taxYearSummaries` with `assessableProfit`, `minimumTaxApplied`, `cgGains`, `cgtPayable`, `totalTaxPayable`, `effectiveTaxRate`, `uncategorisedCount` fields
+- Created `convex/tax.ts`:
+  - `getSummary` query: reactive — fetches transactions + declarations + capitalDisposals, runs engine, returns full TaxEngineOutput (auto re-runs on any data change)
+  - `refreshSummaryCache` mutation: upserts engine result to taxYearSummaries; historical records with different engineVersion are preserved (not overwritten)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - CGT for individuals is NOT a separate tax line — gains are added to grossIncome before PIT bands run; set cgtPayable=0 and cgGains separately for display
+  - CIT small company exemption: if grossFixedAssetsNgn is undefined, assume small company (conservative default prevents phantom CIT charges)
+  - Engine version router pattern: `getEngineForYear(taxYear)` returns version string; refreshSummaryCache skips if cached version !== current → historical records immutable
+  - For VAT, outputVatNgn is passed as 0 until invoice module is built — engine is ready to receive real invoice data later
+  - `isVatInclusive` on transactions allows input VAT reclaimability calculation without separate VAT tracking fields
+  - `(t as any).isVatInclusive` needed when reading new schema fields that aren't in Convex's generated types yet
+---
