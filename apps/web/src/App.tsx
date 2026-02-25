@@ -18,6 +18,8 @@ import TaxSummary from './pages/TaxSummary';
 import Filing from './pages/Filing';
 import FilingReview from './pages/FilingReview';
 import FilingPreview from './pages/FilingPreview';
+import FilingSubmit from './pages/FilingSubmit';
+import FilingHistory from './pages/FilingHistory';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import TaxEntities from './pages/TaxEntities';
@@ -96,6 +98,8 @@ function App() {
           <Route path="filing" element={<Filing />} />
           <Route path="filing/review" element={<FilingReview />} />
           <Route path="filing/preview/:filingId" element={<FilingPreview />} />
+          <Route path="filing/submit/:filingId" element={<FilingSubmit />} />
+          <Route path="filing/history" element={<FilingHistory />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/entities" element={<TaxEntities />} />

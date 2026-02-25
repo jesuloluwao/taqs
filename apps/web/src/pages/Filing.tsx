@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FolderOpen,
   Calendar,
+  History,
 } from 'lucide-react';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -276,6 +277,17 @@ export default function Filing() {
                 Reach 90% readiness to start your filing review
               </p>
             )}
+          </div>
+
+          {/* Filing History link */}
+          <div className="text-center pb-4">
+            <button
+              onClick={() => navigate('/app/filing/history')}
+              className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-600 transition-colors"
+            >
+              <History className="w-4 h-4" />
+              View filing history
+            </button>
           </div>
         </div>
       )}

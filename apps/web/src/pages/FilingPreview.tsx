@@ -681,7 +681,7 @@ export default function FilingPreview() {
 
           {filing.status === 'generated' && (
             <button
-              onClick={() => navigate('/app/filing/submit')}
+              onClick={() => navigate(`/app/filing/submit/${filing._id}`)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-soft"
             >
               Proceed to Submit →

@@ -339,6 +339,20 @@ export const listByUser = query({
       .order('desc')
       .take(args.limit ?? 50);
 
-    return records;
+    // Resolve entity names for display
+    const entityCache = new Map<string, string>();
+    const enriched = await Promise.all(
+      records.map(async (r) => {
+        let entityName = entityCache.get(r.entityId as string);
+        if (!entityName) {
+          const entity = await ctx.db.get(r.entityId);
+          entityName = entity?.name ?? '—';
+          entityCache.set(r.entityId as string, entityName);
+        }
+        return { ...r, entityName };
+      })
+    );
+
+    return enriched;
   },
 });
