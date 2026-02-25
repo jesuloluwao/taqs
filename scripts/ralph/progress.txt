@@ -180,3 +180,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Triage queue: guard with `queue === null` in useEffect to freeze list on first load
   - `bulkCategorise` requires both `categoryId` AND `type` — pass `category.type` from picker
 ---
+
+## 2026-02-25 - US-022
+- Added `create`, `update`, `remove` mutations to `convex/categories.ts`
+  - `remove` clears categoryId + sets type='uncategorised' on all affected transactions before deleting
+- Created `convex/connectedAccounts.ts`: `list` query (entity-scoped, user-filtered), `add` mutation, `disconnect` mutation
+- Created `apps/web/src/pages/Categories.tsx`: categories management at `/app/settings/categories`
+  - Groups by type: Income, Business Expenses, Personal, Transfers
+  - System categories (isSystem=true) show lock badge, no edit/delete actions
+  - Custom categories show edit/delete actions on hover
+  - Create modal: name, type selector, deductible toggle (business only), icon picker (emoji), color picker
+  - Edit modal: same form pre-populated (type locked in edit mode)
+  - Delete confirmation: warns transactions will move to uncategorised
+- Created `apps/web/src/pages/ConnectedAccounts.tsx`: accounts screen at `/app/settings/accounts`
+  - Empty state: "No accounts linked yet" + "Add Account" CTA
+  - AccountCard shows: provider icon, name, status badge, currency, last synced relative time
+  - Add Account modal: accountName, provider (statement_upload | manual), currency
+  - Disconnect confirmation dialog; preserves existing transactions
+- Updated `apps/web/src/App.tsx`: added routes for `/app/settings/categories` and `/app/settings/accounts`
+- Updated `apps/web/src/pages/Settings.tsx`: added Categories and Connected Accounts link cards
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Connected accounts module uses `(api as any).connectedAccounts.*` pattern (new module, not in generated types)
+  - For categories `remove` mutation, must clear categoryId field on transactions — use `undefined` not `null` for optional Convex fields
+  - Emoji icon + hex color picker combo works well for category customisation UX
+  - Account status badges (active/expired/error/disconnected) use distinct color schemes for quick visual scanning
+---

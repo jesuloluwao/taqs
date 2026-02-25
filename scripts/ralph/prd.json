@@ -599,7 +599,7 @@
         "Typecheck passes"
       ],
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: US-121 through US-126 — See '§4.5 Categories Management' and '§4.6 Connected Accounts Screen'"
     },
     {
