@@ -523,7 +523,7 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: US-101/US-102 — See '§4.1 Transaction List Screen' for detailed layout spec"
     },
     {

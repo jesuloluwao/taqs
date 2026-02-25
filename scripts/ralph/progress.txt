@@ -73,3 +73,27 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - convex/package.json deps need `npm install` run in `/convex` directory separately
   - Amount storage convention: ALL amounts stored in smallest unit (kobo = Naira × 100) for integer math
 ---
+
+## 2026-02-25 - US-018
+- Built full Transaction List UI at `/app/transactions`
+- Extended `convex/transactions.ts` list query: added `direction` filter arg (credit/debit) and returns `categoryColor`/`categoryIcon` from resolved category
+- `apps/web/src/pages/Transactions.tsx`: completely rewritten with:
+  - Page header with 'Transactions' title + count subtitle + 'Import' button
+  - Filter chips: All | Income | Expenses | Uncategorised | This Month | This Quarter | Custom Range
+  - Custom Range picker (date inputs dropdown anchored to chips bar)
+  - Debounced search bar (350ms) with clear button
+  - Sort dropdown: date desc/asc, amount desc/asc, category A–Z/Z–A
+  - Grouped by month with sticky section headers ('February 2026')
+  - Transaction rows: direction icon (green/red), category color dot, description truncated, date, category label or 'Uncategorised' in warning color, amount (+green for credit / neutral for debit), foreign currency badge + original amount
+  - Load more button (25 per page, increases limit by 25)
+  - Footer showing total count when all loaded
+  - Skeleton loading state (8 shimmer rows)
+  - Empty state with illustration + contextual message + Import Now CTA or Clear filters link
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `api.transactions.list` fails TypeScript — stale generated types. Use `(api as any).transactions.list` and cast result to a local interface
+  - Same pattern as internal action calls: `(api as any).module.fn` for any module not in the generated api.d.ts
+  - Define a local `TransactionRow` interface for typing query results when generated types are stale
+  - Filter chips for Income/Expenses use `direction` (credit/debit) not `type` — more intuitive for users
+  - Limit-based pagination (increasing limit state) works well with Convex reactive queries — no separate accumulation needed
+---
