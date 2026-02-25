@@ -800,7 +800,7 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-4: See '§6.1 Clients' and '§6.2 Invoices' for all function specs"
     },
     {

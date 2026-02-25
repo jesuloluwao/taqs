@@ -412,6 +412,26 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `koboToNgn` returning '' for 0 values creates clean empty input fields on first load
 ---
 
+## 2026-02-25 - US-033
+- Created `convex/clients.ts`: list (entity-scoped, alphabetical), get, create, update, remove, search (by name prefix, returns ≤10)
+  - whtRate validated to be 0, 5, or 10 in create/update
+  - delete does NOT cascade to invoices (denormalised data on invoices is preserved)
+  - search uses by_entityId_name index with JS prefix filter
+- Created `convex/invoices.ts`: get (with joined items), list (paginated with summary totals), create, update
+  - `create`: generates sequential INV-{YEAR}-{NNNN} numbers atomically (derives max seq from existing invoice numbers in same entity+year — safe because Convex mutations are ACID/serial)
+  - `create`: computes subtotal = Σ(qty×unitPrice), whtAmount = subtotal×whtRate/100, vatAmount = subtotal×7.5% (only if entity.vatRegistered AND vatThresholdExceeded), totalDue = subtotal−whtAmount+vatAmount
+  - `create`: denormalises clientName/clientEmail from client record at creation time
+  - `update`: draft-only guard; if lineItems provided, deletes all existing invoiceItems then re-inserts + recalculates totals
+  - `list`: always fetches all entity invoices for accurate summary totals (outstanding=sent+overdue sum, paidThisYear=paid with paidAt in current year); applies status filter for pagination only
+  - `amountNgn` computed as totalDue × fxRate (defaults to 1 if not provided)
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Atomic sequential number generation in Convex: query existing records, find max, increment — safe because mutations are ACID (no concurrent execution)
+  - `invoices` table has no plain `by_entityId` index — use `by_userId` + JS filter when you need all entity invoices across all statuses
+  - For list queries that need both paginated results AND global aggregates, fetch all first then slice — avoids double queries
+  - whtAmount/vatAmount should be stored as `undefined` (not 0) when not applicable — use conditional insertion
+---
+
 ## 2026-02-25 - US-032
 - Added `clients` table to convex/schema.ts: entityId, userId, name, email, address, currency, whtRate; indexes by_entityId, by_userId, by_entityId_name
 - Added `invoices` table: entityId, userId, clientId, clientName (denormalised), clientEmail (denormalised), invoiceNumber, status (draft/sent/paid/overdue/cancelled), issueDate, dueDate, currency, subtotal, whtAmount, vatAmount, totalDue, amountNgn, paidAt, notes, isRecurring, recurringInterval, nextIssueDate, pdfStorageId; indexes by_entityId_status, by_entityId_dueDate, by_userId, by_entityId_invoiceNumber, by_entityId_isRecurring
