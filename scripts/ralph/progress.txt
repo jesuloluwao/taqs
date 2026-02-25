@@ -13,6 +13,9 @@ Started: Wed Feb 25 10:30:23 WAT 2026
 - Cross-module internal calls from actions: use `(internal as any).moduleName.fnName` since _generated/api.d.ts isn't regenerated during dev
 - PDF parsing in Convex: install `pdf-parse` in convex/package.json; use dynamic import inside action handler for CJS compatibility
 - `makeFunctionReference` exists in convex/server but type assertions on `internal` are simpler for cross-module action→mutation calls
+- Anthropic SDK in Convex: install in convex/package.json; use `await import('@anthropic-ai/sdk' as any)` + `mod.default ?? mod` pattern for compatibility
+- `ctx.runAction` is available inside Convex actions to call other actions (useful for chaining async pipelines)
+- AI failure in import pipeline: wrap `ctx.runAction(aiCategorise...)` in try/catch so import job completes even if AI is unavailable
 
 ---
 
@@ -205,4 +208,21 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - For categories `remove` mutation, must clear categoryId field on transactions — use `undefined` not `null` for optional Convex fields
   - Emoji icon + hex color picker combo works well for category customisation UX
   - Account status badges (active/expired/error/disconnected) use distinct color schemes for quick visual scanning
+---
+
+## 2026-02-25 - US-023
+- Added AI fields to `transactions` schema: aiCategorySuggestion, aiTypeSuggestion, aiCategoryConfidence, aiReasoning, aiCategorisingJobId, aiCategorisedAt, userOverrodeAi
+- Added `categorisingJobs` table: tracks batch AI categorisation operations (entityId, userId, importJobId, status, totalTransactions/Categorised/LowConfidence/Failed, batchesTotal/Completed, confidenceThreshold, modelUsed, totalTokensUsed, estimatedCostUsd, errorMessage, startedAt, completedAt)
+- Added `aiCategorisationFeedback` table: captures user overrides for few-shot learning (entityId, userId, transactionId, aiSuggested*, userChosen*, transactionDescription/Amount/Direction)
+- Created `convex/aiCategoriseHelpers.ts`: internal mutations/queries for AI job lifecycle (createCategorisingJob, updateCategorisingJob, applyAiResults, getTransactionsByImportJob, getCategoriesList)
+- Created `convex/aiCategorise.ts` ("use node"): `categoriseBatch` internalAction — Claude Haiku API, batches ≤50 transactions, 500ms inter-batch delay, retry 3x on 429/5xx with exponential backoff, applies categories ≥0.7 confidence, stores suggestions for <0.7
+- Updated `convex/importPipeline.ts`: after batchInsert, creates categorisingJob + calls `aiCategorise.categoriseBatch` via ctx.runAction; wrapped in try/catch so AI failure never blocks import
+- Installed `@anthropic-ai/sdk` in convex/package.json
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `"use node"` Convex actions CAN call other actions via `ctx.runAction(internal.module.fn, args)`
+  - Anthropic SDK dynamic import: `const mod = await import('@anthropic-ai/sdk' as any); const Anthropic = mod.default ?? mod;`
+  - AI pipeline separated: mutations for DB ops (aiCategoriseHelpers.ts) + action for API call (aiCategorise.ts) — "use node" restriction requires this split
+  - Confidence threshold 0.7: auto-apply category if ≥0.7 AND matching category name found in DB; otherwise store suggestion only
+  - Category name lookup: case-insensitive map from category.name → category record; updates type + isDeductible from category.isDeductibleDefault
 ---
