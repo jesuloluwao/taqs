@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Clock,
   ArrowUpRight,
+  Send,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -293,6 +294,7 @@ interface RecentTx {
   categoryName: string | null;
   categoryColor: string | null;
   categoryIcon: string | null;
+  currency: string;
 }
 
 function RecentTransactionRow({ tx }: { tx: RecentTx }) {
@@ -327,10 +329,15 @@ function RecentTransactionRow({ tx }: { tx: RecentTx }) {
         </p>
       </div>
 
-      {/* Amount */}
-      <p className={`font-mono text-sm font-semibold flex-shrink-0 ${isCredit ? 'text-success' : 'text-neutral-700'}`}>
-        {isCredit ? '+' : '-'}{formatNaira(tx.amountNgn)}
-      </p>
+      {/* Amount + optional currency badge */}
+      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+        <p className={`font-mono text-sm font-semibold ${isCredit ? 'text-success' : 'text-neutral-700'}`}>
+          {isCredit ? '+' : '-'}{formatNaira(tx.amountNgn)}
+        </p>
+        {tx.currency && tx.currency !== 'NGN' && (
+          <span className="text-xs text-neutral-400 font-mono">{tx.currency}</span>
+        )}
+      </div>
     </Link>
   );
 }
@@ -365,6 +372,110 @@ function EmptyState({
       >
         {ctaLabel}
       </Link>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Invoice Activity Card
+// ---------------------------------------------------------------------------
+
+interface InvoiceActivityCardProps {
+  sentThisMonth: number;
+  outstandingAmountKobo: number;
+  outstandingCount: number;
+  overdueCount: number;
+  hasInvoices: boolean;
+}
+
+function InvoiceActivityCard({
+  sentThisMonth,
+  outstandingAmountKobo,
+  outstandingCount,
+  overdueCount,
+  hasInvoices,
+}: InvoiceActivityCardProps) {
+  if (!hasInvoices) {
+    return (
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-heading-md text-neutral-900">Invoice Activity</h2>
+        </div>
+        <EmptyState
+          icon={FileText}
+          headline="No invoices yet"
+          subtext="Create your first invoice to start tracking receivables."
+          ctaLabel="Create Invoice"
+          ctaTo="/app/invoices/new"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <h2 className="text-heading-md text-neutral-900">Invoice Activity</h2>
+        <Link
+          to="/app/invoices"
+          className="text-body-sm text-primary font-medium hover:underline flex items-center gap-1"
+        >
+          Go to Invoices
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+      <div className="px-5 py-1 divide-y divide-border/60">
+        {/* Sent this month */}
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-primary-light flex items-center justify-center flex-shrink-0">
+              <Send className="w-3.5 h-3.5 text-primary" />
+            </div>
+            <span className="text-body-sm text-neutral-600">Sent this month</span>
+          </div>
+          <span className="font-mono text-sm font-semibold text-neutral-900">
+            {sentThisMonth} {sentThisMonth === 1 ? 'invoice' : 'invoices'}
+          </span>
+        </div>
+
+        {/* Outstanding */}
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-warning/10 flex items-center justify-center flex-shrink-0">
+              <Banknote className="w-3.5 h-3.5 text-warning" />
+            </div>
+            <span className="text-body-sm text-neutral-600">
+              Outstanding{outstandingCount > 0 ? ` (${outstandingCount})` : ''}
+            </span>
+          </div>
+          <span className="font-mono text-sm font-semibold text-neutral-900">
+            {formatNaira(outstandingAmountKobo)}
+          </span>
+        </div>
+
+        {/* Overdue */}
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                overdueCount > 0 ? 'bg-danger/10' : 'bg-neutral-100'
+              }`}
+            >
+              <AlertTriangle
+                className={`w-3.5 h-3.5 ${overdueCount > 0 ? 'text-danger' : 'text-neutral-400'}`}
+              />
+            </div>
+            <span className="text-body-sm text-neutral-600">Overdue</span>
+          </div>
+          <span
+            className={`font-mono text-sm font-semibold ${
+              overdueCount > 0 ? 'text-danger' : 'text-neutral-700'
+            }`}
+          >
+            {overdueCount} {overdueCount === 1 ? 'invoice' : 'invoices'}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -440,6 +551,23 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        {/* Invoice activity skeleton */}
+        <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <Skeleton className="h-5 w-36" />
+          </div>
+          <div className="px-5 py-3 space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="w-7 h-7 rounded-md flex-shrink-0" />
+                  <Skeleton className="h-4 w-28" />
+                </div>
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -491,11 +619,14 @@ export default function Dashboard() {
           <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-body-sm font-semibold text-warning">
-              {uncategorisedCount} uncategorised transaction{uncategorisedCount !== 1 ? 's' : ''}
+              {uncategorisedCount} {uncategorisedCount === 1 ? 'transaction needs' : 'transactions need'} categorisation
             </p>
             <p className="text-xs text-neutral-500">Categorise now to get an accurate tax estimate</p>
           </div>
-          <ChevronRight className="w-4 h-4 text-warning flex-shrink-0" />
+          <span className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-warning text-white text-xs font-semibold whitespace-nowrap">
+            Review Now
+            <ChevronRight className="w-3 h-3" />
+          </span>
         </Link>
       )}
 
@@ -581,9 +712,10 @@ export default function Dashboard() {
           {hasTransactions && (
             <Link
               to="/app/transactions"
-              className="text-body-sm text-primary font-medium hover:underline"
+              className="text-body-sm text-primary font-medium hover:underline flex items-center gap-1"
             >
-              View all
+              View All Transactions
+              <ChevronRight className="w-3.5 h-3.5" />
             </Link>
           )}
         </div>
@@ -608,6 +740,15 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Invoice Activity */}
+      <InvoiceActivityCard
+        sentThisMonth={invoiceStats?.sentThisMonthCount ?? 0}
+        outstandingAmountKobo={invoiceStats?.outstandingAmountKobo ?? 0}
+        outstandingCount={invoiceStats?.outstandingCount ?? 0}
+        overdueCount={invoiceStats?.overdueCount ?? 0}
+        hasInvoices={summary?.hasInvoices ?? false}
+      />
 
       {/* Import CTA banner — shown when no transactions */}
       {!hasTransactions && (
