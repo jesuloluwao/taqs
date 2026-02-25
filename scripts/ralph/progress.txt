@@ -469,3 +469,27 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - markPaid: draft invoices cannot be marked paid (must be sent/overdue first) — enforces proper lifecycle
   - amountNgn for FX invoices must be caller-provided at markPaid time since exchange rate at payment != rate at invoice time
 ---
+
+## 2026-02-25 - US-035
+- Added `_checkOverdue` internal mutation to `convex/invoices.ts`:
+  - Collects all invoices with status='sent' via table scan + filter
+  - JS-filters to those where dueDate < now
+  - Patches each to status='overdue', updatedAt=now
+- Added `_generateRecurring` internal mutation to `convex/invoices.ts`:
+  - Collects all recurring invoices (isRecurring=true) via table scan
+  - JS-filters to those where nextIssueDate !== undefined AND <= now
+  - For each: fetches line items, computes new issueDate/dueDate (preserves due-date offset), generates fresh INV-{YEAR}-{NNNN} number, inserts cloned invoice as 'draft', clones all line items, advances template nextIssueDate by recurringInterval (monthly=+1mo, quarterly=+3mo)
+  - Added `advanceByInterval` helper function
+- Created `convex/crons.ts`:
+  - `generateRecurringInvoices`: daily at 06:00 UTC (07:00 WAT) → `internal.invoices._generateRecurring`
+  - `checkOverdueInvoices`: daily at 08:00 UTC (09:00 WAT) → `internal.invoices._checkOverdue`
+  - Uses `(internal as any).invoices.*` pattern since generated types may be stale
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex crons.ts: export `cronJobs()` default; use `crons.daily(name, { hourUTC, minuteUTC }, funcRef)` pattern
+  - WAT is UTC+1: 07:00 WAT = 06:00 UTC, 09:00 WAT = 08:00 UTC
+  - Convex crons can schedule internalMutation refs directly (no "use node" needed for DB-only crons)
+  - For table-wide scans in crons (no user scoping), use `.query('table').filter(...)` with JS-level secondary filter — safe for small datasets
+  - `(internal as any).moduleName.functionName` pattern works in crons.ts for stale generated types
+  - Don't use `q.lte` with optional fields in Convex filters — collect then JS-filter is safer for nullable/undefined fields
+---

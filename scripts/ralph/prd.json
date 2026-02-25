@@ -836,7 +836,7 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-4: US-411/US-419 — See '§7.6 Scheduled Functions' for cron specs"
     },
     {
