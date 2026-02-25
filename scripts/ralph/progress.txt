@@ -301,3 +301,16 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Few-shot examples live in `aiCategorisationFeedback` table (already seeded when user accepts/overrides AI in Triage)
   - `useQuery` with `'skip'` as second arg prevents firing when `activeEntityId` is undefined — use `(api as any).module.fn` for unstubbed modules
 ---
+
+## 2026-02-25 - US-027
+- Added `taxYearSummaries` table to `convex/schema.ts`: entityId, userId, taxYear, engineVersion, totalGrossIncome, totalBusinessExpenses, reliefs (nested object: rent/pension/nhis/nhf/lifeInsurance/mortgage/total), taxableIncome, bands (array of objects: rate/from/to/income/taxPayable), grossTaxPayable, whtCredits, netTaxPayable, vatPayable, citPayable, isNilReturn, computedAt; indexed by_entityId_taxYear
+- Added `taxDeclarations` table: entityId, userId, taxYear, annualRentPaid, pensionContributions, nhisContributions, nhfContributions, lifeInsurancePremiums, mortgageInterest, createdAt, updatedAt; indexed by_entityId_taxYear
+- Added `fxRates` table: date (YYYY-MM-DD string), currency (USD/GBP/EUR), cbnRate; indexed by_date_currency
+- Added `capitalDisposals` table: entityId, userId, taxYear, assetDescription, acquisitionCostNgn, disposalProceedsNgn, acquisitionDate, disposalDate, isExempt, exemptionReason, createdAt, updatedAt; indexed by_entityId_taxYear
+- Created `convex/taxDeclarations.ts`: `get` query (entityId+taxYear, auth-guarded), `createOrUpdate` mutation (upsert pattern using withIndex first())
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex supports `v.object({...})` for nested objects and `v.array(v.object({...}))` for arrays of objects in schema — no flattening needed
+  - Upsert pattern: query with withIndex().first() → if exists, ctx.db.patch; else ctx.db.insert — clean and idiomatic
+  - All monetary amounts stored in kobo (smallest unit) per project convention; even FX rates stored as NGN per 1 unit (not fractional)
+---
