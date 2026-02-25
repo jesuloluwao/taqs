@@ -636,7 +636,7 @@
         "Typecheck passes"
       ],
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-2: US-202 through US-205 — See '§4.2 Categorisation Triage Screen' and '§4.3 Transaction List' for AI UI enhancements"
     },
     {

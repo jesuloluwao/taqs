@@ -226,3 +226,34 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Confidence threshold 0.7: auto-apply category if ≥0.7 AND matching category name found in DB; otherwise store suggestion only
   - Category name lookup: case-insensitive map from category.name → category record; updates type + isDeductible from category.isDeductibleDefault
 ---
+
+## 2026-02-25 - US-024
+- Added `userOverrodeAi` field to `update` mutation args in `convex/transactions.ts`
+- Added `acceptAiSuggestion` mutation: looks up category by aiCategorySuggestion name (case-insensitive), applies categoryId+type+isDeductible, sets reviewedByUser=true/userOverrodeAi=false
+- Added `recordAiFeedback` mutation: inserts aiCategorisationFeedback record with AI suggestion vs user choice for few-shot learning
+- Updated `apps/web/src/pages/Transactions.tsx`:
+  - Added AI fields to TransactionRow interface (aiCategorySuggestion, aiCategoryConfidence, aiCategorisingJobId, userOverrodeAi)
+  - In row meta line: show 🤖+confidence badge (green ≥0.9, amber 0.7–0.89) for AI-categorised unreviewed; ✓ for user-reviewed; 'AI suggests: X · Y%' for uncategorised+AI suggestion
+  - Confidence badges hidden on manually-entered or user-reviewed transactions
+- Rewrote `apps/web/src/pages/Triage.tsx`:
+  - Extended UncategorisedTx interface with AI fields (includes entityId for feedback recording)
+  - TransactionCard shows AI suggestion panel with confidence bar and ℹ reasoning icon
+  - AiReasoningSheet bottom sheet component shown when ℹ clicked
+  - "Accept: [suggestion]" primary button calls acceptAiSuggestion mutation
+  - "Override category" (renamed from "Change category") calls recordAiFeedback + update with userOverrodeAi=true
+  - "Mark as Personal" calls recordAiFeedback if AI had suggestion + sets userOverrodeAi=true
+  - processingRef used to prevent double-submit
+- Updated `apps/web/src/pages/TransactionDetail.tsx`:
+  - Added AI fields to TransactionFull interface
+  - Added acceptAiMutation and recordFeedbackMutation hooks
+  - Inserted AI Categorisation section (between Details and Tax sections): suggestion+confidence bar, ℹ View reasoning, Accept suggestion button, or reviewed status with override indicator
+  - AI reasoning bottom sheet overlay
+  - handleSave: detects override (aiCategorisingJobId set + category changing) → records feedback + sets userOverrodeAi=true
+  - handleMarkPersonal: records feedback if AI was involved
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - For AI override detection in detail/save: compare form.categoryId !== (transaction.categoryId ?? '') to detect change
+  - acceptAiSuggestion mutation does DB category name lookup server-side — avoids needing categories list on client for simple accept flow
+  - processingRef pattern (useRef boolean) prevents double-submit on async triage actions while still showing disabled state via state
+  - AI section only renders when aiCategorisingJobId is set — ensures clean hide on manual/non-AI transactions
+---
