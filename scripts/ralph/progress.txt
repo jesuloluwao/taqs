@@ -955,3 +955,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - AccountDetail uses `useQuery((api as any).importJobs.listByAccount, ...)` for sync history — Convex reactivity keeps it live
   - Provider `apiKeyHash` stored in `metadata.apiKeyHash` — display last 8 chars with `···· ` prefix for security UX
 ---
+
+## 2026-02-26 - US-054
+- Added `notifications` table to convex/schema.ts: userId, type (8 variants), title, body, entityId, relatedId, read, readAt; indexes by_userId_read, by_userId_creationTime
+- Added `pushTokens` table to convex/schema.ts: userId, token, platform, active, lastUsedAt; indexes by_userId_active, by_token
+- Added firebase-admin to convex/package.json dependencies
+- Created `convex/notifications.ts`:
+  - `list` query: paginated (limit, default 50), ordered by _creationTime desc, returns hasMore
+  - `getUnreadCount` query: counts unread via by_userId_read index
+  - `markRead` mutation: patches single notification with read=true, readAt=now
+  - `markAllRead` mutation: bulk patches all unread notifications, returns count
+  - `create` internalMutation: inserts notification, checks userPreferences.pushEnabled, schedules push.send via ctx.scheduler.runAfter if enabled
+- Created `convex/pushTokens.ts`:
+  - `register` mutation: upserts by token string (checks by_token index), updates userId/platform/active/lastUsedAt
+  - `_getActiveTokens` internalQuery: fetches all active tokens for a userId
+  - `_deactivateTokens` internalMutation: marks given token IDs as inactive
+- Created `convex/push.ts` ("use node"):
+  - `send` internalAction: lazy-init Firebase Admin SDK via dynamic import, fetches active tokens via pushTokens._getActiveTokens, dispatches sendEachForMulticast, deactivates tokens on NotRegistered FCM error via pushTokens._deactivateTokens
+  - Silently no-ops when FIREBASE_SERVICE_ACCOUNT env var is not set
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - firebase-admin: use dynamic import with `as any` cast (same pattern as @anthropic-ai/sdk) to avoid TS2307 before package is installed in convex/
+  - Internal helper mutations/queries for "use node" actions MUST be in a separate file (by_* helpers go in pushTokens.ts not push.ts)
+  - `_getActiveTokens` and `_deactivateTokens` are internalQuery/internalMutation (not exported publicly) — prefix with `_` for clarity
+  - `ctx.scheduler.runAfter(0, internal.push.send, args)` is the pattern for fire-and-forget push from internalMutation
+  - `by_userId_creationTime` index: just `['userId']` — Convex orders by _creationTime natively on queries so `['userId']` index is sufficient for the order('desc') pattern
+---
