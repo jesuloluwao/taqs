@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
@@ -20,6 +20,8 @@ import {
   Check,
   Info,
   X,
+  Sparkles,
+  XCircle,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -281,6 +283,153 @@ function TransactionCard({
   );
 }
 
+// ── AI bulk categorise confirm dialog (Triage) ─────────────────────────────
+function TriageAiConfirmDialog({
+  count,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  count: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !loading && onCancel()} />
+      <div className="relative bg-white rounded-2xl shadow-medium w-full max-w-sm p-6 animate-slide-up">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-neutral-900">Auto-categorise with AI</h3>
+            <p className="text-xs text-neutral-500 mt-0.5">Powered by Claude Haiku</p>
+          </div>
+        </div>
+        <p className="text-body-sm text-neutral-600 mb-5">
+          TaxEase AI will attempt to categorise{' '}
+          <span className="font-semibold text-neutral-900">{count} uncategorised transaction{count !== 1 ? 's' : ''}</span>
+          . High-confidence results are applied automatically; low-confidence items remain for manual review.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-body-sm font-medium text-neutral-700 bg-muted rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-body-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Start
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AI progress overlay (Triage) ────────────────────────────────────────────
+interface CategorisingJobInfo {
+  status: string;
+  totalTransactions: number;
+  batchesTotal?: number;
+  batchesCompleted?: number;
+  totalCategorised?: number;
+  totalLowConfidence?: number;
+}
+
+function TriageAiProgressOverlay({
+  jobId,
+  onCancel,
+  onComplete,
+}: {
+  jobId: Id<'categorisingJobs'>;
+  onCancel: () => void;
+  onComplete: (categorised: number, lowConfidence: number, total: number) => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const job = useQuery((api as any).categorisingJobs.get, { id: jobId }) as CategorisingJobInfo | null | undefined;
+  const notifiedRef = useRef(false);
+
+  useEffect(() => {
+    if (!job || notifiedRef.current) return;
+    if (job.status === 'complete' || job.status === 'failed') {
+      notifiedRef.current = true;
+      onComplete(job.totalCategorised ?? 0, job.totalLowConfidence ?? 0, job.totalTransactions);
+    }
+  }, [job, onComplete]);
+
+  const batchesTotal = job?.batchesTotal ?? 0;
+  const batchesCompleted = job?.batchesCompleted ?? 0;
+  const pct = batchesTotal > 0 ? Math.round((batchesCompleted / batchesTotal) * 100) : 0;
+  const statusLabel =
+    job?.status === 'processing'
+      ? `Processing batch ${batchesCompleted + 1} of ${batchesTotal}…`
+      : job?.status === 'complete'
+      ? 'Categorisation complete'
+      : job?.status === 'failed'
+      ? 'Categorisation failed'
+      : 'Starting…';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-medium w-full max-w-sm p-6 animate-slide-up">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-neutral-900">AI Categorisation</h3>
+            <p className="text-xs text-neutral-500 mt-0.5">{statusLabel}</p>
+          </div>
+        </div>
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-body-sm text-neutral-500">
+              {batchesTotal > 0 ? `${batchesCompleted} of ${batchesTotal} batches` : 'Preparing…'}
+            </span>
+            <span className="text-body-sm font-medium text-neutral-900">{pct}%</span>
+          </div>
+          <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+            {batchesTotal === 0 ? (
+              <div className="h-full bg-primary/40 rounded-full animate-pulse w-full" />
+            ) : (
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-700"
+                style={{ width: `${pct}%` }}
+              />
+            )}
+          </div>
+        </div>
+        <p className="text-body-sm text-neutral-500 mb-5">
+          Analysing {job?.totalTransactions ?? '…'} transactions with Claude AI.
+        </p>
+        <button
+          onClick={onCancel}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-body-sm font-medium text-neutral-600 border border-border rounded-lg hover:bg-muted transition-colors"
+        >
+          <XCircle className="w-4 h-4" />
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function Triage() {
   const { activeEntityId } = useEntity();
@@ -305,6 +454,16 @@ export default function Triage() {
   const [showPicker, setShowPicker] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
   const [processing, setProcessing] = useState(false);
+
+  // AI bulk categorise state
+  const [showAiConfirm, setShowAiConfirm] = useState(false);
+  const [aiConfirmLoading, setAiConfirmLoading] = useState(false);
+  const [activeAiJobId, setActiveAiJobId] = useState<Id<'categorisingJobs'> | null>(null);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const autoCategoriseAction = useAction((api as any).transactionActions.autoCategorise);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cancelJobMutation = useMutation((api as any).categorisingJobs.cancel);
 
   // Capture queue once on first load
   useEffect(() => {
@@ -423,6 +582,59 @@ export default function Triage() {
     setIndex((i) => i + 1);
   }
 
+  async function handleStartAiCategorise() {
+    if (!activeEntityId) return;
+    setAiConfirmLoading(true);
+    try {
+      const result = await autoCategoriseAction({ entityId: activeEntityId }) as {
+        categorisingJobId: string | null;
+        totalTransactions: number;
+      };
+      setShowAiConfirm(false);
+      if (!result.categorisingJobId) {
+        toast.info('No uncategorised transactions to process');
+        return;
+      }
+      setActiveAiJobId(result.categorisingJobId as Id<'categorisingJobs'>);
+    } catch {
+      toast.error('Failed to start AI categorisation');
+    } finally {
+      setAiConfirmLoading(false);
+    }
+  }
+
+  const handleAiComplete = useCallback(
+    (categorised: number, _lowConfidence: number, total: number) => {
+      setActiveAiJobId(null);
+      // Reset queue so it reloads with updated categorisation state
+      setQueue(null);
+      setIndex(0);
+      const needsReview = total - categorised;
+      if (categorised === 0) {
+        toast.info(`AI could not confidently categorise any transactions. ${total} need manual review.`);
+      } else if (needsReview > 0) {
+        toast.success(
+          `Categorised ${categorised} of ${total} transaction${total !== 1 ? 's' : ''}. ${needsReview} need${needsReview === 1 ? 's' : ''} manual review.`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success(`Categorised all ${categorised} transaction${categorised !== 1 ? 's' : ''} successfully!`);
+      }
+    },
+    []
+  );
+
+  async function handleCancelAiJob() {
+    if (!activeAiJobId) return;
+    try {
+      await cancelJobMutation({ id: activeAiJobId });
+    } catch {
+      // Ignore cancel errors
+    }
+    setActiveAiJobId(null);
+    toast.info('Categorisation cancelled');
+  }
+
   if (!activeEntityId) {
     return (
       <div className="max-w-lg mx-auto animate-fade-in">
@@ -439,11 +651,24 @@ export default function Triage() {
   return (
     <div className="max-w-lg mx-auto animate-fade-in">
       {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-heading-xl font-display text-neutral-900">Categorise</h1>
-        <p className="text-body-sm text-neutral-500 mt-0.5">
-          Review uncategorised transactions for accurate tax calculations
-        </p>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-heading-xl font-display text-neutral-900">Categorise</h1>
+          <p className="text-body-sm text-neutral-500 mt-0.5">
+            Review uncategorised transactions for accurate tax calculations
+          </p>
+        </div>
+        {(rawList?.length ?? 0) > 0 && !isLoading && (
+          <button
+            onClick={() => setShowAiConfirm(true)}
+            disabled={!!activeAiJobId}
+            className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/30 bg-primary-light text-primary text-body-sm font-medium hover:bg-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span className="hidden sm:inline">Auto-categorise All with AI</span>
+            <span className="sm:hidden">AI</span>
+          </button>
+        )}
       </div>
 
       {/* Loading state */}
@@ -582,6 +807,25 @@ export default function Triage() {
           suggestion={currentTx.aiCategorySuggestion}
           confidence={currentTx.aiCategoryConfidence}
           onClose={() => setShowReasoning(false)}
+        />
+      )}
+
+      {/* AI bulk categorise confirm dialog */}
+      {showAiConfirm && (
+        <TriageAiConfirmDialog
+          count={rawList?.length ?? 0}
+          onConfirm={handleStartAiCategorise}
+          onCancel={() => setShowAiConfirm(false)}
+          loading={aiConfirmLoading}
+        />
+      )}
+
+      {/* AI bulk categorise progress overlay */}
+      {activeAiJobId && (
+        <TriageAiProgressOverlay
+          jobId={activeAiJobId}
+          onCancel={handleCancelAiJob}
+          onComplete={handleAiComplete}
         />
       )}
     </div>
