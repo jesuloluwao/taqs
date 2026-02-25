@@ -13,6 +13,8 @@ import Filing from './pages/Filing';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import TaxEntities from './pages/TaxEntities';
+import Notifications from './pages/Notifications';
+import DeleteAccount from './pages/DeleteAccount';
 import HelpSupport from './pages/HelpSupport';
 import Documents from './pages/Documents';
 import SignInPage from './pages/SignInPage';
@@ -76,6 +78,8 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/entities" element={<TaxEntities />} />
+          <Route path="settings/notifications" element={<Notifications />} />
+          <Route path="settings/delete-account" element={<DeleteAccount />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />
         </Route>

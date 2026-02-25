@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { useUser, SignOutButton } from '@clerk/clerk-react';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -48,12 +48,85 @@ function getInitials(name: string | null | undefined, email: string | null | und
   return '?';
 }
 
+function LogoutConfirmDialog({
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={() => !loading && onCancel()}
+      />
+      {/* Dialog */}
+      <div className="relative bg-card border border-border rounded-2xl shadow-medium w-full max-w-sm p-6 animate-slide-up">
+        <button
+          onClick={onCancel}
+          disabled={loading}
+          className="absolute top-4 right-4 p-1.5 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+            <LogOut className="w-5 h-5 text-foreground" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Log out?</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">You can always sign back in</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-5">
+          Are you sure you want to log out?
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-sm font-medium text-foreground bg-muted rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-neutral-800 rounded-lg hover:bg-neutral-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <LogOut className="w-4 h-4" />
+                Log Out
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useUser();
+  const { signOut } = useClerk();
   const entities = useQuery(api.entityCrud.list);
   const { activeEntityId, setActiveEntityId } = useEntity();
   const [entityDropdownOpen, setEntityDropdownOpen] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const activeEntity = entities?.find((e) => e._id === activeEntityId);
   const fullName = user?.fullName;
@@ -66,137 +139,158 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
     setEntityDropdownOpen(false);
   }
 
+  async function handleConfirmLogout() {
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch {
+      // ignore
+    }
+    navigate('/');
+  }
+
   return (
-    <div className="flex flex-col h-full bg-neutral-900 text-white overflow-hidden">
-      {/* Logo */}
-      <div className="flex items-center h-16 px-5 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold leading-none">T</span>
-          </div>
-          <span className="font-display font-semibold text-[17px] tracking-tight">TaxEase</span>
-        </div>
-      </div>
-
-      {/* User info */}
-      <div className="px-4 py-4 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={fullName || 'User'}
-              className="w-9 h-9 rounded-full ring-2 ring-white/20 object-cover flex-shrink-0"
-            />
-          ) : (
-            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-sm font-semibold">{initials}</span>
+    <>
+      <div className="flex flex-col h-full bg-neutral-900 text-white overflow-hidden">
+        {/* Logo */}
+        <div className="flex items-center h-16 px-5 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-xs font-bold leading-none">T</span>
             </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-white truncate leading-tight">
-              {fullName || 'User'}
-            </p>
-            <p className="text-xs text-white/50 truncate mt-0.5">{email}</p>
+            <span className="font-display font-semibold text-[17px] tracking-tight">TaxEase</span>
           </div>
         </div>
-      </div>
 
-      {/* Entity selector — only visible when user has 2+ entities */}
-      {entities && entities.length >= 2 && (
-        <div className="px-4 py-3 border-b border-white/10 flex-shrink-0 relative">
-          <button
-            onClick={() => setEntityDropdownOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-left"
-          >
+        {/* User info */}
+        <div className="px-4 py-4 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={fullName || 'User'}
+                className="w-9 h-9 rounded-full ring-2 ring-white/20 object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-sm font-semibold">{initials}</span>
+              </div>
+            )}
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] text-white/50 font-medium uppercase tracking-wider mb-0.5">
-                Active Entity
+              <p className="text-sm font-medium text-white truncate leading-tight">
+                {fullName || 'User'}
               </p>
-              <p className="text-sm text-white font-medium truncate">
-                {activeEntity?.name ?? 'Select entity'}
-              </p>
+              <p className="text-xs text-white/50 truncate mt-0.5">{email}</p>
             </div>
-            <ChevronDown
-              className={`w-4 h-4 text-white/50 flex-shrink-0 ml-2 transition-transform duration-200 ${
-                entityDropdownOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-
-          {entityDropdownOpen && (
-            <div className="absolute left-4 right-4 top-full mt-1 z-50 bg-neutral-800 border border-white/10 rounded-lg shadow-medium overflow-hidden">
-              {entities.map((entity) => (
-                <button
-                  key={entity._id}
-                  onClick={() => handleSelectEntity(entity._id)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-white hover:bg-white/10 transition-colors"
-                >
-                  <span className="truncate">{entity.name}</span>
-                  {entity._id === activeEntityId && (
-                    <Check className="w-4 h-4 text-primary flex-shrink-0 ml-2" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
-      )}
 
-      {/* Main navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-        {mainNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            location.pathname === item.href ||
-            location.pathname.startsWith(item.href + '/');
-          return (
-            <Link
-              key={item.name}
-              to={item.href}
-              onClick={onNavItemClick}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
-                isActive
-                  ? 'bg-primary-light text-primary'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
+        {/* Entity selector — only visible when user has 2+ entities */}
+        {entities && entities.length >= 2 && (
+          <div className="px-4 py-3 border-b border-white/10 flex-shrink-0 relative">
+            <button
+              onClick={() => setEntityDropdownOpen((prev) => !prev)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-left"
             >
-              <Icon className="w-5 h-5 flex-shrink-0" />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
-      </nav>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] text-white/50 font-medium uppercase tracking-wider mb-0.5">
+                  Active Entity
+                </p>
+                <p className="text-sm text-white font-medium truncate">
+                  {activeEntity?.name ?? 'Select entity'}
+                </p>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-white/50 flex-shrink-0 ml-2 transition-transform duration-200 ${
+                  entityDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
 
-      {/* Divider + secondary navigation + logout */}
-      <div className="px-3 pt-3 pb-4 border-t border-white/10 flex-shrink-0 space-y-0.5">
-        {secondaryNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname === item.href;
-          return (
-            <Link
-              key={item.name}
-              to={item.href}
-              onClick={onNavItemClick}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
-                isActive
-                  ? 'bg-primary-light text-primary'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Icon className="w-5 h-5 flex-shrink-0" />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
+            {entityDropdownOpen && (
+              <div className="absolute left-4 right-4 top-full mt-1 z-50 bg-neutral-800 border border-white/10 rounded-lg shadow-medium overflow-hidden">
+                {entities.map((entity) => (
+                  <button
+                    key={entity._id}
+                    onClick={() => handleSelectEntity(entity._id)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-white hover:bg-white/10 transition-colors"
+                  >
+                    <span className="truncate">{entity.name}</span>
+                    {entity._id === activeEntityId && (
+                      <Check className="w-4 h-4 text-primary flex-shrink-0 ml-2" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-        <SignOutButton>
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors">
+        {/* Main navigation */}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          {mainNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              location.pathname === item.href ||
+              location.pathname.startsWith(item.href + '/');
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                onClick={onNavItemClick}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
+                  isActive
+                    ? 'bg-primary-light text-primary'
+                    : 'text-white/70 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Divider + secondary navigation + logout */}
+        <div className="px-3 pt-3 pb-4 border-t border-white/10 flex-shrink-0 space-y-0.5">
+          {secondaryNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.href;
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                onClick={onNavItemClick}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-[13.5px] font-medium ${
+                  isActive
+                    ? 'bg-primary-light text-primary'
+                    : 'text-white/70 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
+
+          <button
+            onClick={() => setShowLogoutDialog(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13.5px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+          >
             <LogOut className="w-5 h-5 flex-shrink-0" />
             <span>Log Out</span>
           </button>
-        </SignOutButton>
+        </div>
       </div>
-    </div>
+
+      {showLogoutDialog && (
+        <LogoutConfirmDialog
+          onConfirm={handleConfirmLogout}
+          onCancel={() => setShowLogoutDialog(false)}
+          loading={loggingOut}
+        />
+      )}
+    </>
   );
 }
 

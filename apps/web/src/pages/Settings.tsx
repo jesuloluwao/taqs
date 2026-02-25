@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Briefcase,
   Building2,
+  Bell,
 } from 'lucide-react';
 
 const CURRENCIES: Record<string, string> = {
@@ -452,6 +453,33 @@ export default function Settings() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Notifications */}
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Notifications</h2>
+        </div>
+        <div className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+              <Bell className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Notification Preferences</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Deadline reminders, VAT alerts, invoice overdue notifications
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/app/settings/notifications"
+            className="flex items-center gap-1 text-sm text-primary font-medium hover:text-primary/80 transition-colors flex-shrink-0 ml-4"
+          >
+            Manage
+            <ChevronRight className="w-4 h-4" />
+          </Link>
         </div>
       </div>
 
