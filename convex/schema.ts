@@ -208,7 +208,8 @@ export default defineSchema({
       v.literal('pending'),
       v.literal('processing'),
       v.literal('complete'),
-      v.literal('failed')
+      v.literal('failed'),
+      v.literal('cancelled')
     ),
     totalTransactions: v.number(),
     totalCategorised: v.optional(v.number()),

@@ -108,6 +108,182 @@ Respond ONLY with a valid JSON array (no markdown, no explanation) in input orde
 // ─────────────────────────────────────────────
 
 /**
+ * AI categorisation pipeline for on-demand / bulk re-categorisation.
+ * Called by the public autoCategorise action.
+ * Fetches ALL uncategorised+unreviewed transactions for the entity (or a
+ * specific subset), processes them through Claude Haiku in batches of ≤50.
+ * Checks for cancellation between batches.
+ */
+export const categoriseBatchForEntity = internalAction({
+  args: {
+    categorisingJobId: v.id('categorisingJobs'),
+    entityId: v.id('entities'),
+    transactionIds: v.optional(v.array(v.id('transactions'))),
+  },
+  handler: async (ctx, { categorisingJobId, entityId, transactionIds }) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+        jobId: categorisingJobId,
+        status: 'failed',
+        errorMessage: 'ANTHROPIC_API_KEY not configured',
+        completedAt: Date.now(),
+      });
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AnthropicModule = await import('@anthropic-ai/sdk' as any);
+    const Anthropic = AnthropicModule.default ?? AnthropicModule;
+    const client = new Anthropic({ apiKey });
+
+    const [categories, transactions] = await Promise.all([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ctx.runQuery((internal as any).aiCategoriseHelpers.getCategoriesList, {}),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ctx.runQuery((internal as any).aiCategoriseHelpers.getUncategorisedForEntity, {
+        entityId,
+        transactionIds: transactionIds ?? undefined,
+      }),
+    ]) as [CategoryInfo[], TransactionForAi[]];
+
+    if (!transactions || transactions.length === 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+        jobId: categorisingJobId,
+        status: 'complete',
+        totalCategorised: 0,
+        totalLowConfidence: 0,
+        totalFailed: 0,
+        batchesTotal: 0,
+        batchesCompleted: 0,
+        completedAt: Date.now(),
+      });
+      return;
+    }
+
+    const batches: TransactionForAi[][] = [];
+    for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+      batches.push(transactions.slice(i, i + BATCH_SIZE));
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+      jobId: categorisingJobId,
+      status: 'processing',
+      batchesTotal: batches.length,
+      modelUsed: MODEL,
+    });
+
+    let totalCategorised = 0;
+    let totalLowConfidence = 0;
+    let totalFailed = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let batchesCompleted = 0;
+
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      // Check for cancellation before each batch
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const jobNow = await ctx.runQuery((internal as any).aiCategoriseHelpers.getCategorisingJob, {
+        jobId: categorisingJobId,
+      }) as { status: string } | null;
+      if (jobNow?.status === 'cancelled') {
+        return; // Stop processing — already marked cancelled by client
+      }
+
+      const batch = batches[batchIdx];
+      if (batchIdx > 0) {
+        await sleep(INTER_BATCH_DELAY_MS);
+      }
+
+      let results: AiResult[] = [];
+      let batchFailed = false;
+
+      try {
+        const userPrompt = buildPrompt(categories, batch);
+        const response = await callClaudeWithRetry(client, {
+          model: MODEL,
+          max_tokens: 2048,
+          system:
+            'You are a JSON-only responder for a Nigerian tax classification system. Always output valid JSON arrays without any explanation, markdown, or code blocks.',
+          messages: [{ role: 'user', content: userPrompt }],
+        });
+
+        totalInputTokens += response.usage?.input_tokens ?? 0;
+        totalOutputTokens += response.usage?.output_tokens ?? 0;
+
+        const rawText =
+          response.content[0]?.type === 'text' ? (response.content[0].text as string) : '[]';
+        const parsed = JSON.parse(rawText.trim());
+        if (Array.isArray(parsed)) {
+          results = parsed as AiResult[];
+        }
+      } catch {
+        batchFailed = true;
+        totalFailed += batch.length;
+      }
+
+      if (!batchFailed && results.length > 0) {
+        const applyArgs = results
+          .filter((r) => r.index >= 0 && r.index < batch.length)
+          .map((r) => {
+            const tx = batch[r.index];
+            return {
+              transactionId: tx._id,
+              categorisingJobId,
+              aiCategorySuggestion: r.category ?? undefined,
+              aiTypeSuggestion: (r.type ?? 'uncategorised') as TransactionType,
+              aiCategoryConfidence: typeof r.confidence === 'number' ? r.confidence : 0,
+              aiReasoning: r.reasoning ?? '',
+              confidence: typeof r.confidence === 'number' ? r.confidence : 0,
+              categoryName: r.category ?? undefined,
+            };
+          });
+
+        if (applyArgs.length > 0) {
+          const applyResult = (await ctx.runMutation(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (internal as any).aiCategoriseHelpers.applyAiResults,
+            { results: applyArgs }
+          )) as { categorised: number; lowConfidence: number; failed: number };
+          totalCategorised += applyResult.categorised;
+          totalLowConfidence += applyResult.lowConfidence;
+          totalFailed += applyResult.failed;
+        } else {
+          totalLowConfidence += batch.length;
+        }
+      }
+
+      batchesCompleted++;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+        jobId: categorisingJobId,
+        batchesCompleted,
+      });
+    }
+
+    const estimatedCostUsd =
+      (totalInputTokens / 1_000_000) * INPUT_COST_PER_1M +
+      (totalOutputTokens / 1_000_000) * OUTPUT_COST_PER_1M;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+      jobId: categorisingJobId,
+      status: 'complete',
+      totalCategorised,
+      totalLowConfidence,
+      totalFailed,
+      batchesCompleted,
+      totalTokensUsed: totalInputTokens + totalOutputTokens,
+      estimatedCostUsd,
+      completedAt: Date.now(),
+    });
+  },
+});
+
+/**
  * AI categorisation batch pipeline.
  * Called from processImport after transactions are inserted.
  * Sends batches of ≤50 transactions to Claude Haiku, applies categories where

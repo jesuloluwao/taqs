@@ -1,6 +1,31 @@
 import { internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
 
+/**
+ * Get a user record by Clerk user ID (for use in actions).
+ */
+export const getUserByClerkId = internalQuery({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    return ctx.db
+      .query('users')
+      .withIndex('by_clerk_user_id', (q) => q.eq('clerkUserId', args.clerkUserId))
+      .first();
+  },
+});
+
+/**
+ * Get an entity for a specific user (ownership check).
+ */
+export const getEntityForUser = internalQuery({
+  args: { entityId: v.id('entities'), userId: v.id('users') },
+  handler: async (ctx, args) => {
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== args.userId || entity.deletedAt) return null;
+    return entity;
+  },
+});
+
 const CONFIDENCE_THRESHOLD = 0.7;
 
 const transactionTypeValidator = v.union(
@@ -49,7 +74,8 @@ export const updateCategorisingJob = internalMutation({
         v.literal('pending'),
         v.literal('processing'),
         v.literal('complete'),
-        v.literal('failed')
+        v.literal('failed'),
+        v.literal('cancelled')
       )
     ),
     totalCategorised: v.optional(v.number()),
@@ -189,6 +215,67 @@ export const getTransactionsByImportJob = internalQuery({
       amount: tx.amount,
       direction: tx.direction,
     }));
+  },
+});
+
+/**
+ * Get uncategorised (and not reviewed) transactions for an entity.
+ * Optionally filter to a specific list of transaction IDs.
+ * Used for on-demand re-categorisation.
+ */
+export const getUncategorisedForEntity = internalQuery({
+  args: {
+    entityId: v.id('entities'),
+    transactionIds: v.optional(v.array(v.id('transactions'))),
+  },
+  handler: async (ctx, args) => {
+    if (args.transactionIds && args.transactionIds.length > 0) {
+      // Fetch specific transactions, filter to uncategorised+unreviewed
+      const results = [];
+      for (const id of args.transactionIds) {
+        const tx = await ctx.db.get(id);
+        if (
+          tx &&
+          tx.entityId === args.entityId &&
+          tx.type === 'uncategorised' &&
+          !tx.reviewedByUser
+        ) {
+          results.push({
+            _id: tx._id,
+            description: tx.description,
+            amount: tx.amount,
+            direction: tx.direction,
+          });
+        }
+      }
+      return results;
+    }
+
+    // Fetch all uncategorised + unreviewed for entity
+    const transactions = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_type', (q) =>
+        q.eq('entityId', args.entityId).eq('type', 'uncategorised')
+      )
+      .filter((q) => q.neq(q.field('reviewedByUser'), true))
+      .collect();
+
+    return transactions.map((tx) => ({
+      _id: tx._id,
+      description: tx.description,
+      amount: tx.amount,
+      direction: tx.direction,
+    }));
+  },
+});
+
+/**
+ * Get a single categorisingJob by ID (internal).
+ */
+export const getCategorisingJob = internalQuery({
+  args: { jobId: v.id('categorisingJobs') },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.jobId);
   },
 });
 
