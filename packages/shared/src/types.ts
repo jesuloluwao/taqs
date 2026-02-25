@@ -128,6 +128,77 @@ export interface TransactionData {
   reviewedByUser?: boolean;
 }
 
+// ─── Invoicing types ──────────────────────────────────────────────────────────
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+
+export type RecurringInterval = 'monthly' | 'quarterly';
+
+/**
+ * Client directory entry.
+ */
+export interface ClientData {
+  entityId: string;
+  name: string;
+  email?: string;
+  address?: string;
+  /** Default invoice currency */
+  currency?: Currency;
+  /** Default WHT rate (%) — 0, 5, or 10 */
+  whtRate?: number;
+}
+
+/**
+ * Invoice data shape (PRD-4).
+ */
+export interface InvoiceData {
+  entityId: string;
+  clientId?: string;
+  /** Denormalised client name */
+  clientName: string;
+  /** Denormalised client email */
+  clientEmail?: string;
+  invoiceNumber: string;
+  status: InvoiceStatus;
+  /** Unix timestamp (ms) */
+  issueDate: number;
+  /** Unix timestamp (ms) */
+  dueDate: number;
+  currency: Currency;
+  /** Sum of line items before WHT/VAT, in smallest currency unit */
+  subtotal: number;
+  /** WHT deducted, in smallest currency unit */
+  whtAmount?: number;
+  /** VAT added, in smallest currency unit */
+  vatAmount?: number;
+  /** Final amount: subtotal − whtAmount + vatAmount */
+  totalDue: number;
+  /** totalDue in NGN kobo */
+  amountNgn: number;
+  /** Unix timestamp (ms) when marked paid */
+  paidAt?: number;
+  notes?: string;
+  isRecurring?: boolean;
+  recurringInterval?: RecurringInterval;
+  /** Unix timestamp (ms) for next auto-issue */
+  nextIssueDate?: number;
+  /** Convex storage ID for generated PDF */
+  pdfStorageId?: string;
+}
+
+/**
+ * Invoice line item data shape (PRD-4).
+ */
+export interface InvoiceItemData {
+  invoiceId: string;
+  description: string;
+  quantity: number;
+  /** Price per unit in smallest currency unit */
+  unitPrice: number;
+  /** quantity × unitPrice */
+  total: number;
+}
+
 /**
  * Import job data shape.
  */

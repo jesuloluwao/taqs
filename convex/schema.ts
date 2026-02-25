@@ -371,6 +371,99 @@ export default defineSchema({
     .index('by_entityId_taxYear', ['entityId', 'taxYear']),
 
   /**
+   * Client directory for invoicing (PRD-4).
+   */
+  clients: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    name: v.string(),
+    email: v.optional(v.string()),
+    address: v.optional(v.string()),
+    /** Default currency for invoices to this client */
+    currency: v.optional(
+      v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))
+    ),
+    /** Default WHT rate (%) applied to invoices for this client (0, 5, or 10) */
+    whtRate: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId', ['entityId'])
+    .index('by_userId', ['userId'])
+    .index('by_entityId_name', ['entityId', 'name']),
+
+  /**
+   * Invoices with line-item totals, WHT, VAT, and PDF storage (PRD-4).
+   */
+  invoices: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    /** Linked client record (optional — client may be deleted) */
+    clientId: v.optional(v.id('clients')),
+    /** Denormalised client name for display after client deletion */
+    clientName: v.string(),
+    /** Denormalised client email for sending after client deletion */
+    clientEmail: v.optional(v.string()),
+    /** Sequential invoice number e.g. INV-2026-0001 */
+    invoiceNumber: v.string(),
+    status: v.union(
+      v.literal('draft'),
+      v.literal('sent'),
+      v.literal('paid'),
+      v.literal('overdue'),
+      v.literal('cancelled')
+    ),
+    /** Unix timestamp (ms) */
+    issueDate: v.number(),
+    /** Unix timestamp (ms) */
+    dueDate: v.number(),
+    currency: v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR')),
+    /** Sum of all line item totals before WHT/VAT, in smallest currency unit */
+    subtotal: v.number(),
+    /** WHT amount deducted, in smallest currency unit */
+    whtAmount: v.optional(v.number()),
+    /** VAT amount added (7.5%), in smallest currency unit */
+    vatAmount: v.optional(v.number()),
+    /** Final amount due: subtotal − whtAmount + vatAmount */
+    totalDue: v.number(),
+    /** totalDue converted to NGN kobo */
+    amountNgn: v.number(),
+    /** Unix timestamp (ms) when marked paid */
+    paidAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    isRecurring: v.optional(v.boolean()),
+    recurringInterval: v.optional(
+      v.union(v.literal('monthly'), v.literal('quarterly'))
+    ),
+    /** Unix timestamp (ms) for next auto-issue date on recurring invoices */
+    nextIssueDate: v.optional(v.number()),
+    /** Convex storage ID for the generated PDF */
+    pdfStorageId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId_status', ['entityId', 'status'])
+    .index('by_entityId_dueDate', ['entityId', 'dueDate'])
+    .index('by_userId', ['userId'])
+    .index('by_entityId_invoiceNumber', ['entityId', 'invoiceNumber'])
+    .index('by_entityId_isRecurring', ['entityId', 'isRecurring']),
+
+  /**
+   * Line items belonging to an invoice (PRD-4).
+   */
+  invoiceItems: defineTable({
+    invoiceId: v.id('invoices'),
+    description: v.string(),
+    /** Number of units */
+    quantity: v.number(),
+    /** Price per unit in smallest currency unit */
+    unitPrice: v.number(),
+    /** quantity × unitPrice */
+    total: v.number(),
+  })
+    .index('by_invoiceId', ['invoiceId']),
+
+  /**
    * CBN FX rates for currency conversion in tax computations.
    */
   fxRates: defineTable({
