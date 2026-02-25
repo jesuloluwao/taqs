@@ -116,7 +116,7 @@ export const deleteUserFromClerk = mutation({
     // Delete transactions
     const transactions = await ctx.db
       .query('transactions')
-      .withIndex('by_user_id', (q) => q.eq('userId', userId))
+      .withIndex('by_userId', (q) => q.eq('userId', userId))
       .collect();
     for (const transaction of transactions) {
       await ctx.db.delete(transaction._id);

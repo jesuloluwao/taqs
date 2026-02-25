@@ -96,20 +96,92 @@ export default defineSchema({
     .index('by_userId', ['userId'])
     .index('by_entityId', ['entityId']),
 
+  /**
+   * Full PRD-1 transaction schema with all tax-relevant fields.
+   */
   transactions: defineTable({
+    entityId: v.id('entities'),
     userId: v.id('users'),
-    type: v.union(v.literal('income'), v.literal('expense')),
-    amountKobo: v.number(),
-    currency: v.optional(v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))),
-    category: v.string(),
-    description: v.optional(v.string()),
-    transactionDate: v.number(),
-    source: v.optional(v.union(v.literal('manual'), v.literal('bank_import'))),
+    connectedAccountId: v.optional(v.id('connectedAccounts')),
+    importJobId: v.optional(v.id('importJobs')),
+    /** Unix timestamp (ms) of transaction */
+    date: v.number(),
+    description: v.string(),
+    enrichedDescription: v.optional(v.string()),
+    /** Amount in smallest currency unit (kobo for NGN) */
+    amount: v.number(),
+    currency: v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR')),
+    /** Amount converted to NGN in kobo */
+    amountNgn: v.number(),
+    /** FX rate used for NGN conversion (1 if currency is NGN) */
+    fxRate: v.optional(v.number()),
+    direction: v.union(v.literal('credit'), v.literal('debit')),
+    type: v.union(
+      v.literal('income'),
+      v.literal('business_expense'),
+      v.literal('personal_expense'),
+      v.literal('transfer'),
+      v.literal('uncategorised')
+    ),
+    categoryId: v.optional(v.id('categories')),
+    isDeductible: v.optional(v.boolean()),
+    /** Percentage of amount that is tax-deductible (0–100) */
+    deductiblePercent: v.optional(v.number()),
+    /** WHT amount deducted at source, in smallest currency unit */
+    whtDeducted: v.optional(v.number()),
+    /** WHT rate applied (%) */
+    whtRate: v.optional(v.number()),
+    /** Linked invoice ID (future) */
+    invoiceId: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    /** External reference for deduplication (e.g. bank transaction ID) */
+    externalRef: v.optional(v.string()),
+    isDuplicate: v.optional(v.boolean()),
+    taxYear: v.number(),
+    reviewedByUser: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index('by_user_id', ['userId'])
-    .index('by_user_type_date', ['userId', 'type', 'transactionDate']),
+    .index('by_entityId_taxYear', ['entityId', 'taxYear'])
+    .index('by_entityId_date', ['entityId', 'date'])
+    .index('by_entityId_type', ['entityId', 'type'])
+    .index('by_userId', ['userId']),
+
+  /**
+   * Tracks file import lifecycle: pending → processing → complete/failed.
+   */
+  importJobs: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    connectedAccountId: v.optional(v.id('connectedAccounts')),
+    source: v.union(
+      v.literal('pdf'),
+      v.literal('csv'),
+      v.literal('bank_api'),
+      v.literal('paystack'),
+      v.literal('flutterwave'),
+      v.literal('manual')
+    ),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('processing'),
+      v.literal('complete'),
+      v.literal('failed')
+    ),
+    /** Convex storage ID for the uploaded file */
+    storageId: v.optional(v.string()),
+    totalParsed: v.optional(v.number()),
+    totalImported: v.optional(v.number()),
+    duplicatesSkipped: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId', ['entityId'])
+    .index('by_connectedAccountId', ['connectedAccountId'])
+    .index('by_userId', ['userId']),
 
   documents: defineTable({
     userId: v.id('users'),
