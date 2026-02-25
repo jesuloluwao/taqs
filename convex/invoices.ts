@@ -1,0 +1,460 @@
+import { mutation, query } from './_generated/server';
+import { getOrCreateCurrentUser, getCurrentUser } from './auth';
+import { v } from 'convex/values';
+
+const currencyValidator = v.union(
+  v.literal('NGN'),
+  v.literal('USD'),
+  v.literal('GBP'),
+  v.literal('EUR')
+);
+
+const invoiceStatusValidator = v.union(
+  v.literal('draft'),
+  v.literal('sent'),
+  v.literal('paid'),
+  v.literal('overdue'),
+  v.literal('cancelled')
+);
+
+const lineItemValidator = v.object({
+  description: v.string(),
+  quantity: v.number(),
+  unitPrice: v.number(),
+});
+
+// ================== HELPERS ==================
+
+/**
+ * Generate the next sequential invoice number for an entity in a given year.
+ * Format: INV-{YEAR}-{NNNN} (zero-padded to 4 digits).
+ * Safe because Convex mutations are ACID — no concurrent executions.
+ */
+async function generateInvoiceNumber(
+  ctx: any,
+  entityId: string,
+  year: number
+): Promise<string> {
+  const prefix = `INV-${year}-`;
+
+  // Collect all invoices for this entity to find max sequence
+  const existing = await ctx.db
+    .query('invoices')
+    .withIndex('by_entityId_status', (q: any) => q.eq('entityId', entityId))
+    .collect();
+
+  let maxSeq = 0;
+  for (const inv of existing) {
+    if (inv.invoiceNumber.startsWith(prefix)) {
+      const seqStr = inv.invoiceNumber.slice(prefix.length);
+      const seq = parseInt(seqStr, 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+
+  const nextSeq = maxSeq + 1;
+  return `${prefix}${String(nextSeq).padStart(4, '0')}`;
+}
+
+/**
+ * Compute totals for an invoice given line items, WHT rate, and VAT eligibility.
+ */
+function computeTotals(
+  lineItems: Array<{ quantity: number; unitPrice: number }>,
+  whtRate: number,
+  applyVat: boolean
+) {
+  const subtotal = lineItems.reduce(
+    (sum, item) => sum + Math.round(item.quantity * item.unitPrice),
+    0
+  );
+  const whtAmount = Math.round((subtotal * whtRate) / 100);
+  const vatAmount = applyVat ? Math.round((subtotal * 7.5) / 100) : 0;
+  const totalDue = subtotal - whtAmount + vatAmount;
+
+  return { subtotal, whtAmount, vatAmount, totalDue };
+}
+
+// ================== QUERIES ==================
+
+/**
+ * Get a single invoice with its line items (ownership check via entity).
+ */
+export const get = query({
+  args: {
+    id: v.id('invoices'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) return null;
+
+    const entity = await ctx.db.get(invoice.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) return null;
+
+    const items = await ctx.db
+      .query('invoiceItems')
+      .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
+      .collect();
+
+    return { ...invoice, items };
+  },
+});
+
+/**
+ * Paginated invoice list for an entity with optional status filter.
+ * Returns invoices plus summary totals: outstanding and paid-this-year.
+ */
+export const list = query({
+  args: {
+    entityId: v.id('entities'),
+    status: v.optional(invoiceStatusValidator),
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      return { invoices: [], totalCount: 0, outstanding: 0, paidThisYear: 0 };
+    }
+
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      return { invoices: [], totalCount: 0, outstanding: 0, paidThisYear: 0 };
+    }
+
+    // Fetch ALL invoices for the entity (needed for accurate summary totals)
+    const allEntityInvoices = await ctx.db
+      .query('invoices')
+      .withIndex('by_userId', (q) => q.eq('userId', user._id))
+      .collect()
+      .then((invs) => invs.filter((inv) => inv.entityId === args.entityId));
+
+    // Apply optional status filter for the paginated result
+    const filtered = args.status
+      ? allEntityInvoices.filter((inv) => inv.status === args.status)
+      : allEntityInvoices;
+
+    // Sort by issueDate descending (newest first)
+    filtered.sort((a, b) => b.issueDate - a.issueDate);
+
+    const totalCount = filtered.length;
+    const limit = args.limit ?? 20;
+    const offset = args.offset ?? 0;
+    const paginated = filtered.slice(offset, offset + limit);
+
+    // Summary totals are always computed over ALL entity invoices (regardless of status filter)
+    const allInvoices = allEntityInvoices;
+
+    const currentYear = new Date().getFullYear();
+    const yearStart = new Date(currentYear, 0, 1).getTime();
+    const yearEnd = new Date(currentYear + 1, 0, 1).getTime();
+
+    let outstanding = 0;
+    let paidThisYear = 0;
+
+    for (const inv of allInvoices) {
+      if (inv.status === 'sent' || inv.status === 'overdue') {
+        outstanding += inv.totalDue;
+      }
+      if (
+        inv.status === 'paid' &&
+        inv.paidAt !== undefined &&
+        inv.paidAt >= yearStart &&
+        inv.paidAt < yearEnd
+      ) {
+        paidThisYear += inv.totalDue;
+      }
+    }
+
+    return {
+      invoices: paginated,
+      totalCount,
+      hasMore: offset + limit < totalCount,
+      outstanding,
+      paidThisYear,
+    };
+  },
+});
+
+// ================== MUTATIONS ==================
+
+/**
+ * Create a new invoice with line items.
+ * - Generates sequential invoice number (INV-{YEAR}-{NNNN}).
+ * - Computes subtotal, whtAmount, vatAmount, totalDue.
+ * - Denormalises clientName and clientEmail from the client record.
+ * - VAT auto-applied at 7.5% only if entity.vatRegistered AND entity.vatThresholdExceeded.
+ * - WHT rate must be 0, 5, or 10.
+ */
+export const create = mutation({
+  args: {
+    entityId: v.id('entities'),
+    clientId: v.optional(v.id('clients')),
+    /** Override client name (used when no clientId or for manual entry) */
+    clientName: v.optional(v.string()),
+    /** Override client email */
+    clientEmail: v.optional(v.string()),
+    issueDate: v.number(),
+    dueDate: v.number(),
+    currency: currencyValidator,
+    /** WHT rate: must be 0, 5, or 10 */
+    whtRate: v.number(),
+    lineItems: v.array(lineItemValidator),
+    notes: v.optional(v.string()),
+    isRecurring: v.optional(v.boolean()),
+    recurringInterval: v.optional(v.union(v.literal('monthly'), v.literal('quarterly'))),
+    nextIssueDate: v.optional(v.number()),
+    /** FX rate to NGN (1 if currency is NGN) */
+    fxRate: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      throw new Error('Entity not found or unauthorized');
+    }
+
+    if (![0, 5, 10].includes(args.whtRate)) {
+      throw new Error('whtRate must be 0, 5, or 10');
+    }
+
+    if (args.lineItems.length === 0) {
+      throw new Error('Invoice must have at least one line item');
+    }
+
+    // Resolve client details
+    let clientName = args.clientName ?? '';
+    let clientEmail = args.clientEmail;
+
+    if (args.clientId) {
+      const client = await ctx.db.get(args.clientId);
+      if (!client || client.entityId !== args.entityId) {
+        throw new Error('Client not found for this entity');
+      }
+      clientName = client.name;
+      clientEmail = client.email ?? args.clientEmail;
+    }
+
+    if (!clientName) {
+      throw new Error('clientName is required');
+    }
+
+    // Determine VAT applicability
+    const applyVat =
+      (entity.vatRegistered === true) && (entity.vatThresholdExceeded === true);
+
+    // Compute totals
+    const { subtotal, whtAmount, vatAmount, totalDue } = computeTotals(
+      args.lineItems,
+      args.whtRate,
+      applyVat
+    );
+
+    // Compute amountNgn
+    const fxRate = args.fxRate ?? 1;
+    const amountNgn = Math.round(totalDue * fxRate);
+
+    // Generate invoice number (year from issueDate)
+    const year = new Date(args.issueDate).getFullYear();
+    const invoiceNumber = await generateInvoiceNumber(ctx, args.entityId, year);
+
+    const now = Date.now();
+
+    // Insert invoice
+    const invoiceId = await ctx.db.insert('invoices', {
+      entityId: args.entityId,
+      userId: user._id,
+      clientId: args.clientId,
+      clientName,
+      clientEmail,
+      invoiceNumber,
+      status: 'draft',
+      issueDate: args.issueDate,
+      dueDate: args.dueDate,
+      currency: args.currency,
+      subtotal,
+      whtAmount: args.whtRate > 0 ? whtAmount : undefined,
+      vatAmount: applyVat ? vatAmount : undefined,
+      totalDue,
+      amountNgn,
+      notes: args.notes,
+      isRecurring: args.isRecurring,
+      recurringInterval: args.recurringInterval,
+      nextIssueDate: args.nextIssueDate,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Insert line items
+    for (const item of args.lineItems) {
+      await ctx.db.insert('invoiceItems', {
+        invoiceId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: Math.round(item.quantity * item.unitPrice),
+      });
+    }
+
+    return invoiceId;
+  },
+});
+
+/**
+ * Update a draft invoice. Only draft invoices may be updated.
+ * Replaces ALL line items and recalculates totals.
+ */
+export const update = mutation({
+  args: {
+    id: v.id('invoices'),
+    clientId: v.optional(v.id('clients')),
+    clientName: v.optional(v.string()),
+    clientEmail: v.optional(v.string()),
+    issueDate: v.optional(v.number()),
+    dueDate: v.optional(v.number()),
+    currency: v.optional(currencyValidator),
+    whtRate: v.optional(v.number()),
+    lineItems: v.optional(v.array(lineItemValidator)),
+    notes: v.optional(v.string()),
+    isRecurring: v.optional(v.boolean()),
+    recurringInterval: v.optional(v.union(v.literal('monthly'), v.literal('quarterly'))),
+    nextIssueDate: v.optional(v.number()),
+    fxRate: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const invoice = await ctx.db.get(args.id);
+    if (!invoice) throw new Error('Invoice not found');
+
+    const entity = await ctx.db.get(invoice.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) {
+      throw new Error('Entity not found or unauthorized');
+    }
+
+    if (invoice.status !== 'draft') {
+      throw new Error('Only draft invoices can be updated');
+    }
+
+    if (args.whtRate !== undefined && ![0, 5, 10].includes(args.whtRate)) {
+      throw new Error('whtRate must be 0, 5, or 10');
+    }
+
+    // Resolve client name/email if clientId is being updated
+    let clientName = args.clientName ?? invoice.clientName;
+    let clientEmail = args.clientEmail ?? invoice.clientEmail;
+
+    if (args.clientId !== undefined) {
+      if (args.clientId) {
+        const client = await ctx.db.get(args.clientId);
+        if (!client || client.entityId !== invoice.entityId) {
+          throw new Error('Client not found for this entity');
+        }
+        clientName = client.name;
+        clientEmail = client.email ?? args.clientEmail ?? invoice.clientEmail;
+      }
+    }
+
+    // Derive effective whtRate: use arg if provided, else infer from stored amounts
+    let effectiveWhtRate = args.whtRate;
+    if (effectiveWhtRate === undefined) {
+      // Derive from stored amounts: if whtAmount and subtotal exist, compute rate
+      if (invoice.whtAmount !== undefined && invoice.subtotal > 0) {
+        effectiveWhtRate = Math.round((invoice.whtAmount / invoice.subtotal) * 100);
+        // Clamp to valid values
+        if (![0, 5, 10].includes(effectiveWhtRate)) effectiveWhtRate = 0;
+      } else {
+        effectiveWhtRate = 0;
+      }
+    }
+
+    const applyVat =
+      (entity.vatRegistered === true) && (entity.vatThresholdExceeded === true);
+
+    const now = Date.now();
+    const patch: Record<string, any> = { updatedAt: now };
+
+    if (args.clientId !== undefined) patch.clientId = args.clientId;
+    if (clientName !== invoice.clientName) patch.clientName = clientName;
+    if (clientEmail !== invoice.clientEmail) patch.clientEmail = clientEmail;
+    if (args.issueDate !== undefined) patch.issueDate = args.issueDate;
+    if (args.dueDate !== undefined) patch.dueDate = args.dueDate;
+    if (args.currency !== undefined) patch.currency = args.currency;
+    if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.isRecurring !== undefined) patch.isRecurring = args.isRecurring;
+    if (args.recurringInterval !== undefined) patch.recurringInterval = args.recurringInterval;
+    if (args.nextIssueDate !== undefined) patch.nextIssueDate = args.nextIssueDate;
+
+    // Recalculate totals if line items or whtRate are being updated
+    if (args.lineItems !== undefined) {
+      if (args.lineItems.length === 0) {
+        throw new Error('Invoice must have at least one line item');
+      }
+
+      const { subtotal, whtAmount, vatAmount, totalDue } = computeTotals(
+        args.lineItems,
+        effectiveWhtRate,
+        applyVat
+      );
+
+      const fxRate = args.fxRate ?? 1;
+      const amountNgn = Math.round(totalDue * fxRate);
+
+      patch.subtotal = subtotal;
+      patch.whtAmount = effectiveWhtRate > 0 ? whtAmount : undefined;
+      patch.vatAmount = applyVat ? vatAmount : undefined;
+      patch.totalDue = totalDue;
+      patch.amountNgn = amountNgn;
+
+      // Replace all line items: delete existing, insert new
+      const existingItems = await ctx.db
+        .query('invoiceItems')
+        .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
+        .collect();
+
+      for (const item of existingItems) {
+        await ctx.db.delete(item._id);
+      }
+
+      for (const item of args.lineItems) {
+        await ctx.db.insert('invoiceItems', {
+          invoiceId: args.id,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: Math.round(item.quantity * item.unitPrice),
+        });
+      }
+    } else if (args.whtRate !== undefined || args.fxRate !== undefined) {
+      // Recalculate totals without replacing line items
+      const currentItems = await ctx.db
+        .query('invoiceItems')
+        .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
+        .collect();
+
+      const { subtotal, whtAmount, vatAmount, totalDue } = computeTotals(
+        currentItems,
+        effectiveWhtRate,
+        applyVat
+      );
+
+      const fxRate = args.fxRate ?? 1;
+      const amountNgn = Math.round(totalDue * fxRate);
+
+      patch.subtotal = subtotal;
+      patch.whtAmount = effectiveWhtRate > 0 ? whtAmount : undefined;
+      patch.vatAmount = applyVat ? vatAmount : undefined;
+      patch.totalDue = totalDue;
+      patch.amountNgn = amountNgn;
+    }
+
+    await ctx.db.patch(args.id, patch);
+    return args.id;
+  },
+});
