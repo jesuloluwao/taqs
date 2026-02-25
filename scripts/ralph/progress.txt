@@ -257,3 +257,28 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - processingRef pattern (useRef boolean) prevents double-submit on async triage actions while still showing disabled state via state
   - AI section only renders when aiCategorisingJobId is set — ensures clean hide on manual/non-AI transactions
 ---
+
+## 2026-02-25 - US-025
+- `convex/transactionActions.ts`: public `autoCategorise` action — accepts entityId + optional transactionIds, verifies auth+ownership, counts uncategorised+unreviewed, creates categorisingJob, fires `aiCategorise.categoriseBatchForEntity` fire-and-forget; returns {categorisingJobId, totalTransactions}
+- `convex/categorisingJobs.ts`: public queries/mutations — `get` (ownership-checked), `getLatestForEntity`, `cancel` (marks pending/processing jobs as cancelled)
+- `apps/web/src/pages/Transactions.tsx`:
+  - `AiCategoriseConfirmDialog` + `AiProgressOverlay` components already existed
+  - `handleStartAiCategorise` calls autoCategorise action, sets activeAiJobId
+  - `handleAiComplete` shows completion toast: "Categorised X of Y transactions. Z need manual review."
+  - `handleCancelAiJob` calls categorisingJobs.cancel, shows "Categorisation cancelled" toast
+  - 'Re-categorise with AI' button visible when `activeFilter === 'uncategorised' && totalCount > 0`
+- `apps/web/src/pages/Triage.tsx`:
+  - `TriageAiConfirmDialog` + `TriageAiProgressOverlay` components already defined but not wired up
+  - Added `showAiConfirm`, `aiConfirmLoading`, `activeAiJobId` state
+  - Added `autoCategoriseAction` and `cancelJobMutation` hooks
+  - Added `handleStartAiCategorise`, `handleAiComplete` (useCallback, resets queue+index after completion), `handleCancelAiJob`
+  - 'Auto-categorise All with AI' button in header — visible when rawList has items
+  - Queue resets (setQueue(null), setIndex(0)) after AI completes so triage updates
+- Fixed unused `lowConfidence` → `_lowConfidence` in Transactions.tsx handleAiComplete
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - TriageAiProgressOverlay uses useEffect+notifiedRef to avoid double-notifying — onComplete should be wrapped in useCallback to prevent stale closure re-runs
+  - After AI bulk categorise completes in Triage, reset queue (setQueue(null)) to force reload of updated state
+  - autoCategorise action returns `{ categorisingJobId: null, totalTransactions: 0 }` when nothing to process — always check before setting activeJobId
+  - Already-reviewed exclusion is server-side in getUncategorisedForEntity (filters type='uncategorised' AND reviewedByUser != true)
+---

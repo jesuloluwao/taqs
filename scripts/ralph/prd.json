@@ -655,7 +655,7 @@
         "Typecheck passes"
       ],
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-2: US-206, US-207, US-211 — See '§4.5 Uncategorised Banner' and '§4.6 Triage Header' for UI"
     },
     {
