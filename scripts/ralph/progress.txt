@@ -388,3 +388,26 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `(api as any).tax.getSummary` pattern needed since tax module is not in generated api.d.ts
   - Stacked bar: use `summary.bands.indexOf(band)` to get the color index matching the full 6-band array order
 ---
+
+## 2026-02-25 - US-031
+- Created `apps/web/src/pages/Declarations.tsx`: Tax Declarations form at `/app/declarations`
+  - Fields: annual rent paid (required), pension contributions, NHIS, NHF, life insurance premiums, mortgage interest
+  - Empty state: 'Enter your relief amounts to reduce your taxable income' shown when no data and no values entered
+  - Live preview panel: computes rent relief (20%, cap ₦500k) + all others at face value; shows only non-zero rows
+  - Form pre-populates from `taxDeclarations.get` query; saves via `taxDeclarations.createOrUpdate` mutation
+  - Tax year selector (defaults to previous year); loads/saves per year
+  - Save button shows spinner → checkmark → 'Saved' state; cancel navigates back to Tax Summary
+  - Info card explaining each relief type
+- Updated `apps/web/src/App.tsx`: added `/app/declarations` route
+- Updated `apps/web/src/pages/TaxSummary.tsx`:
+  - `DeadlineWidget`: countdown 'X days to March 31 filing deadline' with color transitions (>30d = success, 15-30d = warning, <15d = danger); expandable penalty reference (late filing ₦100k + ₦50k/month, late payment 10% + MPR)
+  - FX rates warning banner: shown when `incomeBreakdown.foreign > 0` — informs nearest available date was used
+  - DTA prompt: shown for foreign income — notes DTA may reduce double taxation
+  - Fixed deadline color threshold from >7 → ≥15 for warning (per spec 15-30 days)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `(api as any).taxDeclarations.get` pattern works for modules not in generated types (same as other new modules)
+  - `useEffect` dependency on `[declData, taxYear]` for form pre-population can double-set; guard with `declData !== undefined` check
+  - `isLoading = !initialised && activeEntityId` — truthiness handles undefined vs null activeEntityId gracefully
+  - `koboToNgn` returning '' for 0 values creates clean empty input fields on first load
+---

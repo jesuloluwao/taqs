@@ -766,7 +766,7 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-3: US-310/US-310a, US-327/US-328 — See '§4.1.9 Declaration' and '§5.14 Edge Cases'"
     },
     {
