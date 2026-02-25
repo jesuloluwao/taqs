@@ -575,3 +575,21 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Invoice `get` query returning both `pdfUrl` and `entityName` avoids extra queries on the client side
   - Row click in list → navigate to preview, NOT edit — edit remains accessible from preview's actions bar
 ---
+
+## 2026-02-25 - US-039
+- Rewrote `convex/dashboard.ts` with 3 fully reactive aggregation queries:
+  - `getSummary`: tax position + income/expenses YTD + WHT credits + uncategorised count + invoice activity + hasTransactions/hasInvoices
+    - Indexed reads only: by_entityId_taxYear (transactions), by_entityId_taxYear (taxYearSummaries), by_entityId_status (invoices)
+    - Tax position: reads cached taxYearSummaries first; if none, runs inline NTA 2025 PIT band estimate
+    - Invoice stats: outstanding (sent+overdue), overdue count, sent this month (by issueDate in current calendar month)
+    - hasInvoices: checked via by_userId index on invoices (cross-entity per user)
+  - `getRecentTransactions`: by_entityId_date index desc, take(5), resolves category name/color/icon per transaction with in-memory cache
+  - `getDeadlines`: computes March 31 filing deadline countdown with severity (>30d=safe, 15-30d=warning, <15d=danger); returns self-assessment + optional VAT return + overdue invoice reminders
+- Updated `apps/web/src/pages/Dashboard.tsx`: migrated from old stub field names (totalIncomeKobo, transactionCount, etc.) to new schema fields (incomeYtdKobo, hasTransactions, taxPosition.estimatedLiabilityKobo)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Dashboard queries degrade gracefully: no invoices → invoice stats all-zero; no cached taxYearSummaries → inline live estimate from transaction data
+  - `take(5)` on Convex index-ordered queries is efficient — no collect() needed for recent items
+  - In-memory category cache (Map) in getRecentTransactions avoids N+1 lookups — Convex queries are already batched but the cache prevents redundant per-doc reads
+  - Unused variable in Convex query handler (e.g. `const now`) triggers TS6133 error — remove or use it
+---
