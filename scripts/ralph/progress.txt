@@ -594,6 +594,25 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Unused variable in Convex query handler (e.g. `const now`) triggers TS6133 error — remove or use it
 ---
 
+## 2026-02-25 - US-041
+- Updated `apps/web/src/pages/Dashboard.tsx` with US-041 middle section:
+  - Uncategorised Banner: updated text to '{N} transaction(s) need(s) categorisation' with amber 'Review Now' button+chevron (was plain link text before)
+  - Added `currency` field to local `RecentTx` interface; `RecentTransactionRow` now shows currency code below NGN amount for non-NGN transactions
+  - "View all" link updated to "View All Transactions →" with ChevronRight icon
+  - Added `InvoiceActivityCard` component:
+    - When `hasInvoices=false`: shows empty state illustration + 'No invoices yet' + 'Create Invoice' CTA
+    - When invoices exist: 3-row stat layout (Sent this month count, Outstanding ₦ amount, Overdue count in danger if >0) + 'Go to Invoices' link
+    - Placed after Recent Transactions in the page layout
+  - Added loading skeleton for invoice activity card (3 shimmer rows)
+  - Added `Send` to lucide-react imports
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `RecentTx` local interface in Dashboard.tsx did NOT include `currency` from the Convex query — always check local interface vs query return type
+  - For FX display in compact rows, show currency code as small mono text below the NGN amount (not inline) to avoid horizontal crowding
+  - `InvoiceStats.hasInvoices` is available on both the top-level `DashboardSummary` and inside `invoiceStats` — use `summary?.hasInvoices` for clarity
+  - Singular/plural for 'need/needs': `uncategorisedCount === 1 ? 'transaction needs' : 'transactions need'`
+---
+
 ## 2026-02-25 - US-040
 - Rewrote `apps/web/src/pages/Dashboard.tsx` with full US-040 spec:
   - `TaxPositionCard`: primary-light bg, large mono liability figure (danger if >₦0, success if ₦0), effective rate%, tax year label, days-to-deadline badge (severity-coloured), tappable → /app/tax

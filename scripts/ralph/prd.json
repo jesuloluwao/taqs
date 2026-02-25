@@ -946,7 +946,7 @@
         "Typecheck passes"
       ],
       "priority": 41,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-5: US-504/US-505/US-506 — See '§4.6 Uncategorised Banner', '§4.7 Recent Transactions', '§4.8 Invoice Activity'"
     },
     {
