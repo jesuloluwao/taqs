@@ -15,6 +15,7 @@ import {
   X,
   ChevronRight,
   Briefcase,
+  Building2,
 } from 'lucide-react';
 
 const CURRENCIES: Record<string, string> = {
@@ -451,6 +452,33 @@ export default function Settings() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Tax Entities */}
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Tax Entities</h2>
+        </div>
+        <div className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Manage Tax Entities</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Add, edit, or remove entities you file returns for
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/app/settings/entities"
+            className="flex items-center gap-1 text-sm text-primary font-medium hover:text-primary/80 transition-colors flex-shrink-0 ml-4"
+          >
+            Manage
+            <ChevronRight className="w-4 h-4" />
+          </Link>
         </div>
       </div>
 

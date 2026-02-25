@@ -12,6 +12,7 @@ import TaxSummary from './pages/TaxSummary';
 import Filing from './pages/Filing';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import TaxEntities from './pages/TaxEntities';
 import HelpSupport from './pages/HelpSupport';
 import Documents from './pages/Documents';
 import SignInPage from './pages/SignInPage';
@@ -74,6 +75,7 @@ function App() {
           <Route path="filing" element={<Filing />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/entities" element={<TaxEntities />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />
         </Route>

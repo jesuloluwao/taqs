@@ -161,6 +161,8 @@ export const setDefault = mutation({
 /**
  * Soft-delete (archive) an entity.
  * Note: exported as `remove` since `delete` is a reserved word.
+ * - Cannot delete the last remaining entity.
+ * - If the deleted entity was the default, auto-assigns another entity as default.
  */
 export const remove = mutation({
   args: {
@@ -175,7 +177,27 @@ export const remove = mutation({
       throw new Error('Entity not found or unauthorized');
     }
 
-    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    const allEntities = await ctx.db
+      .query('entities')
+      .withIndex('by_userId', (q) => q.eq('userId', user._id))
+      .collect();
+    const activeEntities = allEntities.filter((e) => !e.deletedAt);
+
+    if (activeEntities.length <= 1) {
+      throw new Error('Cannot delete your last entity');
+    }
+
+    const wasDefault = entity.isDefault;
+    await ctx.db.patch(args.id, { deletedAt: Date.now(), isDefault: false });
+
+    // If this was the default entity, assign default to another active entity
+    if (wasDefault) {
+      const nextDefault = activeEntities.find((e) => e._id !== args.id);
+      if (nextDefault) {
+        await ctx.db.patch(nextDefault._id, { isDefault: true });
+      }
+    }
+
     return args.id;
   },
 });
