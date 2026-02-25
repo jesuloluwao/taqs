@@ -709,7 +709,7 @@
         "Typecheck passes"
       ],
       "priority": 28,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-3: See '§5.1 PIT Pipeline', '§5.2 PIT Bands', '§5.3 Reliefs', '§5.4 WHT Credits', '§5.5 Minimum Tax' for exact rules"
     },
     {
