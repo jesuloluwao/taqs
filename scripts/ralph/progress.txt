@@ -182,3 +182,22 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - Avatar file upload preview: use `URL.createObjectURL(file)` for local preview before upload; cleanup not strictly needed in this context
   - `ProfileField` sub-component reduces repetition for view/edit field pairs — useful pattern for settings forms
 ---
+
+## 2026-02-25 - US-012
+- Updated `convex/entityCrud.ts` remove mutation: added last-entity protection (throws if only 1 active entity), auto-assigns default to another entity when default is deleted, clears isDefault on soft-deleted entity
+- Created `apps/web/src/pages/TaxEntities.tsx`: full entity management page with 3 view states (list/create/detail)
+  - List: entity cards showing name, type badge, tax year, default badge; "Add Entity" button
+  - Create: full form with EntityTypeSelector (toggle buttons), name, TIN, RC Number (shown for business_name/llc), VAT registered toggle, VAT threshold exceeded toggle (shown when VAT registered)
+  - Detail: read-only fields, Edit/Set as Default/Delete actions, back navigation
+  - Edit mode: pre-filled EntityForm with type-specific validation (RC Number required for LLC)
+  - Delete: confirmation dialog ("All transactions and invoices will be preserved but no longer editable."); last-entity guard disables delete button
+  - Real-time sidebar update: entityCrud.list is a reactive Convex query, so drawer entity selector auto-reflects adds/deletes
+- Updated `apps/web/src/pages/Settings.tsx`: added Tax Entities section with Building2 icon and "Manage" link → /app/settings/entities
+- Updated `apps/web/src/App.tsx`: added `/app/settings/entities` route using TaxEntities component
+- **Learnings for future iterations:**
+  - Convex queries are reactive — sidebar entity selector updates automatically when entities change (no manual invalidation needed)
+  - Local view state (`'list' | 'create' | 'detail'`) works well for CRUD flows that don't need URL-addressable detail pages
+  - Toggle components need `role="switch"` + `aria-checked` for accessibility
+  - `DetailField` helper rendered after default export is valid TypeScript (hoisting works for function declarations)
+  - Unused imports from lucide-react cause TS6133 errors — always check unused imports before build
+---
