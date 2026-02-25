@@ -747,3 +747,35 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - For PDF download from Convex Storage: use fetch(pdfUrl) + URL.createObjectURL for clean browser download trigger
   - The `filing.get` public query is the right place to resolve pdfUrl (not a separate query) — one reactive subscription covers both record state and URL
 ---
+
+## 2026-02-25 - US-046
+- Created `apps/web/src/pages/FilingSubmit.tsx`: 5-step vertical stepper submission guide
+  - Step 1: Submit via TaxPro Max — instructions, deep link to taxpromax.jtb.gov.ng, "Mark as Submitted" button with confirmation dialog
+  - Step 2: Make Payment — FIRS account details (bank, account name/number, sort code) with CopyField components; nil return shows "No payment required" message
+  - Step 3: Upload Payment Receipt — FileUploadZone component (JPG/PNG/PDF ≤10MB), Convex Storage upload flow, advances to payment_confirmed; hidden for nil returns
+  - Step 4: Obtain TCC — same upload flow for TCC document, advances to tcc_obtained; locked until payment_confirmed
+  - Step 5: Store Records — informational checklist of documents to keep + download PDF link
+  - CompletionCelebration component: shown when status=tcc_obtained with confetti-style chips, download + navigation CTAs
+  - Step states: complete (green checkmark), active (primary fill), locked (neutral hollow)
+  - Progress bar at top: shows Step X of 5
+  - Nil return: auto-advances from markSubmitted to payment_confirmed backend; UI hides Step 3, Step 2 shows no-payment message
+  - Error retry: "Try again" link resets upload phase on error
+- Created `apps/web/src/pages/FilingHistory.tsx`: filing history screen at /app/filing/history
+  - Fetches all records via `(api as any).filing.listByUser` (returns enriched records with entityName)
+  - Year selector: "All years" + individual years derived from record set
+  - FilingCard: shows taxYear, StatusBadge, nil badge, entityName, tax payable/nil note, generated/submitted dates
+  - "Continue submission →" link for in-progress filings; navigates to preview or submit screen
+  - Empty state: different messages for year-filtered vs no records; "Show all years" / "Start Filing" CTAs
+- Updated `convex/filing.ts` listByUser query: joins entity records to return entityName for each filing record
+- Updated `apps/web/src/pages/FilingPreview.tsx`: "Proceed to Submit" now navigates to `/app/filing/submit/${filing._id}`
+- Updated `apps/web/src/pages/Filing.tsx`: added "View filing history" link button (History icon)
+- Updated `apps/web/src/App.tsx`: added routes `/app/filing/submit/:filingId` and `/app/filing/history`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Reuse `api.files.generateUploadUrl` (already in generated types from PRD-0) for all Convex Storage uploads — no new mutation needed
+  - Convex Storage upload pattern: generateUploadUrl → POST file with Content-Type → response JSON has storageId
+  - Step status logic: derive from filing status (NOT step-specific state) so reactive Convex query keeps stepper in sync automatically
+  - For nil returns: markSubmitted backend auto-transitions to payment_confirmed; UI shows Step 2 note + hides Step 3
+  - `listByUser` entity join: simple `ctx.db.get(entityId)` inside Promise.all with in-memory Map cache — fast for small record sets
+  - `(api as any).filing.listByUser` pattern needed for filing module (not in generated api.d.ts)
+---
