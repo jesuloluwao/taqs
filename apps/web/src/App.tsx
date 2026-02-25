@@ -20,6 +20,8 @@ import Notifications from './pages/Notifications';
 import DeleteAccount from './pages/DeleteAccount';
 import HelpSupport from './pages/HelpSupport';
 import Documents from './pages/Documents';
+import Categories from './pages/Categories';
+import ConnectedAccounts from './pages/ConnectedAccounts';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import Onboarding from './pages/Onboarding';
@@ -85,6 +87,8 @@ function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="settings/entities" element={<TaxEntities />} />
           <Route path="settings/notifications" element={<Notifications />} />
+          <Route path="settings/categories" element={<Categories />} />
+          <Route path="settings/accounts" element={<ConnectedAccounts />} />
           <Route path="settings/delete-account" element={<DeleteAccount />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />

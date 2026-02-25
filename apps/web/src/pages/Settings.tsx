@@ -18,6 +18,8 @@ import {
   Briefcase,
   Building2,
   Bell,
+  Tag,
+  Link2,
 } from 'lucide-react';
 
 const CURRENCIES: Record<string, string> = {
@@ -531,6 +533,60 @@ export default function Settings() {
           </div>
           <Link
             to="/app/settings/entities"
+            className="flex items-center gap-1 text-sm text-primary font-medium hover:text-primary/80 transition-colors flex-shrink-0 ml-4"
+          >
+            Manage
+            <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+      </div>
+
+      {/* Categories */}
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Categories</h2>
+        </div>
+        <div className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+              <Tag className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Manage Categories</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Create and edit custom transaction categories
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/app/settings/categories"
+            className="flex items-center gap-1 text-sm text-primary font-medium hover:text-primary/80 transition-colors flex-shrink-0 ml-4"
+          >
+            Manage
+            <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+      </div>
+
+      {/* Connected Accounts */}
+      <div className="bg-card border border-border rounded-xl shadow-soft overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Connected Accounts</h2>
+        </div>
+        <div className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+              <Link2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Bank Accounts & Data Sources</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Link bank accounts or add statement upload sources
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/app/settings/accounts"
             className="flex items-center gap-1 text-sm text-primary font-medium hover:text-primary/80 transition-colors flex-shrink-0 ml-4"
           >
             Manage
