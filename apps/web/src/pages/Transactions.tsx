@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useAction } from 'convex/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
@@ -830,6 +830,14 @@ export default function Transactions() {
                 <Upload className="w-4 h-4" />
                 <span>Import</span>
               </button>
+              <Link
+                to="/app/ai-insights"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 text-body-sm font-medium hover:bg-violet-100 transition-colors"
+                title="AI Categorisation Insights"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span className="hidden sm:inline">AI Insights</span>
+              </Link>
             </>
           )}
         </div>

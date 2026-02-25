@@ -74,7 +74,19 @@ async function callClaudeWithRetry(client: any, params: any, attempt = 0): Promi
   }
 }
 
-function buildPrompt(categories: CategoryInfo[], transactions: TransactionForAi[]): string {
+interface FewShotExample {
+  description: string;
+  direction: string;
+  amountNaira: string;
+  aiSuggested: string | null;
+  userChosen: string;
+}
+
+function buildPrompt(
+  categories: CategoryInfo[],
+  transactions: TransactionForAi[],
+  fewShotExamples: FewShotExample[] = []
+): string {
   const categoryList = categories.map((c) => `- "${c.name}" (${c.type})`).join('\n');
 
   const txList = transactions.map((tx, i) => ({
@@ -84,6 +96,18 @@ function buildPrompt(categories: CategoryInfo[], transactions: TransactionForAi[
     amountNaira: (tx.amount / 100).toFixed(2),
     direction: tx.direction,
   }));
+
+  // Build few-shot section from recent user corrections
+  let fewShotSection = '';
+  if (fewShotExamples.length > 0) {
+    const examples = fewShotExamples
+      .map(
+        (ex) =>
+          `  - "${ex.description}" (${ex.direction}, ₦${ex.amountNaira}) → "${ex.userChosen}"`
+      )
+      .join('\n');
+    fewShotSection = `\nUser corrections from prior categorisations (learn from these preferences):\n${examples}\n`;
+  }
 
   return `Classify these Nigerian bank transactions for tax purposes (NTA 2025).
 
@@ -95,7 +119,7 @@ Direction context:
 - "debit" = money OUT (expenses, payments, transfers sent)
 
 Nigerian context: "TRF", "TRANSFER", "NIP", "INT" in descriptions usually indicate transfers. "NEPA", "IKEDC", "EKEDC" = electricity. "AIRTEL", "MTN", "GLO", "9MOBILE" = telecom/internet.
-
+${fewShotSection}
 Transactions:
 ${JSON.stringify(txList, null, 2)}
 
@@ -123,6 +147,7 @@ export const categoriseBatchForEntity = internalAction({
   handler: async (ctx, { categorisingJobId, entityId, transactionIds }) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
+      // Silently mark as failed — AI features disabled when key not set
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
         jobId: categorisingJobId,
@@ -133,12 +158,29 @@ export const categoriseBatchForEntity = internalAction({
       return;
     }
 
+    // Circuit breaker: skip if 3+ consecutive failures within 5 minutes
+    const cb = (await ctx.runQuery(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (internal as any).aiCategoriseHelpers.checkCircuitBreaker,
+      { entityId }
+    )) as { open: boolean; openUntil: number | null };
+    if (cb.open) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+        jobId: categorisingJobId,
+        status: 'failed',
+        errorMessage: `Circuit breaker open — AI categorisation paused until ${new Date(cb.openUntil!).toISOString()}`,
+        completedAt: Date.now(),
+      });
+      return;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const AnthropicModule = await import('@anthropic-ai/sdk' as any);
     const Anthropic = AnthropicModule.default ?? AnthropicModule;
     const client = new Anthropic({ apiKey });
 
-    const [categories, transactions] = await Promise.all([
+    const [categories, transactions, fewShotExamples] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ctx.runQuery((internal as any).aiCategoriseHelpers.getCategoriesList, {}),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,7 +188,9 @@ export const categoriseBatchForEntity = internalAction({
         entityId,
         transactionIds: transactionIds ?? undefined,
       }),
-    ]) as [CategoryInfo[], TransactionForAi[]];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ctx.runQuery((internal as any).aiCategoriseHelpers.getFewShotExamples, { entityId }),
+    ]) as [CategoryInfo[], TransactionForAi[], FewShotExample[]];
 
     if (!transactions || transactions.length === 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,7 +246,7 @@ export const categoriseBatchForEntity = internalAction({
       let batchFailed = false;
 
       try {
-        const userPrompt = buildPrompt(categories, batch);
+        const userPrompt = buildPrompt(categories, batch, fewShotExamples);
         const response = await callClaudeWithRetry(client, {
           model: MODEL,
           max_tokens: 2048,
@@ -299,11 +343,29 @@ export const categoriseBatch = internalAction({
   handler: async (ctx, { categorisingJobId, entityId, importJobId }) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
+      // Silently mark as failed — AI features disabled when key not set
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
         jobId: categorisingJobId,
         status: 'failed',
         errorMessage: 'ANTHROPIC_API_KEY not configured',
+        completedAt: Date.now(),
+      });
+      return;
+    }
+
+    // Circuit breaker: skip if 3+ consecutive failures within 5 minutes
+    const cb = (await ctx.runQuery(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (internal as any).aiCategoriseHelpers.checkCircuitBreaker,
+      { entityId }
+    )) as { open: boolean; openUntil: number | null };
+    if (cb.open) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ctx.runMutation((internal as any).aiCategoriseHelpers.updateCategorisingJob, {
+        jobId: categorisingJobId,
+        status: 'failed',
+        errorMessage: `Circuit breaker open — AI categorisation paused until ${new Date(cb.openUntil!).toISOString()}`,
         completedAt: Date.now(),
       });
       return;
@@ -315,8 +377,8 @@ export const categoriseBatch = internalAction({
     const Anthropic = AnthropicModule.default ?? AnthropicModule;
     const client = new Anthropic({ apiKey });
 
-    // Fetch categories list and uncategorised transactions for this import job
-    const [categories, transactions] = await Promise.all([
+    // Fetch categories list, uncategorised transactions, and few-shot examples
+    const [categories, transactions, fewShotExamples] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ctx.runQuery((internal as any).aiCategoriseHelpers.getCategoriesList, {}),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -324,7 +386,9 @@ export const categoriseBatch = internalAction({
         entityId,
         importJobId: importJobId ?? null,
       }),
-    ]) as [CategoryInfo[], TransactionForAi[]];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ctx.runQuery((internal as any).aiCategoriseHelpers.getFewShotExamples, { entityId }),
+    ]) as [CategoryInfo[], TransactionForAi[], FewShotExample[]];
 
     if (!transactions || transactions.length === 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -375,7 +439,7 @@ export const categoriseBatch = internalAction({
       let batchFailed = false;
 
       try {
-        const userPrompt = buildPrompt(categories, batch);
+        const userPrompt = buildPrompt(categories, batch, fewShotExamples);
 
         const response = await callClaudeWithRetry(client, {
           model: MODEL,

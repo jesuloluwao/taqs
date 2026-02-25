@@ -219,6 +219,105 @@ export const getUncategorised = query({
   },
 });
 
+/**
+ * AI statistics for the Categorisation Insights view.
+ * Computed from aiCategorisationFeedback records for the entity.
+ * Returns overall accuracy, per-category accuracy, override rate,
+ * total AI-categorised vs manually-categorised counts.
+ */
+export const getAiStats = query({
+  args: {
+    entityId: v.id('entities'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return null;
+
+    const entity = await ctx.db.get(args.entityId);
+    if (!entity || entity.userId !== user._id || entity.deletedAt) return null;
+
+    // Load all feedback records for this entity
+    const feedbackRecords = await ctx.db
+      .query('aiCategorisationFeedback')
+      .withIndex('by_entityId', (q) => q.eq('entityId', args.entityId))
+      .collect();
+
+    if (feedbackRecords.length === 0) {
+      return {
+        hasData: false,
+        totalAiCategorised: 0,
+        totalManual: 0,
+        totalFeedback: 0,
+        overrideRate: 0,
+        accuracyRate: 0,
+        byCategory: [],
+      };
+    }
+
+    // Count overrides (user changed AI suggestion)
+    const overrides = feedbackRecords.filter((f) => {
+      if (!f.aiSuggestedCategory) return false;
+      return f.userChosenCategory !== f.aiSuggestedCategory;
+    });
+    const agreements = feedbackRecords.filter((f) => {
+      if (!f.aiSuggestedCategory) return false;
+      return f.userChosenCategory === f.aiSuggestedCategory;
+    });
+
+    const totalFeedback = feedbackRecords.length;
+    const withSuggestion = feedbackRecords.filter((f) => !!f.aiSuggestedCategory).length;
+    const overrideRate = withSuggestion > 0 ? overrides.length / withSuggestion : 0;
+    const accuracyRate = withSuggestion > 0 ? agreements.length / withSuggestion : 0;
+
+    // Per-category breakdown: for each AI-suggested category, how often was it accepted?
+    const categoryMap = new Map<string, { accepted: number; overridden: number }>();
+    for (const f of feedbackRecords) {
+      if (!f.aiSuggestedCategory) continue;
+      const key = f.aiSuggestedCategory;
+      const existing = categoryMap.get(key) ?? { accepted: 0, overridden: 0 };
+      if (f.userChosenCategory === f.aiSuggestedCategory) {
+        existing.accepted++;
+      } else {
+        existing.overridden++;
+      }
+      categoryMap.set(key, existing);
+    }
+
+    const byCategory = Array.from(categoryMap.entries())
+      .map(([category, counts]) => {
+        const total = counts.accepted + counts.overridden;
+        return {
+          category,
+          total,
+          accepted: counts.accepted,
+          overridden: counts.overridden,
+          accuracy: total > 0 ? counts.accepted / total : 0,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    // Count total AI-categorised transactions (have aiCategorisedAt set)
+    const allTxForEntity = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_date', (q) => q.eq('entityId', args.entityId))
+      .collect();
+    const totalAiCategorised = allTxForEntity.filter((tx) => tx.aiCategorisedAt).length;
+    const totalManual = allTxForEntity.filter(
+      (tx) => tx.reviewedByUser && !tx.aiCategorisedAt
+    ).length;
+
+    return {
+      hasData: true,
+      totalAiCategorised,
+      totalManual,
+      totalFeedback,
+      overrideRate,
+      accuracyRate,
+      byCategory,
+    };
+  },
+});
+
 // ================== MUTATIONS ==================
 
 /**

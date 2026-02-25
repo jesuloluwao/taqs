@@ -293,3 +293,82 @@ export const getCategoriesList = internalQuery({
     }));
   },
 });
+
+/**
+ * Get the most recent user corrections (aiCategorisationFeedback records)
+ * for an entity, limited to 20 items, for use as few-shot examples.
+ */
+export const getFewShotExamples = internalQuery({
+  args: { entityId: v.id('entities') },
+  handler: async (ctx, args) => {
+    const records = await ctx.db
+      .query('aiCategorisationFeedback')
+      .withIndex('by_entityId', (q) => q.eq('entityId', args.entityId))
+      .order('desc')
+      .take(20);
+
+    return records.map((r) => ({
+      description: r.transactionDescription,
+      direction: r.transactionDirection,
+      amountNaira: (r.transactionAmount / 100).toFixed(2),
+      aiSuggested: r.aiSuggestedCategory ?? null,
+      userChosen: r.userChosenCategory,
+    }));
+  },
+});
+
+// ─────────────────────────────────────────────
+// Circuit Breaker
+// ─────────────────────────────────────────────
+
+const CIRCUIT_BREAKER_THRESHOLD = 3; // consecutive failures to open
+const CIRCUIT_BREAKER_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Check whether the AI circuit breaker is open for this entity.
+ * Returns { open: true, openUntil: timestamp } if AI calls should be skipped.
+ */
+export const checkCircuitBreaker = internalQuery({
+  args: { entityId: v.id('entities') },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Get the most recent failed categorisingJobs for this entity
+    const recentJobs = await ctx.db
+      .query('categorisingJobs')
+      .withIndex('by_entityId', (q) => q.eq('entityId', args.entityId))
+      .order('desc')
+      .take(10);
+
+    // Find consecutive failures from the most recent job backwards
+    let consecutiveFailures = 0;
+    let latestFailureAt = 0;
+
+    for (const job of recentJobs) {
+      if (job.status === 'failed') {
+        consecutiveFailures++;
+        if (job.completedAt && job.completedAt > latestFailureAt) {
+          latestFailureAt = job.completedAt;
+        }
+      } else if (job.status === 'complete' || job.status === 'processing') {
+        // Chain broken by a success
+        break;
+      }
+      // 'pending' / 'cancelled' don't break the chain but don't count as failures
+    }
+
+    if (
+      consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD &&
+      latestFailureAt > 0 &&
+      now - latestFailureAt <= CIRCUIT_BREAKER_WINDOW_MS
+    ) {
+      const openUntil = latestFailureAt + CIRCUIT_BREAKER_COOLDOWN_MS;
+      if (now < openUntil) {
+        return { open: true, openUntil };
+      }
+    }
+
+    return { open: false, openUntil: null };
+  },
+});
