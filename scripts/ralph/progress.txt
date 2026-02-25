@@ -493,3 +493,26 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `(internal as any).moduleName.functionName` pattern works in crons.ts for stale generated types
   - Don't use `q.lte` with optional fields in Convex filters — collect then JS-filter is safer for nullable/undefined fields
 ---
+
+## 2026-02-25 - US-036
+- Extended `convex/invoices.ts` list query to return `statusCounts` object `{ all, draft, sent, paid, overdue, cancelled }` — computed over ALL entity invoices (regardless of active status filter)
+- Rewrote `apps/web/src/pages/Invoices.tsx` with full invoice list UI:
+  - Page header: 'Invoices' title + total count subtitle + '+New Invoice' button (navigates to `/app/invoices/new`)
+  - Summary bar: two cards — 'Total Outstanding' (amber) and 'Total Paid (Year)' (emerald) with formatted kobo→naira values
+  - Filter tabs: All | Draft | Sent | Paid | Overdue — each with count badge; active tab uses `bg-primary text-white`, inactive uses neutral hover
+  - Overdue alert banner: shown when overdue count > 0 and 'Overdue' tab is not active; clicking navigates to overdue tab
+  - Invoice rows: client name (with line-through on cancelled) + invoice number, issued/due dates, amount (currency-aware display), status badge (Draft grey, Sent blue, Paid emerald, Overdue red, Cancelled strikethrough)
+  - Tapping a row navigates to `/app/invoices/:id`
+  - Infinite scroll: limit state starts at 25; 'Load more invoices' link increases by 25
+  - Footer count shown when all invoices loaded and list is non-empty
+  - Empty state: different messages for filtered vs no invoices; 'Create Invoice' CTA or 'Show all invoices' link
+  - Loading skeleton: 6 shimmer rows while data loads
+  - Data scoped to active entity via `useEntity()` context; query skipped if no entity
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `(api as any).invoices.list` pattern used since invoices module not in generated api.d.ts
+  - Adding `statusCounts` to the list query is cleaner than running 5 separate count queries
+  - Curly apostrophes in JSX string literals cause TS parse errors — use double-quoted strings for text with apostrophes
+  - `w-4.5` is not a valid Tailwind class — use `w-4` or `w-[18px]` for 18px icon sizing
+  - `api` import needed explicitly even when using `(api as any)` pattern
+---
