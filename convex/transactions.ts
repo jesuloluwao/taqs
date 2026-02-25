@@ -315,6 +315,7 @@ export const update = mutation({
     whtRate: v.optional(v.number()),
     notes: v.optional(v.string()),
     reviewedByUser: v.optional(v.boolean()),
+    userOverrodeAi: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await getOrCreateCurrentUser(ctx);
@@ -417,6 +418,85 @@ export const bulkDelete = mutation({
     }
 
     return { deleted };
+  },
+});
+
+/**
+ * Accept an AI suggestion: look up category by aiCategorySuggestion name,
+ * apply it (or type suggestion), set reviewedByUser=true, userOverrodeAi=false.
+ */
+export const acceptAiSuggestion = mutation({
+  args: {
+    id: v.id('transactions'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const tx = await ctx.db.get(args.id);
+    if (!tx || tx.userId !== user._id) throw new Error('Transaction not found or unauthorized');
+    if (!tx.aiCategorySuggestion) throw new Error('No AI suggestion available');
+
+    // Look up category by name (case-insensitive)
+    const allCategories = await ctx.db.query('categories').collect();
+    const category = allCategories.find(
+      (c) => c.name.toLowerCase() === tx.aiCategorySuggestion!.toLowerCase()
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const patch: Record<string, any> = {
+      reviewedByUser: true,
+      userOverrodeAi: false,
+      updatedAt: Date.now(),
+    };
+
+    if (category) {
+      patch.categoryId = category._id;
+      patch.type = category.type;
+      patch.isDeductible = category.isDeductibleDefault ?? false;
+    } else if (tx.aiTypeSuggestion && tx.aiTypeSuggestion !== 'uncategorised') {
+      patch.type = tx.aiTypeSuggestion;
+    }
+
+    await ctx.db.patch(args.id, patch);
+    return { categoryName: category?.name ?? tx.aiCategorySuggestion };
+  },
+});
+
+/**
+ * Record user override of AI suggestion for few-shot learning.
+ */
+export const recordAiFeedback = mutation({
+  args: {
+    entityId: v.id('entities'),
+    transactionId: v.id('transactions'),
+    aiSuggestedCategory: v.optional(v.string()),
+    aiSuggestedType: v.optional(transactionTypeValidator),
+    aiConfidence: v.optional(v.number()),
+    userChosenCategory: v.string(),
+    userChosenType: transactionTypeValidator,
+    transactionDescription: v.string(),
+    transactionAmount: v.number(),
+    transactionDirection: directionValidator,
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    await ctx.db.insert('aiCategorisationFeedback', {
+      entityId: args.entityId,
+      userId: user._id,
+      transactionId: args.transactionId,
+      aiSuggestedCategory: args.aiSuggestedCategory,
+      aiSuggestedType: args.aiSuggestedType,
+      aiConfidence: args.aiConfidence,
+      userChosenCategory: args.userChosenCategory,
+      userChosenType: args.userChosenType,
+      transactionDescription: args.transactionDescription,
+      transactionAmount: args.transactionAmount,
+      transactionDirection: args.transactionDirection,
+      createdAt: Date.now(),
+    });
   },
 });
 

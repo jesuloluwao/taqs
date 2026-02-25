@@ -52,6 +52,11 @@ interface TransactionRow {
   notes?: string;
   taxYear: number;
   reviewedByUser?: boolean;
+  // AI categorisation fields
+  aiCategorySuggestion?: string;
+  aiCategoryConfidence?: number;
+  aiCategorisingJobId?: string;
+  userOverrodeAi?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -816,19 +821,39 @@ export default function Transactions() {
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-body-sm text-neutral-500">
                               {formatDate(tx.date)}
                             </span>
                             <span className="text-neutral-300">·</span>
                             {isUncategorised ? (
-                              <span className="text-body-sm text-warning font-medium">
-                                Uncategorised
-                              </span>
+                              tx.aiCategorySuggestion && tx.aiCategoryConfidence !== undefined ? (
+                                <span className="text-body-sm text-neutral-400 italic">
+                                  AI suggests: {tx.aiCategorySuggestion} · {Math.round(tx.aiCategoryConfidence * 100)}%
+                                </span>
+                              ) : (
+                                <span className="text-body-sm text-warning font-medium">
+                                  Uncategorised
+                                </span>
+                              )
                             ) : (
-                              <span className="text-body-sm text-neutral-500">
-                                {tx.categoryName}
-                              </span>
+                              <>
+                                <span className="text-body-sm text-neutral-500">
+                                  {tx.categoryName}
+                                </span>
+                                {/* Confidence badge for AI-categorised unreviewed */}
+                                {tx.aiCategorisingJobId && !tx.reviewedByUser && tx.aiCategoryConfidence !== undefined ? (
+                                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    tx.aiCategoryConfidence >= 0.9
+                                      ? 'bg-success/15 text-success'
+                                      : 'bg-warning/15 text-warning'
+                                  }`}>
+                                    🤖 {Math.round(tx.aiCategoryConfidence * 100)}%
+                                  </span>
+                                ) : tx.reviewedByUser ? (
+                                  <Check className="w-3.5 h-3.5 text-success flex-shrink-0" />
+                                ) : null}
+                              </>
                             )}
                           </div>
                         </div>

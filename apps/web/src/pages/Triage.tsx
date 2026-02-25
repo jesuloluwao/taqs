@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -17,11 +17,15 @@ import {
   ArrowLeftRight,
   Globe,
   ChevronRight,
+  Check,
+  Info,
+  X,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface UncategorisedTx {
   _id: Id<'transactions'>;
+  entityId: Id<'entities'>;
   date: number;
   description: string;
   amount: number;
@@ -31,6 +35,12 @@ interface UncategorisedTx {
   type?: string;
   source?: string;
   notes?: string;
+  // AI fields
+  aiCategorySuggestion?: string;
+  aiTypeSuggestion?: string;
+  aiCategoryConfidence?: number;
+  aiReasoning?: string;
+  aiCategorisingJobId?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -98,10 +108,64 @@ function AllDoneState({ onViewTransactions }: { onViewTransactions: () => void }
   );
 }
 
+// ── AI Reasoning bottom sheet ───────────────────────────────────────────────
+function AiReasoningSheet({
+  reasoning,
+  suggestion,
+  confidence,
+  onClose,
+}: {
+  reasoning: string;
+  suggestion?: string;
+  confidence?: number;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white rounded-t-2xl shadow-medium p-6 pb-10 animate-slide-up">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🤖</span>
+            <h3 className="text-heading-sm font-display text-neutral-900">AI Reasoning</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-muted text-neutral-400 hover:text-neutral-700 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {suggestion && confidence !== undefined && (
+          <div className="flex items-center gap-2 mb-3 p-2.5 bg-neutral-50 rounded-lg">
+            <span className="text-body-sm text-neutral-600">Suggested:</span>
+            <span className="text-body-sm font-semibold text-neutral-900">{suggestion}</span>
+            <span className={`ml-auto text-body-sm font-semibold ${
+              confidence >= 0.9 ? 'text-success' : 'text-warning'
+            }`}>
+              {Math.round(confidence * 100)}%
+            </span>
+          </div>
+        )}
+        <p className="text-body-sm text-neutral-700 leading-relaxed">{reasoning}</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Transaction card ────────────────────────────────────────────────────────
-function TransactionCard({ tx }: { tx: UncategorisedTx }) {
+function TransactionCard({
+  tx,
+  onShowReasoning,
+}: {
+  tx: UncategorisedTx;
+  onShowReasoning: () => void;
+}) {
   const isCredit = tx.direction === 'credit';
   const isForeign = tx.currency !== 'NGN';
+  const hasAiSuggestion = !!(tx.aiCategorySuggestion && tx.aiCategoryConfidence !== undefined);
+  const confidencePct = hasAiSuggestion ? Math.round(tx.aiCategoryConfidence! * 100) : 0;
+  const isHighConfidence = hasAiSuggestion && tx.aiCategoryConfidence! >= 0.9;
 
   return (
     <div className="bg-white rounded-2xl border border-border shadow-medium p-6 animate-slide-up">
@@ -150,6 +214,49 @@ function TransactionCard({ tx }: { tx: UncategorisedTx }) {
         <p className="text-body-sm text-neutral-500">{formatDate(tx.date)}</p>
       </div>
 
+      {/* AI Suggestion Panel */}
+      {hasAiSuggestion && (
+        <div className={`mb-4 p-3 rounded-xl border ${
+          isHighConfidence
+            ? 'bg-success/5 border-success/20'
+            : 'bg-warning/5 border-warning/20'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm">🤖</span>
+              <span className="text-body-sm text-neutral-600 font-medium">AI suggests:</span>
+              <span className="text-body-sm font-semibold text-neutral-900">
+                {tx.aiCategorySuggestion}
+              </span>
+              <span className="text-neutral-300">·</span>
+              <span className={`text-body-sm font-bold ${
+                isHighConfidence ? 'text-success' : 'text-warning'
+              }`}>
+                {confidencePct}%
+              </span>
+            </div>
+            {tx.aiReasoning && (
+              <button
+                onClick={onShowReasoning}
+                className="p-1 rounded-md hover:bg-black/5 text-neutral-400 hover:text-neutral-700 transition-colors flex-shrink-0 ml-2"
+                title="View AI reasoning"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {/* Confidence bar */}
+          <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                isHighConfidence ? 'bg-success' : 'bg-warning'
+              }`}
+              style={{ width: `${confidencePct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Meta row */}
       <div className="flex items-center gap-2 flex-wrap">
         <span
@@ -187,11 +294,16 @@ export default function Triage() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateTx = useMutation((api as any).transactions.update);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const acceptAiMutation = useMutation((api as any).transactions.acceptAiSuggestion);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recordFeedbackMutation = useMutation((api as any).transactions.recordAiFeedback);
 
   const [queue, setQueue] = useState<UncategorisedTx[] | null>(null);
   const [total, setTotal] = useState(0);
   const [index, setIndex] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [processing, setProcessing] = useState(false);
 
   // Capture queue once on first load
@@ -206,14 +318,56 @@ export default function Triage() {
   const isAllDone = queue !== null && index >= queue.length;
   const isLoading = queue === null;
 
-  async function applyCategory(tx: UncategorisedTx, category: CategoryOption) {
+  // Prevent re-renders from re-triggering reasoning sheet
+  const processingRef = useRef(false);
+
+  async function handleAcceptAiSuggestion(tx: UncategorisedTx) {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setProcessing(true);
     try {
+      const result = await acceptAiMutation({ id: tx._id });
+      setIndex((i) => i + 1);
+      toast.success(`Accepted: ${(result as { categoryName: string }).categoryName}`);
+    } catch {
+      toast.error('Failed to accept AI suggestion');
+    } finally {
+      setProcessing(false);
+      processingRef.current = false;
+    }
+  }
+
+  async function applyCategory(tx: UncategorisedTx, category: CategoryOption) {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setProcessing(true);
+    const hasAiSuggestion = !!(tx.aiCategorySuggestion);
+    try {
+      // If overriding AI: record feedback first
+      if (hasAiSuggestion && activeEntityId) {
+        await recordFeedbackMutation({
+          entityId: activeEntityId,
+          transactionId: tx._id,
+          aiSuggestedCategory: tx.aiCategorySuggestion,
+          aiSuggestedType: tx.aiTypeSuggestion as
+            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+            | undefined,
+          aiConfidence: tx.aiCategoryConfidence,
+          userChosenCategory: category.name,
+          userChosenType: category.type as
+            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised',
+          transactionDescription: tx.description,
+          transactionAmount: tx.amount,
+          transactionDirection: tx.direction ?? 'debit',
+        });
+      }
+
       await updateTx({
         id: tx._id,
         categoryId: category._id,
         type: category.type,
         reviewedByUser: true,
+        userOverrodeAi: hasAiSuggestion,
       });
       setIndex((i) => i + 1);
       toast.success(`Categorised as "${category.name}"`);
@@ -221,23 +375,47 @@ export default function Triage() {
       toast.error('Failed to categorise transaction');
     } finally {
       setProcessing(false);
+      processingRef.current = false;
     }
   }
 
   async function handleMarkPersonal(tx: UncategorisedTx) {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setProcessing(true);
+    const hasAiSuggestion = !!(tx.aiCategorySuggestion);
     try {
+      // Record feedback if AI had a suggestion
+      if (hasAiSuggestion && activeEntityId) {
+        await recordFeedbackMutation({
+          entityId: activeEntityId,
+          transactionId: tx._id,
+          aiSuggestedCategory: tx.aiCategorySuggestion,
+          aiSuggestedType: tx.aiTypeSuggestion as
+            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+            | undefined,
+          aiConfidence: tx.aiCategoryConfidence,
+          userChosenCategory: 'Personal Expense',
+          userChosenType: 'personal_expense',
+          transactionDescription: tx.description,
+          transactionAmount: tx.amount,
+          transactionDirection: tx.direction ?? 'debit',
+        });
+      }
+
       await updateTx({
         id: tx._id,
         type: 'personal_expense',
         isDeductible: false,
         reviewedByUser: true,
+        userOverrodeAi: hasAiSuggestion,
       });
       setIndex((i) => i + 1);
     } catch {
       toast.error('Failed to update transaction');
     } finally {
       setProcessing(false);
+      processingRef.current = false;
     }
   }
 
@@ -301,18 +479,37 @@ export default function Triage() {
           </p>
 
           {/* Transaction card */}
-          <TransactionCard tx={currentTx} />
+          <TransactionCard
+            tx={currentTx}
+            onShowReasoning={() => setShowReasoning(true)}
+          />
 
           {/* Action buttons */}
           <div className="space-y-2.5">
-            {/* Change category — primary action */}
+            {/* Accept AI suggestion — shown when AI has a suggestion */}
+            {currentTx.aiCategorySuggestion && (
+              <button
+                disabled={processing}
+                onClick={() => handleAcceptAiSuggestion(currentTx)}
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl bg-primary text-white font-medium text-body hover:bg-primary/90 transition-colors shadow-soft disabled:opacity-60"
+              >
+                <Check className="w-5 h-5" />
+                Accept: {currentTx.aiCategorySuggestion}
+              </button>
+            )}
+
+            {/* Change / Override category */}
             <button
               disabled={processing}
               onClick={() => setShowPicker(true)}
-              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl bg-primary text-white font-medium text-body hover:bg-primary/90 transition-colors shadow-soft disabled:opacity-60"
+              className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-medium text-body transition-colors disabled:opacity-60 ${
+                currentTx.aiCategorySuggestion
+                  ? 'bg-white border border-border text-neutral-700 hover:bg-muted'
+                  : 'bg-primary text-white hover:bg-primary/90 shadow-soft'
+              }`}
             >
               <Tag className="w-5 h-5" />
-              Change category
+              {currentTx.aiCategorySuggestion ? 'Override category' : 'Change category'}
             </button>
 
             {/* Secondary actions row */}
@@ -369,12 +566,22 @@ export default function Triage() {
       {/* Category picker modal */}
       {showPicker && currentTx && (
         <CategoryPickerModal
-          title="Choose Category"
+          title={currentTx.aiCategorySuggestion ? 'Override Category' : 'Choose Category'}
           onClose={() => setShowPicker(false)}
           onSelect={async (cat) => {
             setShowPicker(false);
             await applyCategory(currentTx, cat);
           }}
+        />
+      )}
+
+      {/* AI Reasoning bottom sheet */}
+      {showReasoning && currentTx?.aiReasoning && (
+        <AiReasoningSheet
+          reasoning={currentTx.aiReasoning}
+          suggestion={currentTx.aiCategorySuggestion}
+          confidence={currentTx.aiCategoryConfidence}
+          onClose={() => setShowReasoning(false)}
         />
       )}
     </div>

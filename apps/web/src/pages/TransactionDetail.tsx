@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Check,
   ChevronDown,
+  Info,
 } from 'lucide-react';
 import { Skeleton } from '../components/Skeleton';
 
@@ -48,6 +49,13 @@ interface TransactionFull {
   externalRef?: string;
   taxYear: number;
   reviewedByUser?: boolean;
+  // AI categorisation fields
+  aiCategorySuggestion?: string;
+  aiTypeSuggestion?: string;
+  aiCategoryConfidence?: number;
+  aiReasoning?: string;
+  aiCategorisingJobId?: string;
+  userOverrodeAi?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -238,11 +246,16 @@ export default function TransactionDetail() {
   const updateTx = useMutation((api as any).transactions.update);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const removeTx = useMutation((api as any).transactions.remove);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const acceptAiMutation = useMutation((api as any).transactions.acceptAiSuggestion);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recordFeedbackMutation = useMutation((api as any).transactions.recordAiFeedback);
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
+  const [showAiReasoning, setShowAiReasoning] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
   const [form, setForm] = useState<EditForm>({
@@ -327,6 +340,32 @@ export default function TransactionDetail() {
     if (!transaction) return;
     setIsSaving(true);
     try {
+      // Check if user is overriding AI: AI was involved and category is changing
+      const isOverridingAi =
+        !!(transaction.aiCategorisingJobId) &&
+        form.categoryId !== (transaction.categoryId ?? '');
+
+      if (isOverridingAi && form.categoryId) {
+        const chosenCat = (categories ?? []).find((c) => c._id === form.categoryId);
+        if (chosenCat) {
+          await recordFeedbackMutation({
+            entityId: transaction.entityId,
+            transactionId: transaction._id,
+            aiSuggestedCategory: transaction.aiCategorySuggestion,
+            aiSuggestedType: transaction.aiTypeSuggestion as
+              | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+              | undefined,
+            aiConfidence: transaction.aiCategoryConfidence,
+            userChosenCategory: chosenCat.name,
+            userChosenType: chosenCat.type as
+              | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised',
+            transactionDescription: transaction.description,
+            transactionAmount: transaction.amount,
+            transactionDirection: transaction.direction,
+          });
+        }
+      }
+
       await updateTx({
         id: transaction._id,
         description: form.description.trim() || undefined,
@@ -342,6 +381,7 @@ export default function TransactionDetail() {
         whtDeducted: form.whtDeducted ? Math.round(Number(form.whtDeducted) * 100) : undefined,
         notes: form.notes.trim() || undefined,
         reviewedByUser: true,
+        userOverrodeAi: isOverridingAi || undefined,
       });
       setIsEditing(false);
       setIsDirty(false);
@@ -353,14 +393,43 @@ export default function TransactionDetail() {
     }
   }
 
+  async function handleAcceptAiSuggestion() {
+    if (!transaction) return;
+    try {
+      const result = await acceptAiMutation({ id: transaction._id });
+      toast.success(`Accepted: ${(result as { categoryName: string }).categoryName}`);
+    } catch {
+      toast.error('Failed to accept AI suggestion');
+    }
+  }
+
   async function handleMarkPersonal() {
     if (!transaction) return;
     try {
+      // Record feedback if AI had a suggestion
+      if (transaction.aiCategorisingJobId && transaction.aiCategorySuggestion) {
+        await recordFeedbackMutation({
+          entityId: transaction.entityId,
+          transactionId: transaction._id,
+          aiSuggestedCategory: transaction.aiCategorySuggestion,
+          aiSuggestedType: transaction.aiTypeSuggestion as
+            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+            | undefined,
+          aiConfidence: transaction.aiCategoryConfidence,
+          userChosenCategory: 'Personal Expense',
+          userChosenType: 'personal_expense',
+          transactionDescription: transaction.description,
+          transactionAmount: transaction.amount,
+          transactionDirection: transaction.direction,
+        });
+      }
+
       await updateTx({
         id: transaction._id,
         type: 'personal_expense',
         isDeductible: false,
         reviewedByUser: true,
+        userOverrodeAi: !!(transaction.aiCategorisingJobId) || undefined,
       });
       toast.success('Marked as personal expense');
     } catch {
@@ -671,6 +740,70 @@ export default function TransactionDetail() {
         <FieldRow label="Tax year">{transaction.taxYear}</FieldRow>
       </div>
 
+      {/* AI Categorisation section — shown when AI was involved */}
+      {transaction.aiCategorisingJobId && (
+        <div className="bg-white rounded-xl border border-border shadow-soft p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-label font-medium text-neutral-500 uppercase tracking-wider">
+              AI Categorisation
+            </h2>
+            {transaction.aiReasoning && (
+              <button
+                onClick={() => setShowAiReasoning(true)}
+                className="inline-flex items-center gap-1.5 text-body-sm text-neutral-400 hover:text-neutral-700 transition-colors"
+              >
+                <Info className="w-3.5 h-3.5" />
+                View reasoning
+              </button>
+            )}
+          </div>
+
+          {/* AI suggestion + confidence bar */}
+          {transaction.aiCategorySuggestion && transaction.aiCategoryConfidence !== undefined && (
+            <div className="mb-3">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span className="text-sm">🤖</span>
+                <span className="text-body-sm text-neutral-600">Suggested:</span>
+                <span className="text-body-sm font-semibold text-neutral-900">
+                  {transaction.aiCategorySuggestion}
+                </span>
+                <span className={`ml-auto text-body-sm font-bold ${
+                  transaction.aiCategoryConfidence >= 0.9 ? 'text-success' : 'text-warning'
+                }`}>
+                  {Math.round(transaction.aiCategoryConfidence * 100)}% confident
+                </span>
+              </div>
+              <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    transaction.aiCategoryConfidence >= 0.9 ? 'bg-success' : 'bg-warning'
+                  }`}
+                  style={{ width: `${Math.round(transaction.aiCategoryConfidence * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Review status */}
+          {transaction.reviewedByUser ? (
+            <div className="flex items-center gap-1.5 text-body-sm text-success">
+              <Check className="w-3.5 h-3.5" />
+              {transaction.userOverrodeAi ? 'You overrode the AI suggestion' : 'AI suggestion accepted'}
+            </div>
+          ) : !isEditing ? (
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleAcceptAiSuggestion}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Accept suggestion
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* Tax info section */}
       <div className="bg-white rounded-xl border border-border shadow-soft p-5 mb-4">
         <h2 className="text-label font-medium text-neutral-500 uppercase tracking-wider mb-1">
@@ -809,6 +942,46 @@ export default function TransactionDetail() {
       )}
       {showDiscardDialog && (
         <DiscardChangesDialog onDiscard={discardChanges} onKeep={() => setShowDiscardDialog(false)} />
+      )}
+
+      {/* AI Reasoning bottom sheet */}
+      {showAiReasoning && transaction.aiReasoning && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowAiReasoning(false)}
+          />
+          <div className="relative w-full max-w-2xl bg-white rounded-t-2xl shadow-medium p-6 pb-10 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <h3 className="text-heading-sm font-display text-neutral-900">AI Reasoning</h3>
+              </div>
+              <button
+                onClick={() => setShowAiReasoning(false)}
+                className="p-1.5 rounded-lg hover:bg-muted text-neutral-400 hover:text-neutral-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {transaction.aiCategorySuggestion && transaction.aiCategoryConfidence !== undefined && (
+              <div className="flex items-center gap-2 mb-3 p-2.5 bg-neutral-50 rounded-lg">
+                <span className="text-body-sm text-neutral-600">Suggested:</span>
+                <span className="text-body-sm font-semibold text-neutral-900">
+                  {transaction.aiCategorySuggestion}
+                </span>
+                <span className={`ml-auto text-body-sm font-bold ${
+                  transaction.aiCategoryConfidence >= 0.9 ? 'text-success' : 'text-warning'
+                }`}>
+                  {Math.round(transaction.aiCategoryConfidence * 100)}%
+                </span>
+              </div>
+            )}
+            <p className="text-body-sm text-neutral-700 leading-relaxed">
+              {transaction.aiReasoning}
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
