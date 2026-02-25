@@ -502,7 +502,7 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: See '§3.3 Import — CSV', '§3.4 Import — PDF', '§6.1 processImport' for parsing spec"
     },
     {

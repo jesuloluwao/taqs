@@ -9,6 +9,11 @@ Started: Wed Feb 25 10:30:23 WAT 2026
 - npm (not pnpm) is the package manager for this project: `npm run build`
 - Build command: `npm run build` from project root (runs web build via workspace)
 
+- Convex Actions: add `"use node";` at top of file to use Node.js APIs/npm packages (mutations cannot be in "use node" files — keep them separate)
+- Cross-module internal calls from actions: use `(internal as any).moduleName.fnName` since _generated/api.d.ts isn't regenerated during dev
+- PDF parsing in Convex: install `pdf-parse` in convex/package.json; use dynamic import inside action handler for CJS compatibility
+- `makeFunctionReference` exists in convex/server but type assertions on `internal` are simpler for cross-module action→mutation calls
+
 ---
 
 ## 2026-02-25 - US-015
@@ -42,4 +47,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Convex does not support offset-based pagination natively; using JS-level slice after `.collect()` is acceptable for small-to-medium datasets
   - For dedup in `batchUpsert`, filtering by `by_entityId_date` index first then JS filter on amount+description is efficient
   - `delete` is a reserved word in JS — use `remove` for the delete mutation export (same pattern as `entityCrud.ts`)
+---
+
+## 2026-02-25 - US-017
+- Created `convex/importHelpers.ts`: internal mutations for importJob lifecycle management
+  (getJob query, setJobProcessing, setJobComplete, setJobFailed) and batchInsert (dedup logic)
+- Created `convex/importPipeline.ts`: `processImport` action with `"use node";`
+- CSV parser: handles standard 5-column + Nigerian bank variations (GTBank, Zenith, Access, debit/credit)
+  - Header detection: matches narration/value date/remarks/debit amount headers to identify bank format
+  - Amount parsing: strips ₦ symbol + commas, converts float to kobo (×100)
+  - Date parsing: supports DD/MM/YYYY, DD/MM/YY, YYYY-MM-DD, DD Mon YYYY
+- PDF parser: uses pdf-parse (installed in convex/package.json) for text extraction
+  - Bank detection from PDF text content (GTBank, Zenith, Access, generic fallback)
+  - GTBank PDF: regex matching rows starting with date + narration + debit/credit amounts
+  - Generic fallback: dateRe + amountRe pattern matching with CR/DR direction inference
+- Format auto-detection: magic bytes check (%PDF = 0x25504446) + source field
+- externalRef: SHA-256 hash of date|description|amount|direction (truncated 32 chars)
+- Error handling: parse errors → setJobFailed; insert errors → setJobFailed with partial stats
+- Partial parse resilience: try/catch per row — successful rows imported even if others fail
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex `"use node"` files: ONLY export `action` functions — mutations/queries can't be in the same file
+  - Internal function cross-file calls from actions: `(internal as any).module.fn` bypasses stale generated types
+  - `pdf-parse` is CJS — use `const mod = await import('pdf-parse'); const fn = mod.default ?? mod;` pattern
+  - convex/package.json deps need `npm install` run in `/convex` directory separately
+  - Amount storage convention: ALL amounts stored in smallest unit (kobo = Naira × 100) for integer math
 ---
