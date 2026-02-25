@@ -579,7 +579,7 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: US-116 through US-120 — See '§4.4 Categorisation Triage Screen' for card layout"
     },
     {

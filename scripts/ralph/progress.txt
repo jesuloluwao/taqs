@@ -154,3 +154,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `CloudUpload` is not exported from lucide-react — use `UploadCloud` instead
   - Fire-and-forget pattern for actions: call `.catch()` to handle errors but don't await in main flow; job watcher handles success/failure
 ---
+
+## 2026-02-25 - US-021
+- Created `apps/web/src/components/CategoryPickerModal.tsx`: reusable category picker
+  - Fetches `api.categories.listAll`; searchable; grouped by Income/Business/Personal/Transfer
+  - Exports `CategoryOption` interface for consuming components
+  - Shows "Deductible" badge on categories with `isDeductibleDefault: true`
+- Created `apps/web/src/pages/Triage.tsx`: card-based triage at `/app/triage`
+  - Captures uncategorised queue once on load (prevents reactive list shifting)
+  - Progress bar (% reviewed) + "N of M" counter
+  - Actions: Change category (picker → apply + advance), Mark as Personal, Skip
+  - All-done state + empty state (0 uncategorised)
+- Updated `apps/web/src/pages/Transactions.tsx`: bulk select mode
+  - "Select" toggle in header; checkboxes on rows in bulk mode
+  - "Select all" bar selects visible page only; selected rows highlighted
+  - Fixed bottom action bar (`md:left-64` for sidebar offset): Categorise + Delete
+  - Bulk Categorise: CategoryPickerModal → `bulkCategorise` mutation
+  - Bulk Delete: confirmation dialog → `bulkDelete` mutation
+- Updated `apps/web/src/App.tsx`: added `/app/triage` route
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - `api.categories.listAll` is in generated types (no `as any`); transactions still needs it
+  - CategoryPickerModal sticky group headers: `sticky top-0` inside `overflow-y-auto flex-1`
+  - Bottom bulk bar: `md:left-64` to clear desktop sidebar width
+  - Triage queue: guard with `queue === null` in useEffect to freeze list on first load
+  - `bulkCategorise` requires both `categoryId` AND `type` — pass `category.type` from picker
+---
