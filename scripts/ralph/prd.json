@@ -484,7 +484,7 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-1: See '§6.1 Convex Functions — Transactions' and '§6.2 Import Jobs' for all function specs"
     },
     {

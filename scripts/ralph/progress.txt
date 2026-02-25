@@ -28,3 +28,18 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - migrateLegacyTransactions mutation is available to clean up pre-schema data via the API
   - pnpm not available — use npm
 ---
+
+## 2026-02-25 - US-016
+- Created `convex/transactions.ts` with full namespace: `list` (paginated, multi-filter, sortable, category names resolved), `get`, `getUncategorised`, `manualCreate`, `update`, `remove`, `bulkCategorise`, `bulkDelete`, `initiateImport`, `batchUpsert` (with dedup)
+- Created `convex/importJobs.ts` with `get` and `list` queries
+- `list` uses offset/limit pagination (JS-level slice after collecting from best-matching index)
+- `batchUpsert` deduplicates on (entityId, date, amount, description) + externalRef; updates importJob status to complete with stats
+- `manualCreate` computes `amountNgn` from fxRate if non-NGN currency; defaults to 1:1 if fxRate not provided
+- `bulkCategorise` resolves `isDeductible` from category's `isDeductibleDefault`
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex namespace pattern: create a file named `transactions.ts`, export named functions — they become `transactions:list`, `transactions:get`, etc. on the client
+  - Convex does not support offset-based pagination natively; using JS-level slice after `.collect()` is acceptable for small-to-medium datasets
+  - For dedup in `batchUpsert`, filtering by `by_entityId_date` index first then JS filter on amount+description is efficient
+  - `delete` is a reserved word in JS — use `remove` for the delete mutation export (same pattern as `entityCrud.ts`)
+---
