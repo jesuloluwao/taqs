@@ -277,4 +277,115 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_user_id', ['userId']),
+
+  /**
+   * Cached tax engine output per entity per tax year (PRD-3 §7.3).
+   * Recomputed on demand; versioned for historical immutability.
+   */
+  taxYearSummaries: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+    engineVersion: v.string(),
+    /** Total gross income in kobo */
+    totalGrossIncome: v.number(),
+    /** Total business expenses in kobo */
+    totalBusinessExpenses: v.number(),
+    /** Relief breakdown in kobo */
+    reliefs: v.object({
+      rent: v.number(),
+      pension: v.number(),
+      nhis: v.number(),
+      nhf: v.number(),
+      lifeInsurance: v.number(),
+      mortgage: v.number(),
+      total: v.number(),
+    }),
+    /** Taxable income in kobo */
+    taxableIncome: v.number(),
+    /** PIT bands — each band's income and tax payable in kobo */
+    bands: v.array(
+      v.object({
+        rate: v.number(),
+        from: v.number(),
+        to: v.optional(v.number()),
+        income: v.number(),
+        taxPayable: v.number(),
+      })
+    ),
+    /** Gross PIT before credits, in kobo */
+    grossTaxPayable: v.number(),
+    /** Aggregate WHT credits in kobo */
+    whtCredits: v.number(),
+    /** Net PIT after WHT offset, in kobo */
+    netTaxPayable: v.number(),
+    /** VAT payable (output − input) in kobo; null if not VAT-registered */
+    vatPayable: v.optional(v.number()),
+    /** CIT payable (LLCs only) in kobo */
+    citPayable: v.optional(v.number()),
+    /** True if no tax is owed and a nil return should be filed */
+    isNilReturn: v.boolean(),
+    /** Unix timestamp (ms) when computation ran */
+    computedAt: v.number(),
+  })
+    .index('by_entityId_taxYear', ['entityId', 'taxYear']),
+
+  /**
+   * User-declared tax reliefs per entity per tax year (PRD-3 §7.3).
+   */
+  taxDeclarations: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+    /** Annual rent paid in kobo */
+    annualRentPaid: v.optional(v.number()),
+    /** Pension contributions in kobo */
+    pensionContributions: v.optional(v.number()),
+    /** NHIS contributions in kobo */
+    nhisContributions: v.optional(v.number()),
+    /** NHF contributions in kobo */
+    nhfContributions: v.optional(v.number()),
+    /** Life insurance premiums in kobo */
+    lifeInsurancePremiums: v.optional(v.number()),
+    /** Mortgage interest paid in kobo */
+    mortgageInterest: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId_taxYear', ['entityId', 'taxYear']),
+
+  /**
+   * CBN FX rates for currency conversion in tax computations.
+   */
+  fxRates: defineTable({
+    /** ISO date string YYYY-MM-DD */
+    date: v.string(),
+    currency: v.union(v.literal('USD'), v.literal('GBP'), v.literal('EUR')),
+    /** NGN units per 1 unit of foreign currency */
+    cbnRate: v.number(),
+  })
+    .index('by_date_currency', ['date', 'currency']),
+
+  /**
+   * Capital asset disposals for CGT computation (PRD-3).
+   */
+  capitalDisposals: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+    assetDescription: v.string(),
+    /** Acquisition cost in kobo */
+    acquisitionCostNgn: v.number(),
+    /** Disposal proceeds in kobo */
+    disposalProceedsNgn: v.number(),
+    /** Unix timestamp (ms) */
+    acquisitionDate: v.number(),
+    /** Unix timestamp (ms) */
+    disposalDate: v.number(),
+    isExempt: v.optional(v.boolean()),
+    exemptionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId_taxYear', ['entityId', 'taxYear']),
 });
