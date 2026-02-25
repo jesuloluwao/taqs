@@ -304,6 +304,7 @@ export const getSummary = query({
 export const getRecentTransactions = query({
   args: {
     entityId: v.id('entities'),
+    taxYear: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<RecentTransaction[]> => {
     const user = await getCurrentUser(ctx);
@@ -312,12 +313,19 @@ export const getRecentTransactions = query({
     const entity = await ctx.db.get(args.entityId);
     if (!entity || entity.userId !== user._id || entity.deletedAt) return [];
 
-    // Fetch last 5 transactions by date descending
-    const transactions = await ctx.db
+    const taxYear = args.taxYear;
+
+    // Fetch last 5 transactions by date descending, optionally filtered by taxYear
+    const allRecent = await ctx.db
       .query('transactions')
       .withIndex('by_entityId_date', (q) => q.eq('entityId', args.entityId))
       .order('desc')
-      .take(5);
+      .take(50);
+
+    // Filter by taxYear if provided, then take first 5
+    const transactions = taxYear
+      ? allRecent.filter((t) => t.taxYear === taxYear).slice(0, 5)
+      : allRecent.slice(0, 5);
 
     // Resolve category data
     const categoryCache = new Map<string, { name: string; color: string | null; icon: string | null }>();
