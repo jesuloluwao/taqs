@@ -16,6 +16,8 @@ import {
   PiggyBank,
   Receipt,
   Building2,
+  Clock,
+  Globe,
 } from 'lucide-react';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -167,6 +169,101 @@ const BAND_TEXT_COLORS = [
   'text-red-800',
 ];
 
+// ─── deadline widget ─────────────────────────────────────────────────────────
+
+interface DeadlineWidgetProps {
+  taxYear: number;
+  daysToDeadline: number;
+}
+
+function DeadlineWidget({ taxYear, daysToDeadline }: DeadlineWidgetProps) {
+  const [penaltyOpen, setPenaltyOpen] = useState(false);
+
+  const isOverdue = daysToDeadline < 0;
+  const isSuccess = daysToDeadline > 30;
+  const isWarning = daysToDeadline >= 15 && daysToDeadline <= 30;
+
+  const bgClass = isSuccess
+    ? 'bg-emerald-50 border-emerald-200'
+    : isWarning
+    ? 'bg-amber-50 border-amber-200'
+    : 'bg-red-50 border-red-200';
+
+  const textClass = isSuccess
+    ? 'text-emerald-800'
+    : isWarning
+    ? 'text-amber-800'
+    : 'text-red-800';
+
+  const subTextClass = isSuccess
+    ? 'text-emerald-700'
+    : isWarning
+    ? 'text-amber-700'
+    : 'text-red-700';
+
+  const iconClass = isSuccess
+    ? 'text-emerald-500'
+    : isWarning
+    ? 'text-amber-500'
+    : 'text-red-500';
+
+  const countdownText = isOverdue
+    ? 'Filing deadline has passed'
+    : daysToDeadline === 0
+    ? 'Filing deadline is today!'
+    : `${daysToDeadline} days to March 31 filing deadline`;
+
+  return (
+    <div className={`rounded-xl border shadow-soft overflow-hidden ${bgClass}`}>
+      <div className="px-4 py-3.5 flex items-start gap-3">
+        <Clock className={`w-4.5 h-4.5 flex-shrink-0 mt-0.5 ${iconClass}`} />
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-semibold ${textClass}`}>{countdownText}</p>
+          <p className={`text-xs mt-0.5 ${subTextClass}`}>
+            Self-assessment deadline: 31 March {taxYear + 1} · Nil returns required even if no tax is owed
+          </p>
+        </div>
+        <button
+          onClick={() => setPenaltyOpen((v) => !v)}
+          className={`flex-shrink-0 text-xs font-medium flex items-center gap-1 ${subTextClass} hover:opacity-80 transition-opacity`}
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+          {penaltyOpen ? 'Hide' : 'Penalties'}
+          <ChevronDown className={`w-3 h-3 transition-transform ${penaltyOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {penaltyOpen && (
+        <div className={`border-t ${isSuccess ? 'border-emerald-200' : isWarning ? 'border-amber-200' : 'border-red-200'} px-4 py-3`}>
+          <p className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${subTextClass} opacity-70`}>
+            Penalty Reference (FIRS — NTA 2025)
+          </p>
+          <div className="space-y-1.5">
+            <div className={`flex items-start gap-2 text-xs ${subTextClass}`}>
+              <span className="font-bold mt-0.5">·</span>
+              <span>
+                <strong>Late filing:</strong> ₦100,000 penalty + ₦50,000 per month (or part-month) the return remains unfiled
+              </span>
+            </div>
+            <div className={`flex items-start gap-2 text-xs ${subTextClass}`}>
+              <span className="font-bold mt-0.5">·</span>
+              <span>
+                <strong>Late payment:</strong> 10% of tax unpaid + interest at MPR (Monetary Policy Rate) per annum on the outstanding balance
+              </span>
+            </div>
+            <div className={`flex items-start gap-2 text-xs ${subTextClass}`}>
+              <span className="font-bold mt-0.5">·</span>
+              <span>
+                <strong>Nil return:</strong> ₦100,000 late filing penalty still applies even when no tax is owed
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── main component ──────────────────────────────────────────────────────────
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -206,10 +303,11 @@ export default function TaxSummary() {
       : daysToDeadline === 0
       ? 'Deadline today!'
       : 'Filing overdue';
+  // Color thresholds: success >30 days, warning 15-30, danger <15
   const deadlineVariant =
     daysToDeadline > 30
       ? 'bg-emerald-100 text-emerald-700'
-      : daysToDeadline > 7
+      : daysToDeadline >= 15
       ? 'bg-amber-100 text-amber-700'
       : 'bg-red-100 text-red-700';
 
@@ -346,6 +444,38 @@ export default function TaxSummary() {
             </div>
           )}
         </div>
+
+        {/* ── Filing Deadline Reminder Widget ── */}
+        {!isLoading && (
+          <DeadlineWidget taxYear={taxYear} daysToDeadline={daysToDeadline} />
+        )}
+
+        {/* ── FX Rates Warning ── */}
+        {!isLoading && (incomeBreakdown?.foreign ?? 0) > 0 && (
+          <div className="flex items-start gap-2.5 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <Globe className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              <p className="font-semibold">FX rates — nearest available date used</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Some foreign-currency transactions were converted using the closest available CBN rate where the exact date rate was unavailable. Verify converted amounts if your income is predominantly foreign-currency.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── DTA Prompt for Foreign Income ── */}
+        {!isLoading && (incomeBreakdown?.foreign ?? 0) > 0 && (
+          <div className="flex items-start gap-2.5 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+            <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-500" />
+            <div>
+              <p className="font-semibold">Double Taxation Agreement (DTA) may apply</p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                You have foreign income. If you paid taxes on this income in another country, Nigeria may have a DTA that reduces or eliminates double taxation. Consult a tax professional or visit{' '}
+                <span className="font-medium">FIRS DTA guidelines</span> for applicable treaties.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Income Breakdown ── */}
         <ExpandableSection title="Income Breakdown" icon={TrendingUp}>

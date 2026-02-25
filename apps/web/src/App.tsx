@@ -23,6 +23,7 @@ import Documents from './pages/Documents';
 import Categories from './pages/Categories';
 import ConnectedAccounts from './pages/ConnectedAccounts';
 import AiInsights from './pages/AiInsights';
+import Declarations from './pages/Declarations';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import Onboarding from './pages/Onboarding';
@@ -92,6 +93,7 @@ function App() {
           <Route path="settings/accounts" element={<ConnectedAccounts />} />
           <Route path="settings/delete-account" element={<DeleteAccount />} />
           <Route path="ai-insights" element={<AiInsights />} />
+          <Route path="declarations" element={<Declarations />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />
         </Route>
