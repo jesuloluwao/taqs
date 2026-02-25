@@ -163,3 +163,22 @@ Started: Tue Feb 24 23:14:08 WAT 2026
   - `formatNaira` converts kobo (integer) to ₦ string via Intl.NumberFormat 'en-NG'
   - StatCard components with colour variants (green/red/blue) avoid repetition for the quick stats row
 ---
+
+## 2026-02-25 - US-011
+- Added `getFileUrl` query to `convex/files.ts`: accepts `storageId: v.string()`, casts to `any` to satisfy `ctx.storage.getUrl()` which expects `Id<"_storage">` (branded type, plain string at runtime)
+- Added `firsTin: v.optional(v.string())` to `updateProfile` mutation args in `convex/userCrud.ts`
+- Rewrote `apps/web/src/pages/Settings.tsx` as full profile management page:
+  - View mode: avatar (uploaded photo or initials fallback), full name, email (read-only), phone, profession, NIN (masked •••••••XXXX), FIRS TIN, primary currency
+  - Edit mode: avatar upload via file picker, all editable fields with inline validation
+  - Avatar upload flow: generateUploadUrl → POST file → save storageId via uploadAvatar
+  - NIN validation: 11 digits enforced both in input (numeric filter) and on save
+  - Success toast via sonner on save
+  - Danger zone with 'Delete Account' link to /app/settings/delete-account
+  - Null guard: handles `me === undefined` (loading) and `me === null` (not found) separately
+- **Learnings for future iterations:**
+  - `ctx.storage.getUrl()` expects `Id<"_storage">` (branded type) but storing avatarStorageId as `v.string()` in schema means you need `storageId as any` cast inside the handler
+  - After an `if (me === undefined)` early return, TypeScript still considers `me` as `null | User` — must also add `if (me === null)` guard to avoid TS18047 errors
+  - Convex `useQuery` with `'skip'`: pass `'skip'` (not `undefined`) to skip conditional queries; pass args object when condition is met
+  - Avatar file upload preview: use `URL.createObjectURL(file)` for local preview before upload; cleanup not strictly needed in this context
+  - `ProfileField` sub-component reduces repetition for view/edit field pairs — useful pattern for settings forms
+---

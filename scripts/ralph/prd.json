@@ -237,7 +237,7 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-0: US-014/US-015 — See '§4.3 Screen Layouts' for Profile layout"
     },
     {
