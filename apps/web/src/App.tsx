@@ -12,6 +12,8 @@ import ImportTransactions from './pages/ImportTransactions';
 import Triage from './pages/Triage';
 import Invoices from './pages/Invoices';
 import InvoiceForm from './pages/InvoiceForm';
+import InvoicePreview from './pages/InvoicePreview';
+import Clients from './pages/Clients';
 import TaxSummary from './pages/TaxSummary';
 import Filing from './pages/Filing';
 import Reports from './pages/Reports';
@@ -85,7 +87,9 @@ function App() {
           <Route path="triage" element={<Triage />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="invoices/new" element={<InvoiceForm />} />
+          <Route path="invoices/:id" element={<InvoicePreview />} />
           <Route path="invoices/:id/edit" element={<InvoiceForm />} />
+          <Route path="clients" element={<Clients />} />
           <Route path="tax-summary" element={<TaxSummary />} />
           <Route path="filing" element={<Filing />} />
           <Route path="reports" element={<Reports />} />

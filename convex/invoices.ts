@@ -79,6 +79,7 @@ function computeTotals(
 
 /**
  * Get a single invoice with its line items (ownership check via entity).
+ * Also resolves the PDF download URL if pdfStorageId is set.
  */
 export const get = query({
   args: {
@@ -99,7 +100,16 @@ export const get = query({
       .withIndex('by_invoiceId', (q) => q.eq('invoiceId', args.id))
       .collect();
 
-    return { ...invoice, items };
+    // Resolve PDF download URL from Convex Storage
+    let pdfUrl: string | null = null;
+    if (invoice.pdfStorageId) {
+      pdfUrl = await ctx.storage.getUrl(invoice.pdfStorageId as any);
+    }
+
+    // Resolve entity name for display
+    const entityName = entity.name;
+
+    return { ...invoice, items, pdfUrl, entityName };
   },
 });
 
