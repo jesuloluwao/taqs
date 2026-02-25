@@ -108,7 +108,7 @@ export default function Dashboard() {
   );
 
   const currentYear = new Date().getFullYear();
-  const hasTransactions = summary !== null && summary !== undefined && summary.transactionCount > 0;
+  const hasTransactions = summary !== null && summary !== undefined && summary.hasTransactions;
   const isLoading = summary === undefined;
 
   if (isLoading) {
@@ -213,19 +213,19 @@ export default function Dashboard() {
           <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-label text-neutral-500">Total Income</p>
-              <p className="text-heading-md text-success font-semibold">{formatNaira(summary!.totalIncomeKobo)}</p>
+              <p className="text-heading-md text-success font-semibold">{formatNaira(summary!.incomeYtdKobo)}</p>
             </div>
             <div>
               <p className="text-label text-neutral-500">Total Expenses</p>
-              <p className="text-heading-md text-danger font-semibold">{formatNaira(summary!.totalExpensesKobo)}</p>
+              <p className="text-heading-md text-danger font-semibold">{formatNaira(summary!.expensesYtdKobo)}</p>
             </div>
             <div>
               <p className="text-label text-neutral-500">Net Income</p>
-              <p className="text-heading-md text-neutral-900 font-semibold">{formatNaira(summary!.netIncomeKobo)}</p>
+              <p className="text-heading-md text-neutral-900 font-semibold">{formatNaira(summary!.incomeYtdKobo - summary!.expensesYtdKobo)}</p>
             </div>
             <div>
               <p className="text-label text-neutral-500">Est. Tax</p>
-              <p className="text-heading-md text-accent font-semibold">{formatNaira(summary!.estimatedTaxKobo)}</p>
+              <p className="text-heading-md text-accent font-semibold">{formatNaira(summary!.taxPosition.estimatedLiabilityKobo)}</p>
             </div>
           </div>
         )}
@@ -235,21 +235,21 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label="Total Income"
-          value={hasTransactions ? formatNaira(summary!.totalIncomeKobo) : '₦0.00'}
+          value={hasTransactions ? formatNaira(summary!.incomeYtdKobo) : '₦0.00'}
           icon={TrendingUp}
           colour="green"
           isEmpty={!hasTransactions}
         />
         <StatCard
           label="Total Expenses"
-          value={hasTransactions ? formatNaira(summary!.totalExpensesKobo) : '₦0.00'}
+          value={hasTransactions ? formatNaira(summary!.expensesYtdKobo) : '₦0.00'}
           icon={TrendingDown}
           colour="red"
           isEmpty={!hasTransactions}
         />
         <StatCard
           label="Tax Estimate"
-          value={hasTransactions ? formatNaira(summary!.estimatedTaxKobo) : '₦0.00'}
+          value={hasTransactions ? formatNaira(summary!.taxPosition.estimatedLiabilityKobo) : '₦0.00'}
           icon={Calculator}
           colour="blue"
           isEmpty={!hasTransactions}
