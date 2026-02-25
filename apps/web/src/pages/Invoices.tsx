@@ -214,7 +214,7 @@ export default function Invoices() {
   }
 
   function handleRowClick(invoice: InvoiceRow) {
-    navigate(`/app/invoices/${invoice._id}`);
+    navigate(`/app/invoices/${invoice._id}/edit`);
   }
 
   return (
