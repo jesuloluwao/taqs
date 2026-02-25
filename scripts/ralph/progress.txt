@@ -365,3 +365,26 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `isVatInclusive` on transactions allows input VAT reclaimability calculation without separate VAT tracking fields
   - `(t as any).isVatInclusive` needed when reading new schema fields that aren't in Convex's generated types yet
 ---
+
+## 2026-02-25 - US-030
+- Added `getIncomeBreakdown` query to `convex/tax.ts`: fetches income transactions for entity+taxYear, resolves category names, groups into 4 buckets (freelanceClient, foreign, investment, rental) by currency and category name pattern matching
+- Rewrote `apps/web/src/pages/TaxSummary.tsx` (was a stub) with full NTA 2025 Tax Summary UI:
+  - Tax year selector dropdown (defaults to current year - 1 = current filing period)
+  - Tax Liability Card: primary-light bg (nil return = emerald), large mono-font liability amount (danger if >₦0, success if ₦0), effective rate, days-to-deadline badge (color-coded: green >30d, amber 7-30d, red <7d)
+  - Nil return callout banner (filing still required note)
+  - Minimum tax applied warning banner
+  - Income Breakdown section (expandable): freelance/client, foreign (FX tooltip), investment, rental, total gross; uncategorised warning with triage link
+  - Deductions section (expandable): business expenses, rent relief (20% sublabel when >0), pension, NHIS/NHF, life insurance, mortgage; total deductions; taxable income highlighted card; 'Edit reliefs' link
+  - Tax Band Breakdown (expandable): horizontal stacked bar (bands with income, color-coded by rate); full 6-band table (rate badge, range, income in band, tax; zero bands shown at reduced opacity); gross PIT summary
+  - Credits & Net Payable (expandable): gross tax, WHT credits (negative, tooltip), net PIT payable
+  - SME section (LLC only): CIT (small company exemption banner if citPayable=0, else breakdown); CGT (if applicable); VAT (output/input/net or not-registered message)
+  - Total footer card: total tax payable, effective rate, 'Edit reliefs' link, 'Computed at HH:MM' timestamp
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `ReceiptText` does NOT exist in lucide-react — use `Receipt` instead
+  - Optional chaining comparisons (`a?.b > 0`) fail TypeScript strict — use `(a?.b ?? 0) > 0`
+  - `summary?.reliefs?.rent` is typed as `number | undefined` even when summary is defined — always use `?? 0` fallback in comparisons
+  - For income breakdown: use category name regex patterns (invest/dividend/interest for investment, rent/rental/property for rental, non-NGN currency for foreign, rest = freelance)
+  - `(api as any).tax.getSummary` pattern needed since tax module is not in generated api.d.ts
+  - Stacked bar: use `summary.bands.indexOf(band)` to get the color index matching the full 6-band array order
+---

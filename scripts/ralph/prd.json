@@ -749,7 +749,7 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-3: US-301 through US-315 — See '§4.1 Tax Summary Screen Layout' for detailed UI spec"
     },
     {
