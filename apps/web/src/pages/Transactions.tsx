@@ -6,7 +6,6 @@ import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
 import { ManualTransactionModal } from '../components/ManualTransactionModal';
-import { toast } from 'sonner';
 import {
   Upload,
   Search,
@@ -389,9 +388,7 @@ export default function Transactions() {
   }
 
   function handleImport() {
-    toast.info('Import feature coming soon', {
-      description: 'Bank statement import will be available shortly.',
-    });
+    navigate('/app/import');
   }
 
   if (!activeEntityId) {
