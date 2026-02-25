@@ -1143,7 +1143,7 @@
         "Typecheck passes"
       ],
       "priority": 52,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-8: US-810 through US-823 — See '§6 API Requirements' for all sync function specs"
     },
     {

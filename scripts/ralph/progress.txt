@@ -894,3 +894,30 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Flutterwave amounts in major units (Naira), Mono amounts already in kobo — always check provider docs for unit conventions
   - `syncAccount` internalAction can be triggered from webhooks (httpAction → ctx.runAction), from OAuth callback (action → ctx.runAction), and from scheduled crons
 ---
+
+## 2026-02-25 - US-052
+- Created `convex/lib/providers/transformer.ts`: pure function `transformProviderTransactions(txs, fxRateMap)` → CanonicalTransaction[]
+  - All providers normalise to smallest unit (kobo for NGN, cents for USD/GBP/EUR) — transformer converts to amountNgn using CBN rate
+  - FX formula: `amountNgn = amount * cbnRateNaira` (both in smallest unit: cents × Naira-per-major = kobo)
+  - `getRequiredCurrencies(txs)` helper extracts unique non-NGN currencies for batch FX lookup
+  - Safe fallback when no rate: amountNgn = amount, fxRate = 1 (user can correct)
+- Added to `convex/accountsHelpers.ts`:
+  - `listActiveAccountsWithTokens` internalQuery: status='active' + has accessToken, excludes manual/statement_upload
+  - `updateTokens` internalMutation: patches encrypted tokens after OAuth refresh
+  - `getFxRates` internalQuery: collects all fxRates rows, JS-reduces to latest date per currency (safe for small table)
+- Updated `convex/accountsActions.ts`:
+  - `refreshToken` internalAction: decrypts refresh token → OAUTH2 refresh_token grant (Stitch/Payoneer/Wise) → re-encrypts → stores; `reauthorization_required` error → sets status='error'
+  - `syncAccount` updated: proactive 5-min expiry check → calls refreshToken; getFxRates lookup for foreign currencies; uses transformer for canonical conversion with amountNgn
+  - `syncNow` public action: identity check, entity ownership check, 60-second rate limit via lastSyncedAt, delegates to syncAccount
+  - `runScheduledSync` internalAction: queries listActiveAccountsWithTokens, loops with 2s stagger, per-account try/catch for resilience
+- Updated `convex/crons.ts`: added `scheduledBankSync` every 6 hours → `runScheduledSync`
+- Updated `convex/webhooks.ts` bankNotification: added ACCOUNT_DISCONNECTED / ACCOUNT_TOKEN_EXPIRED event handling → sets status='error' directly (no sync triggered)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `by_date_currency` index has `date` as first field — cannot filter by `currency` alone; collect all + JS reduce is safe for small reference tables
+  - FX conversion from cents to kobo: `amountNgn = amount_cents * rate_naira` (NOT ÷100 then ×100 then ×rate — just multiply directly)
+  - Token refresh: Stitch/Payoneer/Wise all use standard OAuth2 refresh_token grant with Basic auth; add to REFRESH_TOKEN_CONFIGS map to support new providers
+  - `Object.assign(account, refreshedAccount)` pattern to update local variable after refresh — avoids re-querying in second assignment
+  - `crons.interval({ hours: 6 })` is valid Convex cron syntax (not just daily/hourly/weekly)
+  - Rate limiting via `lastSyncedAt`: no separate tracking table needed — comparing lastSyncedAt to Date.now() is sufficient for 60-second window
+---
