@@ -593,3 +593,23 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - In-memory category cache (Map) in getRecentTransactions avoids N+1 lookups — Convex queries are already batched but the cache prevents redundant per-doc reads
   - Unused variable in Convex query handler (e.g. `const now`) triggers TS6133 error — remove or use it
 ---
+
+## 2026-02-25 - US-040
+- Rewrote `apps/web/src/pages/Dashboard.tsx` with full US-040 spec:
+  - `TaxPositionCard`: primary-light bg, large mono liability figure (danger if >₦0, success if ₦0), effective rate%, tax year label, days-to-deadline badge (severity-coloured), tappable → /app/tax
+  - `DonutArc` SVG component (48×48px): rotated -90deg, background track + progress arc proportional to liability/income; danger colour for positive tax, success for zero
+  - Nil return display: '₦0 — Nil Return' with success colour + 'Filing still required by March 31' note
+  - `QuickStatsRow`: horizontal scrollable flex row with 4 chips (Total Income → /app/transactions?direction=credit, Business Expenses → /app/transactions?direction=debit, WHT Credits → /app/tax, Invoices Outstanding with count subvalue → /app/invoices); min-w-[180px] each with -translate-y-0.5 hover lift
+  - `DeadlineWidget`: visible only when daysRemaining <= 60 (covers overdue); severity colour transitions success/warning/danger; "Filing deadline passed X days ago" when overdue, "X days to filing deadline" otherwise; tappable → /app/tax
+  - `RecentTransactionRow`: links to /app/transactions/:id with category icon, color dot, direction indicator, description, category name (warning if uncategorised), formatted date, mono-font amount
+  - Uncategorised banner: AlertTriangle chip shown when uncategorisedCount > 0 → /app/triage
+  - All monetary values via Intl.NumberFormat with NGN currency + mono font class
+  - `api.dashboard.getRecentTransactions` and `api.dashboard.getDeadlines` used directly (module in generated api.d.ts)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `api.dashboard.*` is available directly (no `as any`) since dashboard.ts was already in convex at previous iteration
+  - SVG donut arc: rotate(-90deg) on the SVG element starts arc at top; strokeDasharray = `${proportion * circumference} ${circumference}` for proportional arc
+  - formatNaira unused functions cause TS6133 — remove any helpers not consumed in JSX
+  - `TaxPosition.effectiveTaxRate` is the field name (NOT `effectiveRate`) — check interface definition before accessing
+  - Deadline widget visibility: `daysRemaining <= 60` covers both 60-day window AND overdue (negative values)
+---

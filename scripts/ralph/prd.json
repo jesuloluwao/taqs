@@ -929,7 +929,7 @@
         "Typecheck passes"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-5: US-502/US-503/US-508 — See '§4.4 Tax Position Card' and '§4.5 Quick Stats Row' for detailed layouts"
     },
     {
