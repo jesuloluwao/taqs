@@ -286,7 +286,13 @@ export const get = query({
     const record = await ctx.db.get(args.filingId);
     if (!record || record.userId !== user._id) return null;
 
-    return record;
+    // Resolve PDF download URL if available
+    let pdfUrl: string | null = null;
+    if (record.selfAssessmentPdfId) {
+      pdfUrl = await ctx.storage.getUrl(record.selfAssessmentPdfId as any);
+    }
+
+    return { ...record, pdfUrl };
   },
 });
 

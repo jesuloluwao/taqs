@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from 'convex/react';
+import { useQuery, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
+import { toast } from 'sonner';
 import {
   AlertTriangle,
   Info,
@@ -14,6 +15,9 @@ import {
   PiggyBank,
   Receipt,
   Minus,
+  FileText,
+  X,
+  Loader2,
 } from 'lucide-react';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -201,17 +205,99 @@ function ReviewSkeleton() {
   );
 }
 
+// ─── confirmation dialog ──────────────────────────────────────────────────────
+
+function GenerateConfirmDialog({
+  isNilReturn,
+  netTaxPayable,
+  onConfirm,
+  onCancel,
+}: {
+  isNilReturn: boolean;
+  netTaxPayable: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 animate-fade-in">
+        <button
+          onClick={onCancel}
+          className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-neutral-400 hover:text-neutral-700"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-neutral-900">Generate Self-Assessment?</h2>
+            <p className="text-sm text-neutral-500">This creates an immutable audit record</p>
+          </div>
+        </div>
+
+        <div className="bg-muted/40 rounded-xl p-4 mb-5 space-y-2">
+          {isNilReturn ? (
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-neutral-700">
+                This is a <strong>nil return</strong> — no tax is payable. The PDF will be marked accordingly.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-neutral-700">
+                Net tax payable: <strong className="text-red-600">{formatNaira(netTaxPayable)}</strong>
+              </p>
+            </div>
+          )}
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-neutral-700">
+              Your current tax figures will be <strong>snapshotted</strong> for audit purposes.
+              You can regenerate before submitting if you make corrections.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium text-neutral-700 hover:bg-muted/40 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors shadow-soft"
+          >
+            Generate PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 export default function FilingReview() {
   const navigate = useNavigate();
   const { activeEntityId } = useEntity();
   const [taxYear] = useState(DEFAULT_TAX_YEAR);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const summary = useQuery(
     (api as any).tax.getSummary,
     activeEntityId ? { entityId: activeEntityId, taxYear } : 'skip'
   ) as TaxSummary | null | undefined;
+
+  const generateAction = useAction((api as any).filingActions.generateSelfAssessment);
 
   const flags = useMemo(() => (summary ? buildFlags(summary) : []), [summary]);
   const hasFlags = flags.length > 0;
@@ -221,14 +307,53 @@ export default function FilingReview() {
     navigate('/app/filing');
   }
 
-  function handleGenerate() {
-    // Filing generation is handled in the next story (US-045 / generate PDF)
-    // For now, navigate back as a placeholder
-    navigate('/app/filing');
+  function handleGenerateClick() {
+    setShowConfirm(true);
+  }
+
+  async function handleConfirmGenerate() {
+    if (!activeEntityId) return;
+    setShowConfirm(false);
+    setIsGenerating(true);
+
+    try {
+      const result = await generateAction({ entityId: activeEntityId, taxYear });
+      const { filingId } = result as { filingId: string };
+      toast.success('Self-assessment generated successfully!');
+      navigate(`/app/filing/preview/${filingId}`);
+    } catch (err: any) {
+      console.error('Generation failed:', err);
+      toast.error(err?.message ?? 'Failed to generate self-assessment. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in pb-32">
+      {/* Confirmation dialog */}
+      {showConfirm && summary && (
+        <GenerateConfirmDialog
+          isNilReturn={summary.isNilReturn}
+          netTaxPayable={summary.netTaxPayable}
+          onConfirm={handleConfirmGenerate}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+
+      {/* Generating overlay */}
+      {isGenerating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-4">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <div className="text-center">
+              <p className="text-sm font-semibold text-neutral-800">Generating your self-assessment…</p>
+              <p className="text-xs text-neutral-500 mt-1">Snapshotting tax figures and building PDF</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-5">
         <button
@@ -401,10 +526,21 @@ export default function FilingReview() {
               </button>
             )}
             <button
-              onClick={handleGenerate}
-              className={`${hasFlags ? 'sm:ml-auto' : 'w-full'} px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors shadow-soft active:scale-[0.99]`}
+              onClick={handleGenerateClick}
+              disabled={isGenerating}
+              className={`${hasFlags ? 'sm:ml-auto' : 'w-full'} flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors shadow-soft active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed`}
             >
-              Generate Self-Assessment Form
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4" />
+                  Generate Self-Assessment Form
+                </>
+              )}
             </button>
           </div>
         </div>
