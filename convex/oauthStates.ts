@@ -45,6 +45,37 @@ export const validate = mutation({
 });
 
 /**
+ * Internal mutation: validate and consume a state token (no auth check).
+ * Called by handleOAuthCallback action which already has user identity in context.
+ * The state token itself serves as the proof of intent.
+ */
+export const _validateAndConsume = internalMutation({
+  args: { stateToken: v.string() },
+  handler: async (ctx, { stateToken }) => {
+    const entry = await ctx.db
+      .query('oauthStates')
+      .withIndex('by_stateToken', (q) => q.eq('stateToken', stateToken))
+      .unique();
+
+    if (!entry) throw new Error('Invalid state token');
+    if (entry.expiresAt < Date.now()) {
+      await ctx.db.delete(entry._id);
+      throw new Error('State token has expired');
+    }
+
+    // Consume (single-use)
+    await ctx.db.delete(entry._id);
+
+    return {
+      userId: entry.userId,
+      entityId: entry.entityId,
+      provider: entry.provider,
+      redirectUri: entry.redirectUri,
+    };
+  },
+});
+
+/**
  * Internal mutation: delete all expired oauthStates entries.
  * Called by the hourly cron job.
  */
