@@ -548,6 +548,46 @@ export default defineSchema({
     .index('by_status', ['status']),
 
   /**
+   * In-app notifications (PRD-9).
+   */
+  notifications: defineTable({
+    userId: v.id('users'),
+    type: v.union(
+      v.literal('filing_deadline'),
+      v.literal('vat_return'),
+      v.literal('uncategorised_alert'),
+      v.literal('invoice_overdue'),
+      v.literal('import_result'),
+      v.literal('sync_error'),
+      v.literal('recurring_invoice'),
+      v.literal('general')
+    ),
+    title: v.string(),
+    body: v.string(),
+    /** Primary entity ID for deep-link navigation */
+    entityId: v.optional(v.string()),
+    /** Related record ID (e.g. invoiceId, importJobId) */
+    relatedId: v.optional(v.string()),
+    read: v.boolean(),
+    readAt: v.optional(v.number()),
+  })
+    .index('by_userId_read', ['userId', 'read'])
+    .index('by_userId_creationTime', ['userId']),
+
+  /**
+   * FCM/APNs push tokens per user device (PRD-9).
+   */
+  pushTokens: defineTable({
+    userId: v.id('users'),
+    token: v.string(),
+    platform: v.union(v.literal('ios'), v.literal('android'), v.literal('web')),
+    active: v.boolean(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index('by_userId_active', ['userId', 'active'])
+    .index('by_token', ['token']),
+
+  /**
    * Capital asset disposals for CGT computation (PRD-3).
    */
   capitalDisposals: defineTable({
