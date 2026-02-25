@@ -782,7 +782,7 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-4: See '§7 Data Models' for full table schemas and indexes"
     },
     {

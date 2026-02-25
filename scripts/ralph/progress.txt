@@ -411,3 +411,15 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `isLoading = !initialised && activeEntityId` — truthiness handles undefined vs null activeEntityId gracefully
   - `koboToNgn` returning '' for 0 values creates clean empty input fields on first load
 ---
+
+## 2026-02-25 - US-032
+- Added `clients` table to convex/schema.ts: entityId, userId, name, email, address, currency, whtRate; indexes by_entityId, by_userId, by_entityId_name
+- Added `invoices` table: entityId, userId, clientId, clientName (denormalised), clientEmail (denormalised), invoiceNumber, status (draft/sent/paid/overdue/cancelled), issueDate, dueDate, currency, subtotal, whtAmount, vatAmount, totalDue, amountNgn, paidAt, notes, isRecurring, recurringInterval, nextIssueDate, pdfStorageId; indexes by_entityId_status, by_entityId_dueDate, by_userId, by_entityId_invoiceNumber, by_entityId_isRecurring
+- Added `invoiceItems` table: invoiceId, description, quantity, unitPrice, total; index by_invoiceId
+- Added InvoiceStatus, RecurringInterval, ClientData, InvoiceData, InvoiceItemData types to packages/shared/src/types.ts
+- Build passed (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex compound indexes with optional boolean fields (isRecurring) work fine — index by_entityId_isRecurring is valid
+  - invoiceId field in invoiceItems references v.id('invoices') — ensures referential consistency in queries
+  - Denormalised clientName/clientEmail on invoices follows the DenormalisedClient pattern from PRD-4 overview
+---
