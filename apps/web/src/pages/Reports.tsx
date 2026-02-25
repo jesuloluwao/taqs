@@ -1,22 +1,29 @@
 /**
- * TaxEase Nigeria — Reports Screen (US-048)
+ * TaxEase Nigeria — Reports Screen (US-048 / US-049)
  *
  * Three tabs: Income | Expenses | Year-on-Year
  * Date range: This Year | Last Year | Custom
  * Charts: SVG bar (income), SVG doughnut (expenses), SVG dual-line (YoY)
+ * Export: CSV + PDF via FAB (mobile) / header button (web)
  */
 
-import { useState, useMemo } from 'react';
-import { useQuery } from 'convex/react';
+import { useState, useMemo, useRef } from 'react';
+import { useQuery, useAction } from 'convex/react';
 import { Link } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
+import { toast } from 'sonner';
 import {
   TrendingUp,
   TrendingDown,
   Upload,
   BarChart2,
+  Download,
+  FileText,
+  Table2,
+  X,
+  Info,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +32,7 @@ import {
 
 type DateRangeMode = 'this_year' | 'last_year' | 'custom';
 type ActiveTab = 'income' | 'expenses' | 'year_on_year';
+type ExportFormat = 'csv' | 'pdf';
 
 interface MonthlyData {
   month: number;
@@ -76,6 +84,10 @@ interface YearOnYearReport {
   currentTaxPayable: number;
   priorTaxPayable: number;
   taxPayableChange: number | null;
+  currentEffectiveTaxRate: number;
+  priorEffectiveTaxRate: number;
+  effectiveTaxRateChange: number | null;
+  hasPriorData: boolean;
   currentMonthlyIncome: MonthlyData[];
   priorMonthlyIncome: MonthlyData[];
   currentMonthlyExpenses: MonthlyData[];
@@ -175,7 +187,6 @@ function BarChart({
             : 2;
         const barY = d.amount > 0 ? Y_BOT - barH : Y_BOT - 2;
         const isSel = selected === d.month;
-        // Tooltip x: clamp so it stays within SVG
         const tipX = Math.max(0, Math.min(x - (TIP_W / 2 - BAR_W / 2), BC_W - TIP_W - 4));
 
         return (
@@ -184,15 +195,7 @@ function BarChart({
             onClick={() => onSelect(isSel ? null : d.month)}
             style={{ cursor: 'pointer' }}
           >
-            {/* Transparent hit area */}
-            <rect
-              x={x}
-              y={Y_TOP}
-              width={BAR_W}
-              height={Y_INNER + 20}
-              fill="transparent"
-            />
-            {/* Bar */}
+            <rect x={x} y={Y_TOP} width={BAR_W} height={Y_INNER + 20} fill="transparent" />
             <rect
               x={x}
               y={barY}
@@ -202,7 +205,6 @@ function BarChart({
               fill={isSel ? '#147050' : '#1A7F5E'}
               opacity={d.amount === 0 ? 0.2 : 1}
             />
-            {/* Month label */}
             <text
               x={x + BAR_W / 2}
               y={LABEL_Y}
@@ -213,7 +215,6 @@ function BarChart({
             >
               {MONTHS_SHORT[i]}
             </text>
-            {/* Tooltip */}
             {isSel && d.amount > 0 && (
               <g>
                 <rect
@@ -271,10 +272,8 @@ function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
 }
 
 function buildArcPath(startDeg: number, endDeg: number): string {
-  // Handle full circle
   const span = endDeg - startDeg;
   if (span >= 360) {
-    // Draw two half-circles
     const m1 = polarToXY(DC_CX, DC_CY, DC_R_OUT, startDeg);
     const m2 = polarToXY(DC_CX, DC_CY, DC_R_OUT, startDeg + 180);
     const i1 = polarToXY(DC_CX, DC_CY, DC_R_IN, startDeg);
@@ -341,66 +340,25 @@ function DoughnutChart({
           style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
         />
       ))}
-
-      {/* Centre white circle */}
       <circle cx={DC_CX} cy={DC_CY} r={DC_R_IN - 2} fill="white" />
-
-      {/* Centre text */}
       {selSeg ? (
         <>
-          <text
-            x={DC_CX}
-            y={DC_CY - 10}
-            textAnchor="middle"
-            fontSize={7.5}
-            fill="#718096"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text x={DC_CX} y={DC_CY - 10} textAnchor="middle" fontSize={7.5} fill="#718096" fontFamily="DM Sans, sans-serif">
             {selSeg.label}
           </text>
-          <text
-            x={DC_CX}
-            y={DC_CY + 6}
-            textAnchor="middle"
-            fontSize={9.5}
-            fill="#1A202C"
-            fontWeight="700"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text x={DC_CX} y={DC_CY + 6} textAnchor="middle" fontSize={9.5} fill="#1A202C" fontWeight="700" fontFamily="DM Sans, sans-serif">
             {formatNaira(selSeg.amount)}
           </text>
-          <text
-            x={DC_CX}
-            y={DC_CY + 20}
-            textAnchor="middle"
-            fontSize={8}
-            fill="#718096"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text x={DC_CX} y={DC_CY + 20} textAnchor="middle" fontSize={8} fill="#718096" fontFamily="DM Sans, sans-serif">
             {selSeg.percentage.toFixed(1)}%
           </text>
         </>
       ) : (
         <>
-          <text
-            x={DC_CX}
-            y={DC_CY - 4}
-            textAnchor="middle"
-            fontSize={8}
-            fill="#718096"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text x={DC_CX} y={DC_CY - 4} textAnchor="middle" fontSize={8} fill="#718096" fontFamily="DM Sans, sans-serif">
             Total
           </text>
-          <text
-            x={DC_CX}
-            y={DC_CY + 12}
-            textAnchor="middle"
-            fontSize={9.5}
-            fill="#1A202C"
-            fontWeight="700"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text x={DC_CX} y={DC_CY + 12} textAnchor="middle" fontSize={9.5} fill="#1A202C" fontWeight="700" fontFamily="DM Sans, sans-serif">
             {totalLabel}
           </text>
         </>
@@ -427,13 +385,17 @@ function LineChart({
   priorData,
   currentYear,
   priorYear,
+  hasPriorData,
 }: {
   currentData: MonthlyData[];
   priorData: MonthlyData[];
   currentYear: number;
   priorYear: number;
+  hasPriorData: boolean;
 }) {
-  const allAmounts = [...currentData, ...priorData].map((d) => d.amount);
+  const allAmounts = hasPriorData
+    ? [...currentData, ...priorData].map((d) => d.amount)
+    : currentData.map((d) => d.amount);
   const maxAmt = Math.max(...allAmounts, 1);
 
   function point(i: number, amount: number): string {
@@ -452,33 +414,27 @@ function LineChart({
       style={{ minWidth: 280 }}
       aria-label="Year-on-year comparison line chart"
     >
-      {/* Grid lines */}
       {[0, 0.25, 0.5, 0.75, 1].map((frac) => {
         const gy = LC_PAD_T + LC_IH - frac * LC_IH;
         return (
-          <line
-            key={frac}
-            x1={LC_PAD_L}
-            y1={gy}
-            x2={LC_W - LC_PAD_R}
-            y2={gy}
-            stroke="#E2E8F0"
-            strokeWidth={0.5}
-          />
+          <line key={frac} x1={LC_PAD_L} y1={gy} x2={LC_W - LC_PAD_R} y2={gy} stroke="#E2E8F0" strokeWidth={0.5} />
         );
       })}
 
-      {/* Prior year line */}
-      <polyline
-        points={priPts}
-        fill="none"
-        stroke="#A0AEC0"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {/* Prior year line — only when prior data exists */}
+      {hasPriorData && (
+        <polyline
+          points={priPts}
+          fill="none"
+          stroke="#A0AEC0"
+          strokeWidth={2}
+          strokeDasharray="6 3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
 
-      {/* Current year line */}
+      {/* Current year line — always shown */}
       <polyline
         points={curPts}
         fill="none"
@@ -488,19 +444,10 @@ function LineChart({
         strokeLinejoin="round"
       />
 
-      {/* X-axis labels */}
       {MONTHS_SHORT.map((m, i) => {
         const x = LC_PAD_L + (i / 11) * LC_IW;
         return (
-          <text
-            key={m}
-            x={x}
-            y={LC_H - 6}
-            textAnchor="middle"
-            fontSize={8}
-            fill="#718096"
-            fontFamily="DM Sans, sans-serif"
-          >
+          <text key={m} x={x} y={LC_H - 6} textAnchor="middle" fontSize={8} fill="#718096" fontFamily="DM Sans, sans-serif">
             {m}
           </text>
         );
@@ -508,25 +455,17 @@ function LineChart({
 
       {/* Legend */}
       <rect x={LC_PAD_L} y={4} width={10} height={4} rx={2} fill="#1A7F5E" />
-      <text
-        x={LC_PAD_L + 14}
-        y={9}
-        fontSize={8}
-        fill="#1A202C"
-        fontFamily="DM Sans, sans-serif"
-      >
+      <text x={LC_PAD_L + 14} y={9} fontSize={8} fill="#1A202C" fontFamily="DM Sans, sans-serif">
         {currentYear}
       </text>
-      <rect x={LC_PAD_L + 60} y={4} width={10} height={4} rx={2} fill="#A0AEC0" />
-      <text
-        x={LC_PAD_L + 74}
-        y={9}
-        fontSize={8}
-        fill="#718096"
-        fontFamily="DM Sans, sans-serif"
-      >
-        {priorYear}
-      </text>
+      {hasPriorData && (
+        <>
+          <line x1={LC_PAD_L + 60} y1={6} x2={LC_PAD_L + 70} y2={6} stroke="#A0AEC0" strokeWidth={2} strokeDasharray="4 2" />
+          <text x={LC_PAD_L + 74} y={9} fontSize={8} fill="#718096" fontFamily="DM Sans, sans-serif">
+            {priorYear}
+          </text>
+        </>
+      )}
     </svg>
   );
 }
@@ -548,9 +487,52 @@ function SummaryCard({
     <div className="bg-white rounded-xl border border-border shadow-soft p-4">
       <p className="text-body-xs text-neutral-500 mb-1 truncate">{label}</p>
       <p className="text-heading-md font-mono text-neutral-900 leading-tight">{value}</p>
-      {subLabel && (
-        <p className="text-body-xs text-neutral-400 mt-0.5">{subLabel}</p>
-      )}
+      {subLabel && <p className="text-body-xs text-neutral-400 mt-0.5">{subLabel}</p>}
+    </div>
+  );
+}
+
+/** Two-column comparison card: current year vs prior year */
+function YoyCompareCard({
+  label,
+  currentValue,
+  priorValue,
+  change,
+  hasPriorData,
+  lowerIsBetter,
+}: {
+  label: string;
+  currentValue: string;
+  priorValue: string;
+  change: number | null;
+  hasPriorData: boolean;
+  lowerIsBetter?: boolean;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-border shadow-soft p-4">
+      <p className="text-body-xs text-neutral-500 mb-3 font-medium uppercase tracking-wide truncate">
+        {label}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {/* Current year */}
+        <div>
+          <p className="text-[10px] text-neutral-400 mb-1">Current Year</p>
+          <p className="text-heading-sm font-mono text-neutral-900 leading-tight">
+            {currentValue}
+          </p>
+          <ChangeChip change={change} lowerIsBetter={lowerIsBetter} hasPriorData={hasPriorData} />
+        </div>
+        {/* Prior year */}
+        <div className="border-l border-border pl-3">
+          <p className="text-[10px] text-neutral-400 mb-1">Prior Year</p>
+          <p className={`text-heading-sm font-mono leading-tight ${hasPriorData ? 'text-neutral-600' : 'text-neutral-300'}`}>
+            {hasPriorData ? priorValue : '—'}
+          </p>
+          {!hasPriorData && (
+            <p className="text-[10px] text-neutral-400 mt-1">N/A</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -581,9 +563,9 @@ function EmptyState({ type }: { type: 'income' | 'expenses' }) {
 function ReportsSkeleton() {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-20 rounded-xl" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 rounded-xl" />
         ))}
       </div>
       <Skeleton className="h-52 rounded-xl" />
@@ -599,11 +581,14 @@ function ReportsSkeleton() {
 function ChangeChip({
   change,
   lowerIsBetter,
+  hasPriorData,
 }: {
   change: number | null;
   lowerIsBetter?: boolean;
+  hasPriorData?: boolean;
 }) {
-  if (change === null) return null;
+  if (!hasPriorData) return <p className="text-[10px] text-neutral-400 mt-1">N/A</p>;
+  if (change === null) return <p className="text-[10px] text-neutral-400 mt-1">N/A</p>;
   const positive = change >= 0;
   const good = lowerIsBetter ? !positive : positive;
   return (
@@ -617,8 +602,96 @@ function ChangeChip({
       ) : (
         <TrendingDown className="w-3 h-3" />
       )}
-      {Math.abs(change).toFixed(1)}% vs prior year
+      {Math.abs(change).toFixed(1)}%
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export Sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ExportSheet({
+  open,
+  onClose,
+  onExport,
+  isLoading,
+  loadingFormat,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onExport: (format: ExportFormat) => void;
+  isLoading: boolean;
+  loadingFormat: ExportFormat | null;
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl animate-slide-up pb-safe">
+        <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-border">
+          <h3 className="text-heading-sm font-display text-neutral-900">Export Report</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-neutral-100 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4 text-neutral-500" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          {/* CSV */}
+          <button
+            onClick={() => onExport('csv')}
+            disabled={isLoading}
+            className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-neutral-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+              <Table2 className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-body-sm font-medium text-neutral-900">Download as CSV</p>
+              <p className="text-body-xs text-neutral-500">
+                Spreadsheet format — open in Excel or Google Sheets
+              </p>
+            </div>
+            {isLoading && loadingFormat === 'csv' && (
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            )}
+          </button>
+
+          {/* PDF */}
+          <button
+            onClick={() => onExport('pdf')}
+            disabled={isLoading}
+            className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-neutral-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+              <FileText className="w-5 h-5 text-red-500" />
+            </div>
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-body-sm font-medium text-neutral-900">Download as PDF</p>
+              <p className="text-body-xs text-neutral-500">
+                {isLoading && loadingFormat === 'pdf'
+                  ? 'Generating PDF…'
+                  : 'Professional report with TaxEase branding'}
+              </p>
+            </div>
+            {isLoading && loadingFormat === 'pdf' && (
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            )}
+          </button>
+        </div>
+        {/* Safe area spacer for iOS */}
+        <div className="h-4" />
+      </div>
+    </>
   );
 }
 
@@ -640,6 +713,19 @@ export default function Reports() {
   const [selectedBarMonth, setSelectedBarMonth] = useState<number | null>(null);
   const [selectedDoughnutIdx, setSelectedDoughnutIdx] = useState<number | null>(null);
 
+  // ── Export state ──
+  const [exportSheetOpen, setExportSheetOpen] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportLoadingFormat, setExportLoadingFormat] = useState<ExportFormat | null>(null);
+  const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Entity list (available for future PDF header use) ──
+  useQuery(api.entityCrud.list);
+
+  // ── Convex export actions ──
+  const exportCsvAction = useAction((api as any).reportActions.exportCsv);
+  const exportPdfAction = useAction((api as any).reportActions.exportPdf);
+
   // ── Compute query args from date range mode ──
   const queryArgs = useMemo<Record<string, unknown> | null>(() => {
     if (!activeEntityId) return null;
@@ -647,7 +733,6 @@ export default function Reports() {
       return { entityId: activeEntityId, taxYear: currentYear };
     if (dateMode === 'last_year')
       return { entityId: activeEntityId, taxYear: currentYear - 1 };
-    // custom — skip if no start date
     if (!customStart) return null;
     return {
       entityId: activeEntityId,
@@ -658,7 +743,7 @@ export default function Reports() {
 
   const argsOrSkip = queryArgs ?? 'skip';
 
-  // ── Queries — always called (conditional skip via 'skip') ──
+  // ── Queries ──
   const incomeData = useQuery(
     (api as any).reports.getIncome,
     activeTab === 'income' ? argsOrSkip : 'skip'
@@ -677,7 +762,7 @@ export default function Reports() {
     activeTab === 'year_on_year' ? yoyQueryArgs : 'skip'
   ) as YearOnYearReport | null | undefined;
 
-  // ── Doughnut segments (group <3% into "Other") ──
+  // ── Doughnut segments ──
   const doughnutSegments: DonutSegment[] = useMemo(() => {
     if (!expensesData?.categoryBreakdown?.length) return [];
     const cats = expensesData.categoryBreakdown;
@@ -701,7 +786,7 @@ export default function Reports() {
     return segs;
   }, [expensesData]);
 
-  // ── Tab switch handler ──
+  // ── Tab / date mode handlers ──
   function switchTab(tab: ActiveTab) {
     setActiveTab(tab);
     setSelectedBarMonth(null);
@@ -714,18 +799,131 @@ export default function Reports() {
     setSelectedDoughnutIdx(null);
   }
 
+  // ── Export filename helpers ──
+  function buildFilename(ext: 'csv' | 'pdf'): string {
+    const tabSlug =
+      activeTab === 'income' ? 'income' :
+      activeTab === 'expenses' ? 'expenses' : 'year_on_year';
+
+    const datePart =
+      dateMode === 'this_year' ? `${currentYear}` :
+      dateMode === 'last_year' ? `${currentYear - 1}` :
+      customStart && customEnd ? `${customStart}_${customEnd}` :
+      customStart ? `from_${customStart}` : 'all';
+
+    return `taxease_${tabSlug}_${datePart}.${ext}`;
+  }
+
+  // ── Download helpers ──
+  function downloadCsvBlob(csvContent: string, filename: string) {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadPdfUrl(url: string, filename: string) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // ── Export handler ──
+  async function handleExport(format: ExportFormat) {
+    if (!activeEntityId) {
+      toast.error('No active entity selected.');
+      return;
+    }
+
+    setExportLoading(true);
+    setExportLoadingFormat(format);
+
+    // 30s timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      exportTimeoutRef.current = setTimeout(
+        () => reject(new Error('Export timed out. Please try again.')),
+        30_000
+      );
+    });
+
+    try {
+      const taxYear =
+        dateMode === 'this_year' ? currentYear :
+        dateMode === 'last_year' ? currentYear - 1 : undefined;
+
+      const startDate = dateMode === 'custom' ? customStart || undefined : undefined;
+      const endDate = dateMode === 'custom' ? customEnd || undefined : undefined;
+
+      if (format === 'csv') {
+        const tabArg =
+          activeTab === 'income' ? 'income' :
+          activeTab === 'expenses' ? 'expenses' : 'yearOnYear';
+
+        const result = await Promise.race([
+          exportCsvAction({ entityId: activeEntityId, tab: tabArg, taxYear, startDate, endDate }),
+          timeoutPromise,
+        ]) as { csvContent: string; filename: string };
+
+        const filename = buildFilename('csv');
+        downloadCsvBlob(result.csvContent, filename);
+        toast.success('CSV downloaded successfully.');
+        setExportSheetOpen(false);
+      } else {
+        const result = await Promise.race([
+          exportPdfAction({ entityId: activeEntityId, taxYear, startDate, endDate }),
+          timeoutPromise,
+        ]) as { storageId: string; downloadUrl: string };
+
+        const filename = buildFilename('pdf');
+        downloadPdfUrl(result.downloadUrl, filename);
+        toast.success('PDF downloaded successfully.');
+        setExportSheetOpen(false);
+      }
+    } catch (err: any) {
+      const msg = err?.message ?? 'Export failed. Please try again.';
+      toast.error(msg, {
+        action: {
+          label: 'Retry',
+          onClick: () => handleExport(format),
+        },
+      });
+    } finally {
+      if (exportTimeoutRef.current) clearTimeout(exportTimeoutRef.current);
+      setExportLoading(false);
+      setExportLoadingFormat(null);
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in pb-8">
+    <div className="max-w-4xl mx-auto animate-fade-in pb-24">
       {/* Page Header */}
-      <div className="mb-5">
-        <h1 className="text-heading-xl font-display text-neutral-900">Reports</h1>
-        <p className="text-body-sm text-neutral-500 mt-0.5">
-          Financial analytics and tax reporting
-        </p>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h1 className="text-heading-xl font-display text-neutral-900">Reports</h1>
+          <p className="text-body-sm text-neutral-500 mt-0.5">
+            Financial analytics and tax reporting
+          </p>
+        </div>
+        {/* Desktop export button */}
+        <button
+          onClick={() => setExportSheetOpen(true)}
+          className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-white hover:bg-neutral-50 text-body-sm font-medium text-neutral-700 transition-colors shadow-soft"
+        >
+          <Download className="w-4 h-4" />
+          Export
+        </button>
       </div>
 
       {/* Date Range Segmented Control */}
@@ -807,12 +1005,8 @@ export default function Reports() {
             </div>
           ) : (
             <div className="space-y-4 animate-fade-in">
-              {/* Summary cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <SummaryCard
-                  label="Total Income"
-                  value={formatNaira(incomeData.totalIncome)}
-                />
+                <SummaryCard label="Total Income" value={formatNaira(incomeData.totalIncome)} />
                 <SummaryCard
                   label="Foreign Income"
                   value={formatNaira(incomeData.foreignIncome)}
@@ -825,18 +1019,13 @@ export default function Reports() {
                 />
               </div>
 
-              {/* Bar chart */}
               <div className="bg-white rounded-xl border border-border shadow-soft p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-heading-sm font-display text-neutral-900">
-                    Monthly Income
-                  </h2>
+                  <h2 className="text-heading-sm font-display text-neutral-900">Monthly Income</h2>
                   {selectedBarMonth !== null && (
                     <span className="text-body-sm text-neutral-500">
                       {MONTHS_SHORT[selectedBarMonth - 1]} —{' '}
-                      {formatNaira(
-                        incomeData.monthlyBreakdown[selectedBarMonth - 1]?.amount ?? 0
-                      )}
+                      {formatNaira(incomeData.monthlyBreakdown[selectedBarMonth - 1]?.amount ?? 0)}
                     </span>
                   )}
                 </div>
@@ -847,42 +1036,21 @@ export default function Reports() {
                 />
               </div>
 
-              {/* Category breakdown */}
               <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
                 <div className="px-4 py-3 border-b border-border">
-                  <h2 className="text-heading-sm font-display text-neutral-900">
-                    Income by Category
-                  </h2>
+                  <h2 className="text-heading-sm font-display text-neutral-900">Income by Category</h2>
                 </div>
                 <div className="divide-y divide-border">
                   {incomeData.categoryBreakdown.map((cat, i) => (
-                    <div
-                      key={cat.categoryId ?? '__none__'}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: catColor(i, cat.color) }}
-                      />
-                      <span className="text-body-sm text-neutral-700 flex-1 min-w-0 truncate">
-                        {cat.categoryName}
-                      </span>
+                    <div key={cat.categoryId ?? '__none__'} className="flex items-center gap-3 px-4 py-3">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: catColor(i, cat.color) }} />
+                      <span className="text-body-sm text-neutral-700 flex-1 min-w-0 truncate">{cat.categoryName}</span>
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <div className="hidden sm:block w-20 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min(cat.percentage, 100)}%`,
-                              backgroundColor: catColor(i, cat.color),
-                            }}
-                          />
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(cat.percentage, 100)}%`, backgroundColor: catColor(i, cat.color) }} />
                         </div>
-                        <span className="text-body-xs text-neutral-400 w-10 text-right">
-                          {cat.percentage.toFixed(1)}%
-                        </span>
-                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">
-                          {formatNaira(cat.amount)}
-                        </span>
+                        <span className="text-body-xs text-neutral-400 w-10 text-right">{cat.percentage.toFixed(1)}%</span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(cat.amount)}</span>
                       </div>
                     </div>
                   ))}
@@ -904,31 +1072,20 @@ export default function Reports() {
             </div>
           ) : (
             <div className="space-y-4 animate-fade-in">
-              {/* Summary cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <SummaryCard
-                  label="Total Expenses"
-                  value={formatNaira(expensesData.totalExpenses)}
-                />
+                <SummaryCard label="Total Expenses" value={formatNaira(expensesData.totalExpenses)} />
                 <SummaryCard
                   label="Deductible"
                   value={formatNaira(expensesData.deductibleExpenses)}
                   subLabel="tax-deductible portion"
                 />
-                <SummaryCard
-                  label="Non-Deductible"
-                  value={formatNaira(expensesData.nonDeductibleExpenses)}
-                />
+                <SummaryCard label="Non-Deductible" value={formatNaira(expensesData.nonDeductibleExpenses)} />
               </div>
 
-              {/* Doughnut chart + legend */}
               <div className="bg-white rounded-xl border border-border shadow-soft p-4">
-                <h2 className="text-heading-sm font-display text-neutral-900 mb-4">
-                  Expenses by Category
-                </h2>
+                <h2 className="text-heading-sm font-display text-neutral-900 mb-4">Expenses by Category</h2>
                 {doughnutSegments.length > 0 ? (
                   <div className="flex flex-col sm:flex-row items-center gap-6">
-                    {/* Doughnut */}
                     <div className="w-48 flex-shrink-0">
                       <DoughnutChart
                         segments={doughnutSegments}
@@ -937,67 +1094,38 @@ export default function Reports() {
                         selected={selectedDoughnutIdx}
                       />
                     </div>
-                    {/* Legend */}
                     <div className="flex-1 min-w-0 w-full space-y-1">
                       {doughnutSegments.map((seg, i) => (
                         <button
                           key={seg.label}
-                          onClick={() =>
-                            setSelectedDoughnutIdx(
-                              selectedDoughnutIdx === i ? null : i
-                            )
-                          }
+                          onClick={() => setSelectedDoughnutIdx(selectedDoughnutIdx === i ? null : i)}
                           className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                            selectedDoughnutIdx === i
-                              ? 'bg-neutral-100'
-                              : 'hover:bg-neutral-50'
+                            selectedDoughnutIdx === i ? 'bg-neutral-100' : 'hover:bg-neutral-50'
                           }`}
                         >
-                          <div
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: seg.color }}
-                          />
-                          <span className="text-body-sm text-neutral-700 flex-1 min-w-0 truncate">
-                            {seg.label}
-                          </span>
-                          <span className="text-body-xs text-neutral-400 flex-shrink-0">
-                            {seg.percentage.toFixed(1)}%
-                          </span>
-                          <span className="text-body-sm font-mono text-neutral-900 flex-shrink-0 w-24 text-right">
-                            {formatNaira(seg.amount)}
-                          </span>
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
+                          <span className="text-body-sm text-neutral-700 flex-1 min-w-0 truncate">{seg.label}</span>
+                          <span className="text-body-xs text-neutral-400 flex-shrink-0">{seg.percentage.toFixed(1)}%</span>
+                          <span className="text-body-sm font-mono text-neutral-900 flex-shrink-0 w-24 text-right">{formatNaira(seg.amount)}</span>
                         </button>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  <p className="text-body-sm text-neutral-400 text-center py-4">
-                    No category data available.
-                  </p>
+                  <p className="text-body-sm text-neutral-400 text-center py-4">No category data available.</p>
                 )}
               </div>
 
-              {/* Expense category list with deductible badges */}
               <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
                 <div className="px-4 py-3 border-b border-border">
-                  <h2 className="text-heading-sm font-display text-neutral-900">
-                    Expense Breakdown
-                  </h2>
+                  <h2 className="text-heading-sm font-display text-neutral-900">Expense Breakdown</h2>
                 </div>
                 <div className="divide-y divide-border">
                   {expensesData.categoryBreakdown.map((cat, i) => (
-                    <div
-                      key={cat.categoryId ?? '__none__'}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: catColor(i, cat.color) }}
-                      />
+                    <div key={cat.categoryId ?? '__none__'} className="flex items-center gap-3 px-4 py-3">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: catColor(i, cat.color) }} />
                       <div className="flex-1 min-w-0">
-                        <span className="text-body-sm text-neutral-700 block truncate">
-                          {cat.categoryName}
-                        </span>
+                        <span className="text-body-sm text-neutral-700 block truncate">{cat.categoryName}</span>
                         {cat.isDeductible && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 mt-0.5">
                             Deductible
@@ -1005,12 +1133,8 @@ export default function Reports() {
                         )}
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
-                        <span className="text-body-xs text-neutral-400 w-10 text-right">
-                          {cat.percentage.toFixed(1)}%
-                        </span>
-                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">
-                          {formatNaira(cat.amount)}
-                        </span>
+                        <span className="text-body-xs text-neutral-400 w-10 text-right">{cat.percentage.toFixed(1)}%</span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(cat.amount)}</span>
                       </div>
                     </div>
                   ))}
@@ -1032,35 +1156,49 @@ export default function Reports() {
             </div>
           ) : (
             <div className="space-y-4 animate-fade-in">
-              {/* Summary cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-white rounded-xl border border-border shadow-soft p-4">
-                  <p className="text-body-xs text-neutral-500 mb-1">
-                    Income {yoyData.currentYear} vs {yoyData.priorYear}
+              {/* Prior year missing info banner */}
+              {!yoyData.hasPriorData && (
+                <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                  <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-body-sm text-blue-700">
+                    No data found for {yoyData.priorYear}. Import transactions from that year to see year-on-year comparisons.
                   </p>
-                  <p className="text-heading-md font-mono text-neutral-900">
-                    {formatNaira(yoyData.currentIncome)}
-                  </p>
-                  <ChangeChip change={yoyData.incomeChange} />
                 </div>
-                <div className="bg-white rounded-xl border border-border shadow-soft p-4">
-                  <p className="text-body-xs text-neutral-500 mb-1">
-                    Expenses {yoyData.currentYear} vs {yoyData.priorYear}
-                  </p>
-                  <p className="text-heading-md font-mono text-neutral-900">
-                    {formatNaira(yoyData.currentExpenses)}
-                  </p>
-                  <ChangeChip change={yoyData.expensesChange} lowerIsBetter />
-                </div>
-                <div className="bg-white rounded-xl border border-border shadow-soft p-4">
-                  <p className="text-body-xs text-neutral-500 mb-1">
-                    Tax Payable {yoyData.currentYear}
-                  </p>
-                  <p className="text-heading-md font-mono text-neutral-900">
-                    {formatNaira(yoyData.currentTaxPayable)}
-                  </p>
-                  <ChangeChip change={yoyData.taxPayableChange} lowerIsBetter />
-                </div>
+              )}
+
+              {/* Two-column comparison cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <YoyCompareCard
+                  label="Total Income"
+                  currentValue={formatNaira(yoyData.currentIncome)}
+                  priorValue={formatNaira(yoyData.priorIncome)}
+                  change={yoyData.incomeChange}
+                  hasPriorData={yoyData.hasPriorData}
+                />
+                <YoyCompareCard
+                  label="Total Expenses"
+                  currentValue={formatNaira(yoyData.currentExpenses)}
+                  priorValue={formatNaira(yoyData.priorExpenses)}
+                  change={yoyData.expensesChange}
+                  hasPriorData={yoyData.hasPriorData}
+                  lowerIsBetter
+                />
+                <YoyCompareCard
+                  label="Tax Liability"
+                  currentValue={formatNaira(yoyData.currentTaxPayable)}
+                  priorValue={formatNaira(yoyData.priorTaxPayable)}
+                  change={yoyData.taxPayableChange}
+                  hasPriorData={yoyData.hasPriorData}
+                  lowerIsBetter
+                />
+                <YoyCompareCard
+                  label="Effective Tax Rate"
+                  currentValue={`${yoyData.currentEffectiveTaxRate.toFixed(1)}%`}
+                  priorValue={`${yoyData.priorEffectiveTaxRate.toFixed(1)}%`}
+                  change={yoyData.effectiveTaxRateChange}
+                  hasPriorData={yoyData.hasPriorData}
+                  lowerIsBetter
+                />
               </div>
 
               {/* Income line chart */}
@@ -1073,6 +1211,7 @@ export default function Reports() {
                   priorData={yoyData.priorMonthlyIncome}
                   currentYear={yoyData.currentYear}
                   priorYear={yoyData.priorYear}
+                  hasPriorData={yoyData.hasPriorData}
                 />
               </div>
 
@@ -1086,6 +1225,7 @@ export default function Reports() {
                   priorData={yoyData.priorMonthlyExpenses}
                   currentYear={yoyData.currentYear}
                   priorYear={yoyData.priorYear}
+                  hasPriorData={yoyData.hasPriorData}
                 />
               </div>
 
@@ -1094,31 +1234,51 @@ export default function Reports() {
                 <p className="text-body-xs text-neutral-500 mb-2 font-medium uppercase tracking-wide">
                   {yoyData.priorYear} Summary
                 </p>
-                <div className="flex flex-wrap gap-6">
-                  <div>
-                    <p className="text-body-xs text-neutral-400">Income</p>
-                    <p className="text-body-sm font-mono text-neutral-700">
-                      {formatNaira(yoyData.priorIncome)}
-                    </p>
+                {yoyData.hasPriorData ? (
+                  <div className="flex flex-wrap gap-6">
+                    <div>
+                      <p className="text-body-xs text-neutral-400">Income</p>
+                      <p className="text-body-sm font-mono text-neutral-700">{formatNaira(yoyData.priorIncome)}</p>
+                    </div>
+                    <div>
+                      <p className="text-body-xs text-neutral-400">Expenses</p>
+                      <p className="text-body-sm font-mono text-neutral-700">{formatNaira(yoyData.priorExpenses)}</p>
+                    </div>
+                    <div>
+                      <p className="text-body-xs text-neutral-400">Tax Payable</p>
+                      <p className="text-body-sm font-mono text-neutral-700">{formatNaira(yoyData.priorTaxPayable)}</p>
+                    </div>
+                    <div>
+                      <p className="text-body-xs text-neutral-400">Effective Rate</p>
+                      <p className="text-body-sm font-mono text-neutral-700">{yoyData.priorEffectiveTaxRate.toFixed(1)}%</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-body-xs text-neutral-400">Expenses</p>
-                    <p className="text-body-sm font-mono text-neutral-700">
-                      {formatNaira(yoyData.priorExpenses)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-body-xs text-neutral-400">Tax Payable</p>
-                    <p className="text-body-sm font-mono text-neutral-700">
-                      {formatNaira(yoyData.priorTaxPayable)}
-                    </p>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-body-sm text-neutral-400">No data for {yoyData.priorYear}.</p>
+                )}
               </div>
             </div>
           )}
         </>
       )}
+
+      {/* ── Mobile FAB ── */}
+      <button
+        onClick={() => setExportSheetOpen(true)}
+        className="md:hidden fixed bottom-6 right-4 z-30 w-14 h-14 rounded-full bg-primary text-white shadow-medium flex items-center justify-center hover:bg-primary/90 transition-colors active:scale-95"
+        aria-label="Export report"
+      >
+        <Download className="w-6 h-6" />
+      </button>
+
+      {/* ── Export Sheet ── */}
+      <ExportSheet
+        open={exportSheetOpen}
+        onClose={() => !exportLoading && setExportSheetOpen(false)}
+        onExport={handleExport}
+        isLoading={exportLoading}
+        loadingFormat={exportLoadingFormat}
+      />
     </div>
   );
 }

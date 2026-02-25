@@ -390,6 +390,22 @@ export const getYearOnYear = query({
       return Math.round(((curr - prior) / prior) * 10000) / 100;
     }
 
+    // Effective tax rate = netTaxPayable / totalGrossIncome (as percentage)
+    const currentEffectiveTaxRate = currentSummary?.effectiveTaxRate != null
+      ? Math.round(currentSummary.effectiveTaxRate * 10000) / 100
+      : currentIncome > 0
+        ? Math.round((currentTaxPayable / currentIncome) * 10000) / 100
+        : 0;
+    const priorEffectiveTaxRate = priorSummary?.effectiveTaxRate != null
+      ? Math.round(priorSummary.effectiveTaxRate * 10000) / 100
+      : priorIncome > 0
+        ? Math.round((priorTaxPayable / priorIncome) * 10000) / 100
+        : 0;
+
+    // Determine if there's any prior year data
+    const hasPriorData =
+      priorIncomeTx.length > 0 || priorExpenseTx.length > 0 || !!priorSummary;
+
     return {
       currentYear,
       priorYear,
@@ -402,6 +418,10 @@ export const getYearOnYear = query({
       currentTaxPayable,
       priorTaxPayable,
       taxPayableChange: pctChange(currentTaxPayable, priorTaxPayable),
+      currentEffectiveTaxRate,
+      priorEffectiveTaxRate,
+      effectiveTaxRateChange: pctChange(currentEffectiveTaxRate, priorEffectiveTaxRate),
+      hasPriorData,
       currentMonthlyIncome,
       priorMonthlyIncome,
       currentMonthlyExpenses,
