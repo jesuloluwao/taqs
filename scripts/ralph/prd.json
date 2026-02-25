@@ -1,7 +1,7 @@
 {
   "project": "TaxEase Nigeria",
-  "branchName": "ralph/auth-onboarding-entity-setup",
-  "description": "PRD-0: Foundation — Auth, Onboarding & Entity Setup for TaxEase Nigeria",
+  "branchName": "ralph/full-app-build",
+  "description": "PRD-0 through PRD-9: Complete TaxEase Nigeria application build",
   "sourcePrd": "tasks/prd-0-auth-onboarding-entity-setup.md",
   "prdContext": {
     "PRD-0": {
@@ -24,6 +24,159 @@
         "NIN": "National Identification Number — 11 digits, serves as Tax ID under NTA 2025. Encrypted at rest.",
         "Category": "Transaction category (income, business_expense, personal_expense, transfer). System categories are seeded; users can create custom ones later."
       }
+    },
+    "PRD-1": {
+      "name": "Transaction Management & Import Pipeline",
+      "overview": "Delivers the data backbone of TaxEase: import, view, categorise, and manage financial transactions. Transactions are the raw material for tax calculations, dashboards, reports, and filing.",
+      "background": "Users need to import bank statements (PDF/CSV), manually add transactions, view filterable/sortable lists, categorise via triage UI, edit tax fields (WHT, deductible %), and manage custom categories. The import pipeline is source-agnostic so PRD-8 (Bank Linking) can feed the same batchUpsert path later.",
+      "goals": [
+        "Transaction schema with all tax-relevant fields (whtDeducted, deductiblePercent, amountNgn, etc.)",
+        "PDF/CSV import with parsing, dedup, and import job tracking",
+        "Filterable, sortable, searchable, paginated transaction list",
+        "Transaction detail/edit with all tax fields",
+        "Categorisation triage UI for rapid uncategorised review",
+        "Bulk select, categorise, and delete",
+        "Custom category CRUD",
+        "Connected accounts view and add (upload-only in v1)"
+      ],
+      "coreConcepts": {
+        "ImportJob": "Tracks a file import lifecycle: pending → processing → complete/failed. Records totalParsed, totalImported, duplicatesSkipped.",
+        "batchUpsert": "Source-agnostic mutation that writes parsed transactions with dedup logic (match on date+amount+description+externalRef).",
+        "Triage": "Card-based UI for rapidly reviewing uncategorised transactions: confirm suggestion, change category, mark personal, or skip."
+      }
+    },
+    "PRD-2": {
+      "name": "AI Categorisation Engine",
+      "overview": "Claude API-powered automatic classification of financial transactions during import. High-confidence categorisations (≥0.7) are applied automatically; low-confidence items queue for triage.",
+      "background": "Without AI, every imported transaction must be manually classified — impractical for bulk imports. The engine uses Claude Haiku for cost-efficient batch classification with few-shot learning from user corrections. It adds no new screens; it enhances the import flow and triage UI from PRD-1.",
+      "goals": [
+        "Auto-categorise transactions during import via Claude API",
+        "Confidence scores with colour-coded badges (green ≥0.9, amber 0.7-0.89)",
+        "AI reasoning explanations accessible via info icon",
+        "Re-trigger AI categorisation on demand for uncategorised transactions",
+        "Learning from user corrections via few-shot prompting",
+        "Graceful degradation when AI is unavailable"
+      ],
+      "coreConcepts": {
+        "CategorisingJob": "Tracks batch AI categorisation operations separately from importJobs. Records batch progress, token usage, and cost.",
+        "ConfidenceThreshold": "0.7 — transactions above this get auto-categorised; below are left uncategorised with suggestion stored for triage.",
+        "FeedbackLoop": "aiCategorisationFeedback records capture user overrides to improve future prompts via few-shot examples."
+      }
+    },
+    "PRD-3": {
+      "name": "Tax Calculation Engine",
+      "overview": "Core IP of TaxEase — takes categorised transactions, declared reliefs, and entity metadata to produce a complete NTA 2025-compliant tax computation including PIT, CIT, CGT, VAT, WHT credits, and nil return detection.",
+      "background": "The engine applies Nigeria's six-band progressive PIT system (0% to 25%), rent relief (20%, cap ₦500k), pension/NHIS/NHF reliefs, WHT credit offsets, minimum tax rules, and handles LLC CIT (30% + 4% dev levy) with small company exemption. Accuracy is critical — incorrect calculations expose users to penalties.",
+      "goals": [
+        "Full PIT computation with six progressive bands",
+        "Relief calculations (rent, pension, NHIS, NHF, life insurance, mortgage interest)",
+        "WHT credit aggregation and offset",
+        "CIT for LLCs with small company exemption check",
+        "CGT computation for capital disposals",
+        "VAT computation (output - input) for VAT-registered entities",
+        "Nil return detection and minimum tax rules",
+        "Engine versioning for historical immutability"
+      ],
+      "coreConcepts": {
+        "TaxEngineOutput": "Complete computation result including PIT, CIT, CGT, VAT, totalTaxPayable, uncategorisedCount, effectiveTaxRate.",
+        "taxYearSummaries": "Cached engine output per entity per tax year for fast dashboard reads.",
+        "TaxDeclarations": "User-declared reliefs (rent, pension, etc.) stored per entity per tax year."
+      }
+    },
+    "PRD-4": {
+      "name": "Invoicing & Client Management",
+      "overview": "Invoice creation, sending via email with PDF, payment tracking, and the invoice-to-transaction bridge that auto-creates income transactions with WHT fields when an invoice is marked paid.",
+      "background": "Freelancers and SMEs create invoices with line items, WHT rates (0/5/10%), and optional VAT. Paid invoices automatically generate properly categorised income transactions. Clients are managed in a directory with default currency and WHT rate preferences.",
+      "goals": [
+        "Invoice CRUD with line items, WHT, and VAT calculation",
+        "PDF generation via NestJS service and email sending via Resend",
+        "Mark-as-paid creates income transaction with WHT fields (invoice-to-transaction bridge)",
+        "Recurring invoices on monthly/quarterly schedule",
+        "Client directory with CRUD and autocomplete",
+        "Overdue detection via daily scheduled function",
+        "Payment webhooks (Paystack, Flutterwave)"
+      ],
+      "coreConcepts": {
+        "InvoiceToTransactionBridge": "When markPaid is called, atomically creates an income transaction with amount=totalDue, whtDeducted=whtAmount, whtRate from invoice, categoryId='Freelance/Client Income'.",
+        "InvoiceNumber": "Auto-generated sequential format INV-{YEAR}-{NNNN}, atomically incremented.",
+        "DenormalisedClient": "clientName and clientEmail stored on invoice at creation for display when client is deleted."
+      }
+    },
+    "PRD-5": {
+      "name": "Dashboard & Real-Time Overview",
+      "overview": "Transforms the empty Dashboard shell into a rich, reactive home screen with tax position summary, quick stats, uncategorised banner, recent transactions, invoice activity, and deadline reminders.",
+      "background": "A read-only aggregation layer — introduces no new database tables. Reads across transactions, taxYearSummaries, invoices, and entities via Convex live queries for automatic real-time updates.",
+      "goals": [
+        "Tax Position Summary card with estimated liability and effective rate",
+        "Quick Stats row (income, expenses, WHT credits, outstanding invoices)",
+        "Uncategorised Transactions Banner with triage CTA",
+        "Recent Transactions list (last 5)",
+        "Invoice Activity card",
+        "Deadline countdown widget with colour transitions",
+        "Compliance reminder chips",
+        "Entity and tax year switching with instant refresh"
+      ]
+    },
+    "PRD-6": {
+      "name": "Filing Module & Self-Assessment",
+      "overview": "The culmination of TaxEase — guided pre-filing checklist, tax figure review, immutable self-assessment PDF generation, TaxPro Max submission guide, and payment receipt/TCC upload.",
+      "background": "The filing record captures a complete TaxEngineOutput snapshot at generation time, creating an immutable audit record. The module walks users through checklist → review → generate → submit → pay → TCC. Nil returns follow the same flow with payment steps skipped.",
+      "goals": [
+        "Filing checklist with grouped items and readiness meter (gate at ≥90%)",
+        "Pre-filing review with condensed tax summary and flagged issues",
+        "Self-assessment generation with immutable snapshot + NRS-format PDF",
+        "5-step TaxPro Max submission guide with deep links",
+        "Payment receipt and TCC document upload",
+        "Filing status lifecycle: draft → generated → submitted → payment_confirmed → tcc_obtained",
+        "Filing history for past tax years"
+      ],
+      "coreConcepts": {
+        "TaxSummarySnapshot": "JSON.stringify(TaxEngineOutput) captured at filing time — immutable audit record that is never retroactively altered.",
+        "FilingStatus": "Lifecycle: draft → generated → submitted → payment_pending → payment_confirmed → tcc_obtained. Nil returns skip payment steps."
+      }
+    },
+    "PRD-7": {
+      "name": "Reports & Export",
+      "overview": "Analytics layer with Income, Expenses, and Year-on-Year tabs featuring interactive charts, date range filtering, and CSV/PDF export capabilities.",
+      "background": "Reads exclusively from existing tables (transactions, taxYearSummaries, categories). Introduces no new database tables. Charts include bar (income), doughnut (expenses), and dual-line (year-on-year). PDF export via NestJS service; CSV generated in Convex action.",
+      "goals": [
+        "Three-tab reports screen (Income, Expenses, Year-on-Year)",
+        "Date range selector (This Year, Last Year, Custom)",
+        "Monthly income bar chart with tap tooltips",
+        "Expense doughnut chart by category",
+        "Year-on-Year comparison with dual-line chart",
+        "CSV export with proper columns per tab",
+        "PDF export via NestJS service with professional layout"
+      ]
+    },
+    "PRD-8": {
+      "name": "Bank Linking & Live Sync",
+      "overview": "Upgrades from manual PDF/CSV import to live bank connections via Mono/Stitch (Nigerian Open Banking) and payment platform integrations (Paystack, Flutterwave, Payoneer, Wise).",
+      "background": "Layer 4 enhancement — additive, not required. Reuses PRD-1's batchUpsert pipeline. Tokens are AES-256-GCM encrypted. Supports manual sync, 6-hour scheduled sync, and webhook-triggered sync. Nigerian Open Banking is still maturing so defensive coding is critical.",
+      "goals": [
+        "Bank linking via Mono Connect and Stitch Link widgets",
+        "Paystack/Flutterwave connection via API key",
+        "Payoneer/Wise connection via OAuth",
+        "AES-256-GCM token encryption",
+        "Manual sync, scheduled sync (6h cron), and webhook-triggered sync",
+        "Automatic token refresh and re-authentication prompts",
+        "Account disconnect/reconnect with transaction preservation",
+        "Activate Onboarding Step 4 placeholders"
+      ]
+    },
+    "PRD-9": {
+      "name": "Notifications & Reminders",
+      "overview": "Notification infrastructure with in-app notification centre, push notifications (FCM/APNs), and 7 scheduled cron jobs for filing deadlines, VAT returns, uncategorised alerts, invoice overdue, import results, sync errors, and recurring invoice generation.",
+      "background": "Cross-cutting enhancement that transforms TaxEase into a year-round companion. Any domain can emit notifications through notifications.create internal mutation. Scheduled functions monitor deadlines and events. Push delivery via Firebase Cloud Messaging.",
+      "goals": [
+        "Notifications table with CRUD and unread badge",
+        "Notification centre UI with date grouping and deep-link navigation",
+        "Notification settings with granular preference controls",
+        "7 scheduled cron jobs for all reminder types",
+        "Push notification infrastructure (FCM + APNs)",
+        "Notification deduplication and cleanup",
+        "Penalty amounts in deadline-related messages"
+      ]
     }
   },
   "userStories": [
@@ -63,12 +216,12 @@
       ],
       "priority": 2,
       "passes": true,
-      "notes": "PRD-0: See '§6.1 Auth' for webhook spec. Clerk webhook must be registered in Clerk dashboard pointing to Convex HTTP endpoint."
+      "notes": "PRD-0: See '§6.1 Auth' for webhook spec."
     },
     {
       "id": "US-003",
       "title": "User, entity, and preferences backend CRUD operations",
-      "description": "As a developer, I need all backend mutations and queries for user profile, entities, preferences, and file uploads so the frontend can manage these resources.",
+      "description": "As a developer, I need all backend mutations and queries for user profile, entities, preferences, and file uploads.",
       "acceptanceCriteria": [
         "Create users mutations: updateProfile (name, phone, profession, currency, avatar), updateNin (validate 11 digits, store), completeOnboarding (set onboardingComplete=true), uploadAvatar (accept storageId)",
         "Create users queries: getMe (current user profile), getPreferences (userPreferences for current user)",
@@ -87,7 +240,7 @@
     {
       "id": "US-004",
       "title": "Categories seed data and dashboard query stubs",
-      "description": "As a developer, I need system categories seeded and dashboard query stubs so the app has classification data and the dashboard can render empty states.",
+      "description": "As a developer, I need system categories seeded and dashboard query stubs.",
       "acceptanceCriteria": [
         "Create categories.seed mutation that inserts all system categories with isSystem=true",
         "Seed income categories: Freelance/Client Income, Foreign Income, Investment Returns, Rental Income",
@@ -101,12 +254,12 @@
       ],
       "priority": 4,
       "passes": true,
-      "notes": "PRD-0: See '§7.2 Categories Seed Data' for full category list and '§6.7 Dashboard' for stub queries"
+      "notes": "PRD-0: See '§7.2 Categories Seed Data'"
     },
     {
       "id": "US-005",
       "title": "Design system foundation with custom theme",
-      "description": "As a user, I need a distinctive, polished interface that reflects the TaxEase brand rather than stock defaults.",
+      "description": "As a user, I need a distinctive, polished interface that reflects the TaxEase brand.",
       "acceptanceCriteria": [
         "Install shadcn/ui and configure with custom theme (not defaults)",
         "Configure custom Google Fonts in the app: display font (e.g., Outfit or Sora) for headings, body font (e.g., DM Sans or Plus Jakarta Sans) for text",
@@ -119,12 +272,12 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "PRD-0: See '§4.1 Design Tokens' and '§4.2 Typography' for exact values. DESIGN: Visual foundation for all UI work."
+      "notes": "PRD-0: See '§4.1 Design Tokens' and '§4.2 Typography'"
     },
     {
       "id": "US-006",
       "title": "Welcome screen and styled auth pages",
-      "description": "As a first-time visitor, I want a compelling welcome screen and polished sign-up/sign-in pages so I understand the app's value and can register easily.",
+      "description": "As a first-time visitor, I want a compelling welcome screen and polished sign-up/sign-in pages.",
       "acceptanceCriteria": [
         "Replace Landing.tsx with Welcome screen: hero illustration area, headline 'Tax compliance, made simple for Nigerians', subline 'Track income, file returns, and stay penalty-free — all in one place.'",
         "Primary CTA 'Get Started' navigates to /sign-up, secondary link 'I already have an account' navigates to /sign-in",
@@ -138,12 +291,12 @@
       ],
       "priority": 6,
       "passes": true,
-      "notes": "PRD-0: US-001/US-002/US-003/US-005/US-007 — See '§4.3 Screen Layouts' for Welcome, Sign Up, Log In layouts"
+      "notes": "PRD-0: US-001/US-002/US-003/US-005/US-007"
     },
     {
       "id": "US-007",
       "title": "Onboarding wizard — Steps 1 and 2",
-      "description": "As a new user, I want to select my user type and enter my personal/business details so the app tailors my experience and creates my first tax entity.",
+      "description": "As a new user, I want to select my user type and enter my personal/business details.",
       "acceptanceCriteria": [
         "Create /app/onboarding route protected by auth, accessible only when onboardingComplete=false",
         "Step indicator showing 'Step X of 4' with progress bar across all onboarding steps",
@@ -159,12 +312,12 @@
       ],
       "priority": 7,
       "passes": true,
-      "notes": "PRD-0: US-008/US-009 — See '§4.3 Screen Layouts' for Onboarding layout with step indicator"
+      "notes": "PRD-0: US-008/US-009"
     },
     {
       "id": "US-008",
       "title": "Onboarding wizard — Steps 3 and 4, complete onboarding",
-      "description": "As a new user, I want to enter my NIN/TIN and optionally connect accounts, then land on a ready-to-use dashboard.",
+      "description": "As a new user, I want to enter my NIN/TIN and optionally connect accounts.",
       "acceptanceCriteria": [
         "Step 3: Explanatory text about NIN under NTA 2025, NIN input (11 digits), optional FIRS TIN field",
         "Step 3: Info callout 'Your NIN is stored securely and never shared without your consent'",
@@ -179,12 +332,12 @@
       ],
       "priority": 8,
       "passes": true,
-      "notes": "PRD-0: US-010/US-011 — See '§4.3 Screen Layouts' for Onboarding layout. Step 4 connections are deferred to PRD-1/PRD-8."
+      "notes": "PRD-0: US-010/US-011"
     },
     {
       "id": "US-009",
       "title": "App shell with side drawer navigation and entity selector",
-      "description": "As a logged-in user, I want a side drawer to navigate between app sections and switch entities so I can access all features efficiently.",
+      "description": "As a logged-in user, I want a side drawer to navigate between app sections and switch entities.",
       "acceptanceCriteria": [
         "Redesign AppShell with proper side drawer: mobile = overlay from left, web = persistent collapsible sidebar",
         "Drawer top: user avatar (or initials), full name, email",
@@ -200,12 +353,12 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "PRD-0: US-013 — See '§4.3 Screen Layouts' for Side Drawer spec and '§4.4 Platform Behaviour' for mobile vs web drawer"
+      "notes": "PRD-0: US-013"
     },
     {
       "id": "US-010",
       "title": "Dashboard shell with empty states",
-      "description": "As a user who completed onboarding, I want the dashboard to show a proper layout with empty states so I know where I am and what to do next.",
+      "description": "As a user who completed onboarding, I want the dashboard to show a proper layout with empty states.",
       "acceptanceCriteria": [
         "Dashboard layout: header with title 'Dashboard', scrollable card sections",
         "Tax Position Summary card showing '2026 Tax Year' with 'No transactions yet' placeholder",
@@ -219,12 +372,12 @@
       ],
       "priority": 10,
       "passes": true,
-      "notes": "PRD-0: US-012 — See '§4.3 Screen Layouts' for Dashboard layout and '§4.5 Global Components' for empty state pattern"
+      "notes": "PRD-0: US-012"
     },
     {
       "id": "US-011",
       "title": "Profile view and edit with avatar upload",
-      "description": "As a logged-in user, I want to view and edit my profile so my information stays accurate.",
+      "description": "As a logged-in user, I want to view and edit my profile.",
       "acceptanceCriteria": [
         "Profile view at Settings → Profile showing: avatar, full name, email, phone, NIN (masked as •••••••1234), FIRS TIN, primary currency",
         "Avatar shows uploaded photo or initials fallback",
@@ -238,12 +391,12 @@
       ],
       "priority": 11,
       "passes": true,
-      "notes": "PRD-0: US-014/US-015 — See '§4.3 Screen Layouts' for Profile layout"
+      "notes": "PRD-0: US-014/US-015"
     },
     {
       "id": "US-012",
       "title": "Entity management — list, create, edit, delete, and switch",
-      "description": "As a user with one or more tax entities, I want to manage them from Settings so I can add new businesses, update details, and remove obsolete ones.",
+      "description": "As a user with one or more tax entities, I want to manage them from Settings.",
       "acceptanceCriteria": [
         "Settings → Tax Entities shows list of entity cards (name, type, tax year, default badge)",
         "'Add Entity' button opens create form: Name, Type (individual/business_name/llc), TIN, RC Number, VAT registered toggle, VAT threshold exceeded toggle",
@@ -258,7 +411,7 @@
       ],
       "priority": 12,
       "passes": true,
-      "notes": "PRD-0: US-016/US-017/US-018/US-019/US-019a — See '§4.3 Screen Layouts' for Tax Entities layout"
+      "notes": "PRD-0: US-016/US-017/US-018/US-019/US-019a"
     },
     {
       "id": "US-013",
@@ -278,12 +431,12 @@
       ],
       "priority": 13,
       "passes": true,
-      "notes": "PRD-0: US-020/US-021/US-022 — See '§4.5 Global Components' for confirmation dialog pattern"
+      "notes": "PRD-0: US-020/US-021/US-022"
     },
     {
       "id": "US-014",
       "title": "Polish pass — animations, loading states, and empty states",
-      "description": "As a user, I need micro-interactions, loading states, and consistent empty states for a polished experience.",
+      "description": "As a user, I need micro-interactions, loading states, and consistent empty states.",
       "acceptanceCriteria": [
         "Page content uses fade-in animation on load",
         "Navigation items have hover transforms and smooth transitions",
@@ -296,7 +449,778 @@
       ],
       "priority": 14,
       "passes": true,
-      "notes": "PRD-0: DESIGN — See '§4.5 Global Components' for toast, empty state, and dialog patterns. Polish pass after core functionality."
+      "notes": "PRD-0: DESIGN — Polish pass after core functionality."
+    },
+    {
+      "id": "US-015",
+      "title": "Transaction schema overhaul and importJobs table",
+      "description": "As a developer, I need the transaction schema expanded with all tax-relevant fields and an importJobs table for tracking imports.",
+      "acceptanceCriteria": [
+        "Rewrite `transactions` table with full PRD-1 schema: entityId, userId, connectedAccountId, importJobId, date, description, enrichedDescription, amount, currency, amountNgn, fxRate, direction (credit/debit), type (income/business_expense/personal_expense/transfer/uncategorised), categoryId, isDeductible, deductiblePercent, whtDeducted, whtRate, invoiceId, notes, externalRef, isDuplicate, taxYear, reviewedByUser",
+        "Add `importJobs` table: entityId, userId, connectedAccountId, source (pdf/csv/bank_api/paystack/flutterwave/manual), status (pending/processing/complete/failed), storageId, totalParsed, totalImported, duplicatesSkipped, errorMessage, startedAt, completedAt",
+        "Add indexes: transactions.by_entityId_taxYear, transactions.by_entityId_date, transactions.by_entityId_type; importJobs.by_entityId, importJobs.by_connectedAccountId",
+        "Update packages/shared types and Zod schemas for new transaction and importJob shapes",
+        "Migrate any existing transaction data to new schema fields with sensible defaults",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "PRD-1: See '§2 Entities' for TypeScript interfaces and '§7 Data Models' for full schema"
+    },
+    {
+      "id": "US-016",
+      "title": "Transaction and import backend CRUD operations",
+      "description": "As a developer, I need all backend mutations and queries for transactions, import jobs, and bulk operations.",
+      "acceptanceCriteria": [
+        "Create transactions.list query: paginated, filters (entityId, taxYear, type, categoryId, dateRange, connectedAccountId, search), sort (date/amount/category), returns with category names resolved",
+        "Create transactions.get, transactions.update (description, type, categoryId, isDeductible, deductiblePercent, whtDeducted, whtRate, notes), transactions.delete mutations with ownership checks",
+        "Create transactions.manualCreate mutation: required fields (date, description, amount, currency), optional (category, type, deductiblePercent, whtDeducted, notes); computes amountNgn for foreign currency",
+        "Create transactions.bulkCategorise mutation: accepts array of transaction IDs + categoryId + type; sets isDeductible from category default",
+        "Create transactions.bulkDelete mutation: accepts array of IDs, deletes all with ownership check",
+        "Create transactions.getUncategorised query: returns uncategorised transactions for entity (triage UI)",
+        "Create transactions.initiateImport mutation: creates importJob record, returns jobId",
+        "Create transactions.batchUpsert mutation: writes array of parsed transactions with dedup logic (match on date+amount+description+externalRef within entity)",
+        "Create importJobs.get and importJobs.list queries",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "PRD-1: See '§6.1 Convex Functions — Transactions' and '§6.2 Import Jobs' for all function specs"
+    },
+    {
+      "id": "US-017",
+      "title": "Import pipeline — CSV and PDF parsing action",
+      "description": "As a developer, I need the processImport action that parses uploaded CSV/PDF files and writes transactions via batchUpsert.",
+      "acceptanceCriteria": [
+        "Create transactions.processImport action: reads file from Convex Storage by storageId, detects format (csv/pdf), parses transactions",
+        "CSV parser: extracts date, description, amount, direction, currency from standard 5-column format; handles common Nigerian bank CSV variations",
+        "PDF parser: extracts text from PDF and parses transaction rows; handles GTBank, Zenith, Access statement formats",
+        "Each parsed transaction mapped to canonical shape with: date, description, amount, currency, direction, externalRef (row hash for dedup)",
+        "Calls transactions.batchUpsert with parsed transactions; dedup skips duplicates",
+        "Updates importJob status: pending → processing → complete (or failed); sets totalParsed, totalImported, duplicatesSkipped",
+        "Error handling: malformed files set importJob to 'failed' with errorMessage; partial parse failures still import successful rows",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "PRD-1: See '§3.3 Import — CSV', '§3.4 Import — PDF', '§6.1 processImport' for parsing spec"
+    },
+    {
+      "id": "US-018",
+      "title": "Transaction list UI with filters, sort, search, and pagination",
+      "description": "As a user, I want to see all my transactions in a filterable, sortable, searchable, paginated list.",
+      "acceptanceCriteria": [
+        "Transaction List screen at /app/transactions accessible from side drawer",
+        "Header sticky with 'Transactions' title, hamburger, 'Import' button",
+        "Filter chips bar: All | Income | Expenses | Uncategorised | This Month | This Quarter | Custom Range",
+        "Search bar with debounced full-text search across description and category",
+        "Transactions grouped by month with section headers (e.g. 'February 2026')",
+        "Each row: date, category icon/colour dot, description (truncated), category label (or 'Uncategorised' in amber), amount (green for income, neutral for expense), currency flag for foreign",
+        "Pagination via infinite scroll or 'Load more' button (25 per page)",
+        "Sort options: date (default desc), amount, category",
+        "Empty state: illustration + 'No transactions yet. Import a bank statement to get started.' + 'Import Now' CTA",
+        "Skeleton loading state while data fetches",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "PRD-1: US-101/US-102 — See '§4.1 Transaction List Screen' for detailed layout spec"
+    },
+    {
+      "id": "US-019",
+      "title": "Transaction detail, edit, and manual entry",
+      "description": "As a user, I want to view transaction details, edit tax fields, and manually add transactions.",
+      "acceptanceCriteria": [
+        "Transaction Detail screen: date, description, amount, currency, naira equivalent (if foreign), category, type, isDeductible toggle, deductiblePercent (0-100), whtDeducted, whtRate, notes, source account, associated invoice",
+        "Edit mode: inline editable fields for description, category (dropdown), type, isDeductible, deductiblePercent, whtDeducted, notes; Save/Cancel with dirty form warning",
+        "'Mark as Personal' one-tap action: sets type=personal_expense, isDeductible=false",
+        "'Delete Transaction' with confirmation dialog; permanent delete",
+        "Manual Entry form: date, description, amount, currency (default NGN), category (optional), type, isDeductible, deductiblePercent, whtDeducted, notes; computes amountNgn for foreign currency",
+        "Manual entry accessible from Transaction List ('+' button) or Import screen tab",
+        "Success toasts on save/delete; validation errors inline",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "PRD-1: US-103 through US-109, US-115 — See '§4.3 Transaction Detail Screen' for layout"
+    },
+    {
+      "id": "US-020",
+      "title": "Import transactions UI — upload, progress, and results",
+      "description": "As a user, I want to upload bank statements and see import progress and results.",
+      "acceptanceCriteria": [
+        "Import Transactions screen with method tabs: Upload Statement | Connect Bank (placeholder) | Connect Fintech (placeholder) | Manual Entry",
+        "Upload tab: drag-and-drop zone (web) or file picker button (mobile); accepts PDF and CSV files",
+        "Upload flow: idle → uploading (progress bar) → parsing ('Processing your statement…') → complete/error",
+        "On parse complete: show results summary — 'X transactions imported, Y duplicates skipped'",
+        "Option to view imported batch (filtered by importJobId) or 'Go to Transactions'",
+        "Error state: 'Import failed. Please check the file format.' with 'Try again' button",
+        "Duplicate explanation: 'Duplicates are transactions that match existing records by date, amount, and description'",
+        "Import progress subscribes to importJobs.get for real-time status updates via Convex reactivity",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "PRD-1: US-110 through US-114 — See '§4.2 Import Transactions Screen' for upload flow states"
+    },
+    {
+      "id": "US-021",
+      "title": "Categorisation triage UI and bulk actions",
+      "description": "As a user, I want a fast card-based triage UI for uncategorised transactions and bulk select/categorise/delete capabilities.",
+      "acceptanceCriteria": [
+        "Categorisation Triage screen: progress counter ('12 of 47 remaining'), large card showing one transaction (date, description, amount, source)",
+        "Action buttons: '✓ Confirm' (applies default/suggested category), '✎ Change category' (opens picker modal), '✗ Mark as Personal', 'Skip for now'",
+        "Category picker modal: searchable, grouped by Income Types, Business Expenses, Personal, Transfers",
+        "Confirm/Change sets reviewedByUser=true; advances to next card; progress updates",
+        "All-done state: 'All transactions categorised' with checkmark illustration and 'View Transactions' CTA",
+        "Bulk select mode on Transaction List: long-press or toggle; checkboxes appear; selection count shown",
+        "'Categorise' bulk action: opens category picker, applies to all selected; 'Delete' bulk action with confirmation",
+        "'Select All' selects visible page only; action bar at bottom",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "PRD-1: US-116 through US-120 — See '§4.4 Categorisation Triage Screen' for card layout"
+    },
+    {
+      "id": "US-022",
+      "title": "Categories management and connected accounts UI",
+      "description": "As a user, I want to manage custom categories and view/add connected accounts.",
+      "acceptanceCriteria": [
+        "Categories screen (Settings or inline): list grouped by type (Income, Business Expenses, Personal, Transfers)",
+        "System categories (isSystem=true) are read-only; custom categories have Edit and Delete actions",
+        "Create custom category: name, type, isDeductibleDefault, icon, color; categories.create mutation",
+        "Edit custom category: update name, icon, color, isDeductibleDefault",
+        "Delete custom category with confirmation: reassigns transactions to uncategorised (categoryId cleared, type=uncategorised)",
+        "Connected Accounts screen (Settings): list of accounts with provider name, account name, last synced, status badge (active/error/disconnected)",
+        "Add connected account: v1 supports 'statement_upload' and 'manual' only; form for account name, provider, currency",
+        "Disconnect account: confirmation dialog, accounts.disconnect mutation; existing transactions preserved",
+        "Empty state for connected accounts: 'No accounts linked yet' + 'Add account' CTA",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": "PRD-1: US-121 through US-126 — See '§4.5 Categories Management' and '§4.6 Connected Accounts Screen'"
+    },
+    {
+      "id": "US-023",
+      "title": "AI categorisation schema and Claude API batch pipeline",
+      "description": "As a developer, I need the AI categorisation schema, Claude API integration, and batch processing pipeline for auto-categorising transactions during import.",
+      "acceptanceCriteria": [
+        "Add AI fields to transactions: aiCategorySuggestion, aiTypeSuggestion, aiCategoryConfidence, aiReasoning, aiCategorisingJobId, aiCategorisedAt, userOverrodeAi",
+        "Add `categorisingJobs` table: entityId, userId, importJobId, status, totalTransactions, totalCategorised, totalLowConfidence, totalFailed, batchesTotal, batchesCompleted, confidenceThreshold, modelUsed, totalTokensUsed, estimatedCostUsd, errorMessage, startedAt, completedAt",
+        "Add `aiCategorisationFeedback` table: entityId, userId, transactionId, aiSuggestedCategory, aiSuggestedType, aiConfidence, userChosenCategory, userChosenType, transactionDescription, transactionAmount, transactionDirection",
+        "Create ai.categoriseBatch internal action: sends batch of ≤50 transactions to Claude Haiku API with categories + Nigerian tax context prompt; returns categorised results with confidence scores",
+        "Enhance processImport to call AI pipeline after parsing: batches transactions, calls Claude, applies categories where confidence ≥0.7, leaves uncategorised where <0.7",
+        "Rate limiting: 500ms inter-batch delay, retry up to 3x on 429/5xx with exponential backoff",
+        "AI failure does not block import — transactions still imported as uncategorised",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": "PRD-2: US-201, US-209, US-210 — See '§7 Data Models' for schema and '§5 Functional Requirements' for Claude API integration spec"
+    },
+    {
+      "id": "US-024",
+      "title": "AI-enhanced triage UI with confidence badges and reasoning",
+      "description": "As a user, I want to see AI confidence scores, reasoning, and easily accept or reject AI suggestions during triage.",
+      "acceptanceCriteria": [
+        "Transaction List: AI-categorised unreviewed transactions show confidence badge (green ≥0.9, amber 0.7-0.89) and 🤖 icon; user-reviewed show ✓",
+        "Uncategorised transactions show AI suggestion in muted style: 'AI suggests: Software Subscriptions · 62%'",
+        "Triage card enhanced: shows AI suggestion with confidence bar and category name",
+        "Info icon (ℹ) on triage card and Transaction Detail opens AI reasoning tooltip/bottom sheet with explanation text",
+        "Accept AI suggestion: confirms category, sets reviewedByUser=true, userOverrodeAi=false",
+        "Override AI suggestion: opens category picker, applies user choice, sets userOverrodeAi=true, creates aiCategorisationFeedback record",
+        "'Mark as Personal' also records override feedback if AI had a different suggestion",
+        "Confidence badges hidden on manually-entered or user-reviewed transactions",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": "PRD-2: US-202 through US-205 — See '§4.2 Categorisation Triage Screen' and '§4.3 Transaction List' for AI UI enhancements"
+    },
+    {
+      "id": "US-025",
+      "title": "Re-trigger AI categorisation and bulk AI categorise",
+      "description": "As a user, I want to trigger AI categorisation on demand for uncategorised transactions.",
+      "acceptanceCriteria": [
+        "Create transactions.autoCategorise action: accepts entityId and optional transactionIds; processes uncategorised/unreviewed transactions through Claude pipeline",
+        "'Re-categorise with AI' button visible on Transaction List when filtered to uncategorised",
+        "Confirmation dialog: 'TaxEase AI will attempt to categorise X uncategorised transactions'",
+        "Progress indicator during batch processing; batch-level progress via Convex subscription on categorisingJobs",
+        "Completion toast: 'Categorised 42 of 47 transactions. 5 need manual review.'",
+        "'Auto-categorise All with AI' action in Triage screen header for bulk processing",
+        "Already-reviewed transactions excluded from re-categorisation",
+        "Cancel behaviour on progress overlay: remaining transactions stay uncategorised, toast 'Categorisation cancelled'",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "PRD-2: US-206, US-207, US-211 — See '§4.5 Uncategorised Banner' and '§4.6 Triage Header' for UI"
+    },
+    {
+      "id": "US-026",
+      "title": "Categorisation insights and AI error handling",
+      "description": "As a user, I want to see AI accuracy metrics and have graceful error handling for AI failures.",
+      "acceptanceCriteria": [
+        "Create transactions.getAiStats query: returns accuracy rate, per-category accuracy, override rate, total AI-categorised vs manual; computed from aiCategorisationFeedback",
+        "Categorisation Insights view accessible from Transaction List or Settings: overall accuracy rate, accuracy by category, override rate",
+        "Empty state for insights: 'No AI insights yet — As you review and correct AI categorisations, accuracy insights will appear here' with CTA to Triage",
+        "Categorisation prompt includes up to 20 recent user corrections as few-shot examples for personalised learning",
+        "Circuit breaker: if 3 consecutive API calls fail within 5 minutes, skip categorisation for 10 minutes",
+        "If ANTHROPIC_API_KEY not set: AI features silently disabled, no errors shown",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "PRD-2: US-208, US-209, US-210 — See '§5 Functional Requirements' FR-017 through FR-022 for error handling"
+    },
+    {
+      "id": "US-027",
+      "title": "Tax engine schema — summaries, declarations, FX rates",
+      "description": "As a developer, I need the database tables for tax year summaries, tax declarations, FX rates, and capital disposals.",
+      "acceptanceCriteria": [
+        "Add `taxYearSummaries` table with all fields from PRD-3 §7.3: entityId, taxYear, engineVersion, totalGrossIncome, totalBusinessExpenses, reliefs, taxableIncome, bands, WHT, net payable, VAT, CIT, isNilReturn, computedAt; index by_entityId_taxYear",
+        "Add `taxDeclarations` table: entityId, taxYear, annualRentPaid, pensionContributions, nhisContributions, nhfContributions, lifeInsurancePremiums, mortgageInterest; index by_entityId_taxYear",
+        "Add `fxRates` table: date, currency, cbnRate; index by_date_currency",
+        "Add `capitalDisposals` table: entityId, userId, taxYear, assetDescription, acquisitionCostNgn, disposalProceedsNgn, acquisitionDate, disposalDate, isExempt, exemptionReason",
+        "Create taxDeclarations CRUD: get (by entityId+taxYear), createOrUpdate mutation",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "PRD-3: See '§7 Data Models' for all table schemas and '§2 Entities' for TypeScript interfaces"
+    },
+    {
+      "id": "US-028",
+      "title": "PIT computation engine — income, expenses, reliefs, bands, WHT",
+      "description": "As a developer, I need the core PIT tax engine that computes gross income, deductions, reliefs, progressive tax bands, WHT credits, and net payable.",
+      "acceptanceCriteria": [
+        "Create pure function runTaxEngine(input: TaxEngineInput): TaxEngineOutput",
+        "Gross income: sum amountNgn where type='income' for entity+taxYear; exclude gifts, loans, transfers",
+        "Business expenses: sum amountNgn × (deductiblePercent/100) where type='business_expense' AND isDeductible=true",
+        "Assessable profit: grossIncome - totalBusinessExpenses (clamp to 0)",
+        "Reliefs: rent (20% of declared, cap ₦500k), pension, NHIS, NHF, life insurance, mortgage interest",
+        "Taxable income: assessableProfit - totalReliefs (clamp to 0)",
+        "Six PIT bands computed correctly: Band 1 (₦0-800k at 0%), Band 2 (₦800k-2.2m at 15%), Band 3 (₦2.2m-4.2m at 18%), Band 4 (₦4.2m-6.2m at 21%), Band 5 (₦6.2m-56.2m at 23%), Band 6 (₦56.2m+ at 25%)",
+        "WHT credits: sum whtDeducted from income transactions; netTaxPayable = max(grossTax - whtCredits, 0)",
+        "Minimum tax: if assessableProfit > ₦800k AND grossTax < grossIncome × 0.005, apply max(grossIncome × 0.005, ₦200k)",
+        "Engine versioned with TAX_ENGINE_VERSION constant; pure function (same inputs = same outputs)",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": "PRD-3: See '§5.1 PIT Pipeline', '§5.2 PIT Bands', '§5.3 Reliefs', '§5.4 WHT Credits', '§5.5 Minimum Tax' for exact rules"
+    },
+    {
+      "id": "US-029",
+      "title": "CIT, CGT, VAT computation and engine version routing",
+      "description": "As a developer, I need CIT (LLC), CGT, and VAT computation modules plus engine versioning.",
+      "acceptanceCriteria": [
+        "CIT computation for LLCs: small company exemption if turnover ≤₦100m AND grossFixedAssets ≤₦250m; otherwise CIT=30% of assessableProfit + 4% development levy",
+        "CGT: for individuals, gains added to gross income for PIT; for LLCs, 30% flat; exemptions for principal residence, qualifying shares, spouse transfers",
+        "VAT: outputVat from invoices (subtotal × 7.5%), inputVat from business purchases (amountNgn × 7.5/107.5 where isVatInclusive), netVatPayable = output - input",
+        "Nil return detection: isNilReturn when netTaxPayable === 0 OR taxableIncome ≤ ₦800k",
+        "Create tax.getSummary query: runs engine inline, reactive — re-runs when transactions/declarations change",
+        "Create tax.refreshSummaryCache mutation: writes to taxYearSummaries for fast dashboard reads",
+        "Engine version router: getEngineForYear(taxYear) returns correct engine version; historical summaries never recomputed",
+        "Edge cases handled: zero income, expenses > income, WHT > tax, unsupported currency flagged",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": "PRD-3: See '§5.8 CGT', '§5.9 CIT', '§5.10 VAT', '§5.11 Nil Return', '§5.12 Engine Versioning' for rules"
+    },
+    {
+      "id": "US-030",
+      "title": "Tax Summary screen UI",
+      "description": "As a user, I want to see my full tax position on a dedicated Tax Summary screen with income breakdown, deductions, band visualization, and credits.",
+      "acceptanceCriteria": [
+        "Tax Summary screen at /app/tax-summary accessible from side drawer",
+        "Top: Tax Liability Card with primary-light background, large liability figure (mono font, danger if >₦0, success if ₦0), effective rate, tax year label, days-to-deadline badge",
+        "Tax year selector dropdown (2026, 2025, etc.); data loads for selected year",
+        "Income Breakdown section (expandable): Freelance/Client, Foreign (with FX tooltip), Investment, Rental; total gross income",
+        "Deductions section (expandable): business expenses, rent relief (20% of rent, max ₦500k), pension, NHIS/NHF, life insurance, mortgage interest; total deductions; taxable income",
+        "Tax Band Breakdown (expandable): table with all 6 bands + horizontal stacked bar visualization",
+        "Credits & Net Payable section: gross tax, WHT credits (negative), net tax payable",
+        "SME section (shown for LLC entities): CIT status/calculation, VAT output/input/net",
+        "Nil return callout: '₦0 — Nil Return' with 'Filing still required' note",
+        "'Edit reliefs' link navigates to declarations form; 'Computed at HH:MM' timestamp",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": "PRD-3: US-301 through US-315 — See '§4.1 Tax Summary Screen Layout' for detailed UI spec"
+    },
+    {
+      "id": "US-031",
+      "title": "Tax declarations form and deadline countdown",
+      "description": "As a user, I want to declare my reliefs and see filing deadline reminders on the Tax Summary.",
+      "acceptanceCriteria": [
+        "Tax Declarations form accessible from Tax Summary 'Edit reliefs' link: annual rent paid, pension contributions, NHIS, NHF, life insurance premiums, mortgage interest",
+        "Required: at least annual rent (can be 0); save creates/updates taxDeclarations record for entity+taxYear",
+        "Empty state on form: 'Enter your relief amounts to reduce your taxable income'",
+        "Filing deadline countdown: 'X days to March 31 filing deadline' — colour transitions: success (>30 days), warning (15-30), danger (<15)",
+        "Penalty calculator reference: late filing ₦100k + ₦50k/month, late payment 10% + MPR interest — shown in reminder widget",
+        "Warnings on Tax Summary: 'X transactions uncategorised — excluded from calculation', 'Some FX rates used nearest available date', DTA prompt for foreign income",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": "PRD-3: US-310/US-310a, US-327/US-328 — See '§4.1.9 Declaration' and '§5.14 Edge Cases'"
+    },
+    {
+      "id": "US-032",
+      "title": "Invoicing schema — clients, invoices, invoiceItems tables",
+      "description": "As a developer, I need the database tables for clients, invoices, and invoice line items.",
+      "acceptanceCriteria": [
+        "Add `clients` table: entityId, userId, name, email, address, currency (default NGN), whtRate; indexes by_entityId, by_userId, by_entityId_name",
+        "Add `invoices` table: entityId, userId, clientId, clientName (denormalised), clientEmail (denormalised), invoiceNumber, status (draft/sent/paid/overdue/cancelled), issueDate, dueDate, currency, subtotal, whtAmount, vatAmount, totalDue, amountNgn, paidAt, notes, isRecurring, recurringInterval, nextIssueDate, pdfStorageId",
+        "Add indexes: invoices.by_entityId_status, by_entityId_dueDate, by_userId, by_entityId_invoiceNumber, by_entityId_isRecurring",
+        "Add `invoiceItems` table: invoiceId, description, quantity, unitPrice, total; index by_invoiceId",
+        "Update packages/shared types for client, invoice, and invoiceItem shapes",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": "PRD-4: See '§7 Data Models' for full table schemas and indexes"
+    },
+    {
+      "id": "US-033",
+      "title": "Client and invoice backend CRUD",
+      "description": "As a developer, I need all backend operations for clients and invoices including creation, editing, and number generation.",
+      "acceptanceCriteria": [
+        "Create clients CRUD: list (for entity, alphabetical), get, create, update, delete (doesn't cascade to invoices), search (by name prefix for autocomplete)",
+        "Create invoices.create mutation: generates sequential invoice number (INV-{YEAR}-{NNNN} atomically), computes subtotal/whtAmount/vatAmount/totalDue, creates invoice + invoiceItems, denormalises clientName/clientEmail",
+        "Create invoices.update mutation: draft only; replaces line items; recalculates totals",
+        "Create invoices.get query: returns invoice with joined line items",
+        "Create invoices.list query: paginated by entityId, optional status filter; returns summary totals (outstanding, paid this year)",
+        "VAT auto-applied at 7.5% only if entity.vatRegistered AND entity.vatThresholdExceeded",
+        "WHT rate validation: must be 0, 5, or 10",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": "PRD-4: See '§6.1 Clients' and '§6.2 Invoices' for all function specs"
+    },
+    {
+      "id": "US-034",
+      "title": "Invoice send, markPaid bridge, cancel, delete, and PDF generation",
+      "description": "As a developer, I need invoice sending, the invoice-to-transaction bridge, and lifecycle mutations.",
+      "acceptanceCriteria": [
+        "Create invoices.send action: assembles invoice data → POST to NestJS /pdf/invoice → stores PDF in Convex Storage → sends email via Resend with PDF attachment → sets status='sent'",
+        "Create invoices.markPaid mutation: atomically sets status='paid', paidAt=now, AND creates income transaction with amount=totalDue, whtDeducted=whtAmount, whtRate, categoryId='Freelance/Client Income', invoiceId linked, direction='credit', type='income', reviewedByUser=true",
+        "For foreign currency invoices: user must provide amountNgn when marking paid",
+        "Create invoices.cancel mutation: draft/sent only → status='cancelled'; no transaction created/removed",
+        "Create invoices.delete mutation: draft only → hard delete invoice + invoiceItems",
+        "Create invoices.generatePdf action: generates PDF without sending email; stores and returns storageId",
+        "Re-sending a 'sent' invoice regenerates and re-sends email (status stays 'sent')",
+        "Idempotent: already-paid invoices cannot be marked paid again",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": "PRD-4: US-406/US-407/US-408/US-408a — See '§7.5 Invoice-to-Transaction Field Mapping' for exact bridge fields"
+    },
+    {
+      "id": "US-035",
+      "title": "Recurring invoices and overdue detection",
+      "description": "As a developer, I need recurring invoice auto-generation and daily overdue detection scheduled functions.",
+      "acceptanceCriteria": [
+        "Create invoices.generateRecurring scheduled action (daily at 07:00 WAT): finds templates where isRecurring=true AND nextIssueDate ≤ today, clones invoice+items with new number/dates, sets new invoice status='draft', advances template nextIssueDate",
+        "Create invoices.checkOverdue scheduled mutation (daily at 09:00 WAT): finds invoices where status='sent' AND dueDate < now(), updates status to 'overdue'",
+        "Recurring intervals: monthly and quarterly",
+        "New recurring invoice preserves: client, line items, currency, WHT rate, notes; gets fresh auto-generated number",
+        "Due date offset preserved from original (e.g., 30 days from issue)",
+        "Register both cron jobs in convex/crons.ts",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": "PRD-4: US-411/US-419 — See '§7.6 Scheduled Functions' for cron specs"
+    },
+    {
+      "id": "US-036",
+      "title": "Invoice list UI with filter tabs and summary bar",
+      "description": "As a user, I want to see all my invoices in a filterable list with outstanding/paid totals.",
+      "acceptanceCriteria": [
+        "Invoice List screen at /app/invoices accessible from side drawer",
+        "Summary bar: 'Total Outstanding: ₦X' and 'Total Paid (This Year): ₦Y'",
+        "Filter tabs: All | Draft | Sent | Paid | Overdue; each with count badge",
+        "Each row: client name + invoice number, issue date + due date, amount + status badge (Draft grey, Sent blue, Paid green, Overdue red, Cancelled strikethrough)",
+        "'+New Invoice' button in header navigates to create form",
+        "Tapping a row navigates to Invoice Preview",
+        "Paginated list (25 per page) with infinite scroll",
+        "Empty state: 'No invoices yet' + illustration + 'Create Invoice' CTA",
+        "Data scoped to active entity",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": "PRD-4: US-401/US-402 — See '§4.3 Invoice List Screen' for layout"
+    },
+    {
+      "id": "US-037",
+      "title": "Create and edit invoice UI with line items",
+      "description": "As a user, I want to create and edit invoices with line items, WHT, VAT, and client autocomplete.",
+      "acceptanceCriteria": [
+        "Create Invoice form with 5 sections: Invoice Details (number, dates, currency), Client (autocomplete + new client inline), Line Items (description, qty, unit price, total; add/remove rows), Totals (subtotal, WHT, VAT, total due — auto-calculated live), Notes",
+        "Client autocomplete searches existing clients; selecting populates email, address, currency, WHT defaults",
+        "New client name auto-creates client record on invoice save",
+        "WHT rate segmented control: 0% | 5% | 10%; WHT amount = subtotal × rate",
+        "VAT auto-applied at 7.5% if entity is VAT-registered; shown as separate line in totals",
+        "Sticky footer: 'Save as Draft', 'Preview Invoice', 'Send Invoice' buttons",
+        "Edit mode: pre-populated form, draft invoices only; non-draft invoices show Edit as disabled",
+        "Make Recurring toggle with monthly/quarterly selector",
+        "Dirty form warning on navigate away",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": "PRD-4: US-403/US-404 — See '§4.3 Create/Edit Invoice Screen' for detailed layout"
+    },
+    {
+      "id": "US-038",
+      "title": "Invoice preview, PDF download, share, and client management UI",
+      "description": "As a user, I want to preview invoices, download PDFs, share them, and manage my client directory.",
+      "acceptanceCriteria": [
+        "Invoice Preview: rendered document with header (business info, 'INVOICE'), client section, line items table, totals (subtotal, WHT, VAT, total due), payment details, notes, status badge",
+        "Actions bar: Edit (draft only), Download PDF, Share, Send to Client, Mark as Paid (sent/overdue only), Cancel Invoice (draft/sent only)",
+        "PDF download: if PDF exists use cached version; otherwise generate first; filename INV-YEAR-NNNN.pdf",
+        "Share: native share sheet on mobile with PDF; copy link on web",
+        "Mark as Paid: confirmation dialog with optional NGN amount for foreign currency; creates income transaction",
+        "Client List screen: alphabetical list with name, email, currency, WHT rate; search; '+New Client' button",
+        "Client form: name (required), email, address, currency (default NGN), WHT rate (0/5/10%)",
+        "Delete client with confirmation; existing invoices unaffected (denormalised client data)",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": "PRD-4: US-405 through US-418a — See '§4.3 Invoice Preview Screen' and 'Client screens'"
+    },
+    {
+      "id": "US-039",
+      "title": "Dashboard backend queries",
+      "description": "As a developer, I need the dashboard aggregation queries that compose data from transactions, tax summaries, invoices, and entities.",
+      "acceptanceCriteria": [
+        "Create dashboard.getSummary query: returns DashboardSummary with tax position (from taxYearSummaries or live engine), income/expense YTD, WHT credits, uncategorised count, invoice stats (outstanding, overdue, sent this month), hasTransactions, hasInvoices",
+        "All sub-queries use indexed reads (by_entityId_taxYear, by_entityId_date, by_entityId_status) — no full-collection scans",
+        "Create dashboard.getRecentTransactions query: returns last 5 transactions with resolved category names/colours",
+        "Create dashboard.getDeadlines query: returns DeadlineCountdown (March 31 with days remaining and severity) and DeadlineReminder[] (self-assessment, VAT return if registered, overdue invoices)",
+        "Invoice Activity degrades gracefully if invoices table is empty (placeholder or hidden)",
+        "All queries are reactive via Convex live queries — automatic real-time updates",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": "PRD-5: See '§6 API Requirements' for all query contracts and '§7.3 Aggregation Strategy'"
+    },
+    {
+      "id": "US-040",
+      "title": "Dashboard — Tax Position card, Quick Stats, and deadline countdown",
+      "description": "As a user, I want the top section of my dashboard showing tax liability, key metrics, and filing deadline countdown.",
+      "acceptanceCriteria": [
+        "Tax Position Summary card: primary-light background, large liability figure (mono, danger if >₦0, success if ₦0), 'Effective Rate: X.X%', tax year label, days-to-deadline badge; tappable → Tax Summary screen",
+        "Donut/arc chart showing liability as proportion of gross income (48×48px)",
+        "Quick Stats row (horizontal scrollable): Total Income (→ Transactions filtered income), Business Expenses (→ Transactions filtered expenses), WHT Credits (→ Tax Summary WHT section), Invoices Outstanding (count + total → Invoices filtered outstanding)",
+        "Deadline Countdown Widget: visible within 60 days of March 31; colour transitions success/warning/danger; tappable → Filing; shows 'Filing deadline passed X days ago' when overdue",
+        "All monetary values formatted with ₦ prefix, thousands separators, mono font",
+        "Nil return: '₦0 — Nil Return' with success colour and 'Filing still required' note",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": "PRD-5: US-502/US-503/US-508 — See '§4.4 Tax Position Card' and '§4.5 Quick Stats Row' for detailed layouts"
+    },
+    {
+      "id": "US-041",
+      "title": "Dashboard — Uncategorised banner, Recent Transactions, Invoice Activity",
+      "description": "As a user, I want the middle section of my dashboard with actionable uncategorised alerts, recent transactions, and invoice summary.",
+      "acceptanceCriteria": [
+        "Uncategorised Transactions Banner: amber callout visible only when uncategorisedCount > 0; text '{N} transactions need categorisation'; 'Review Now' CTA → Triage; hides reactively when count reaches 0",
+        "Recent Transactions list: last 5 by date desc; each row shows date, description (truncated), amount (green income, neutral expense), category tag (or 'Uncategorised' in amber); tappable → Transaction Detail; 'View All Transactions →' link",
+        "Invoice Activity card: '{N} sent this month', '₦X outstanding', '{N} overdue' (danger if >0); 'Go to Invoices' CTA; hidden or 'No invoices yet' + 'Create Invoice' CTA when no invoices",
+        "Recent Transactions empty state: illustration + 'No transactions yet' + 'Import Now' CTA",
+        "Foreign currency transactions show currency code alongside NGN equivalent",
+        "Singular/plural grammar: '1 transaction' vs '14 transactions'",
+        "Typecheck passes"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": "PRD-5: US-504/US-505/US-506 — See '§4.6 Uncategorised Banner', '§4.7 Recent Transactions', '§4.8 Invoice Activity'"
+    },
+    {
+      "id": "US-042",
+      "title": "Dashboard — Reminders, entity/year switching, loading and error states",
+      "description": "As a user, I want deadline reminder chips, smooth entity/year switching, and proper loading/error states on the dashboard.",
+      "acceptanceCriteria": [
+        "Deadline & Compliance Reminders: horizontal scrollable chips colour-coded by severity (info=accent, warning=amber, danger=red); self-assessment always shown, VAT return for VAT-registered entities, overdue invoices if >0; tappable → relevant screen",
+        "Entity switching: changing entity in drawer re-subscribes all dashboard queries with new entityId; all cards update; no stale data visible; skeleton loading if perceptible delay",
+        "Tax year selector on Dashboard: dropdown (2026, 2025, etc.); changes year refreshes YTD metrics, recent transactions, tax liability, deadline countdown",
+        "Loading states: skeleton placeholders matching real content dimensions for every section; neutral-100 pulse animation; each section loads independently",
+        "Error states: section-level errors with 'Something went wrong' + 'Retry' button; partial success (some sections load while others fail); full-page error only if all queries fail",
+        "Dashboard loads within 2 seconds on typical connection; changes reflect within 2 seconds of upstream mutation",
+        "Typecheck passes"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": "PRD-5: US-507 through US-514 — See '§4.9 Deadline Reminders', '§4.10 Deadline Countdown' for specs"
+    },
+    {
+      "id": "US-043",
+      "title": "Filing schema, checklist backend, and lifecycle mutations",
+      "description": "As a developer, I need the filingRecords table, checklist computation, and all filing lifecycle mutations.",
+      "acceptanceCriteria": [
+        "Add `filingRecords` table: entityId, userId, taxYear, status (draft/generated/submitted/payment_pending/payment_confirmed/tcc_obtained), selfAssessmentPdfId, paymentReceiptId, tccDocumentId, submittedAt, netTaxPayable, taxSummarySnapshot (string), generatedAt, engineVersion, isNilReturn; indexes by_entityId_taxYear, by_userId, by_status",
+        "Create tax.getFilingChecklist query: computes status for 10 checklist items (NIN, entity type, bank accounts, foreign income, income reviewed, categorisation, expenses verified, rent declared, invoices matched, WHT); returns readinessPercent + grouped items",
+        "Create filing.initiate mutation: creates/retrieves filing record in 'draft' status (one per entity per year)",
+        "Create filing.markSubmitted, filing.uploadPaymentReceipt, filing.uploadTcc mutations with valid status transition enforcement",
+        "Nil return auto-transitions: submitted → payment_confirmed (skip payment steps)",
+        "Status can only advance forward; re-generation resets to 'generated'",
+        "Typecheck passes"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": "PRD-6: See '§7.1 filingRecords Table Schema' and '§5.1-5.2 Checklist Logic'"
+    },
+    {
+      "id": "US-044",
+      "title": "Filing checklist UI and pre-filing review screen",
+      "description": "As a user, I want a guided filing checklist with readiness meter and a condensed pre-filing review of my tax figures.",
+      "acceptanceCriteria": [
+        "Filing screen at /app/filing with tax year selector in header",
+        "Readiness meter at top (circular or horizontal progress: '78% Ready')",
+        "Grouped checklist: Identity & Registration, Income, Expenses & Deductions, Invoices; each item shows ✅ Done / ⚠️ Needs attention (with detail text) / ❌ Missing",
+        "Tappable items navigate to relevant screen to fix the issue; chevron indicator",
+        "'Start Filing Review' CTA: enabled only when readiness ≥ 90%; disabled state visually distinct",
+        "Pre-Filing Review screen: read-only summary sections (Income, Deductions, Taxable Income, Tax Computation bands, Credits, Net Payable); amber callout for flagged issues",
+        "Tip card: 'You can still make amendments after generation'",
+        "Footer: 'Go Back to Fix Issues' (shown if flags exist) and 'Generate Self-Assessment Form' (primary CTA)",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": "PRD-6: US-601 through US-604 — See '§4.2 Filing Checklist Screen' and '§4.3 Pre-Filing Review'"
+    },
+    {
+      "id": "US-045",
+      "title": "Self-assessment generation, preview, and PDF download",
+      "description": "As a user, I want to generate my official self-assessment with immutable snapshot and preview/download the PDF.",
+      "acceptanceCriteria": [
+        "Create filing.generateSelfAssessment action: snapshots TaxEngineOutput as JSON string, calls NestJS /pdf/self-assessment, stores PDF in Convex Storage, updates filing record to 'generated' with selfAssessmentPdfId, netTaxPayable, isNilReturn, engineVersion, generatedAt",
+        "Confirmation dialog before generation; loading state 'Generating your self-assessment…'",
+        "Self-Assessment Preview screen: document-style view with taxpayer details, income schedule, deductions & reliefs, tax computation, WHT credits, net amount payable; NIN masked in preview",
+        "PDF download: fetch from Convex Storage; filename TaxEase_SelfAssessment_{EntityName}_{TaxYear}.pdf",
+        "Re-generation: allowed in 'draft' or 'generated' status only; replaces snapshot and PDF; blocked after 'submitted'",
+        "Navigate-away during generation: continues in background; on return shows success or error",
+        "Nil return: PDF marked with 'NIL RETURN', all figures shown with ₦0 net payable",
+        "Typecheck passes"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": "PRD-6: US-605/US-606/US-607/US-614 — See '§6.2 generateSelfAssessment contract' and '§4.4 Preview Screen'"
+    },
+    {
+      "id": "US-046",
+      "title": "Submission guide, receipt/TCC upload, and filing history",
+      "description": "As a user, I want step-by-step TaxPro Max submission instructions and the ability to upload payment proof.",
+      "acceptanceCriteria": [
+        "Submission Guide screen: vertical stepper with 5 collapsible steps: (1) Submit via TaxPro Max with deep link, (2) Make Payment with account details + copy-to-clipboard, (3) Upload Payment Receipt, (4) Obtain TCC, (5) Store Records",
+        "'Mark as Submitted' in Step 1: confirmation → status='submitted', submittedAt recorded; nil return auto-advances to payment_confirmed",
+        "Upload Payment Receipt in Step 3: file picker (JPG/PNG/PDF, max 10MB), upload progress, stores in Convex Storage, sets paymentReceiptId; advances to payment_confirmed",
+        "Upload TCC in Step 4: same upload flow; sets tccDocumentId; advances to tcc_obtained (terminal); completion celebration",
+        "Nil return: Step 2 shows 'No payment required'; Step 3 hidden",
+        "Filing History: tax year selector shows past filing records with status badges; tapping opens read-only snapshot preview",
+        "Status badges colour-coded: draft (neutral), generated (accent), submitted (warning), payment_confirmed (success), tcc_obtained (success with checkmark)",
+        "Error states with user-friendly messages and retry for all upload/generation failures",
+        "Typecheck passes"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": "PRD-6: US-608 through US-618 — See '§4.5 Submission Guide Screen' for stepper layout"
+    },
+    {
+      "id": "US-047",
+      "title": "Report backend queries and export actions",
+      "description": "As a developer, I need the report queries and CSV/PDF export actions for Income, Expenses, and Year-on-Year tabs.",
+      "acceptanceCriteria": [
+        "Create reports.getIncome query: totalIncome, foreignIncome, averageMonthlyIncome, monthlyBreakdown[], categoryBreakdown[] with percentages; filtered by entityId + dateRange",
+        "Create reports.getExpenses query: totalExpenses, deductibleExpenses, nonDeductibleExpenses, categoryBreakdown[] (with deductible flags), monthlyBreakdown[]",
+        "Create reports.getYearOnYear query: current/prior year metrics from taxYearSummaries, percentage changes, monthly income overlay for both years",
+        "Create reports.exportCsv action: generates CSV with proper columns per tab (see PRD-7 US-714/715/716), UTF-8 with BOM, ISO 8601 dates",
+        "Create reports.exportPdf action: calls NestJS /pdf/report with structured JSON; stores PDF in Convex Storage; returns download URL",
+        "All queries use indexed reads (by_entityId_date, by_entityId_taxYear); entity ownership validated",
+        "Typecheck passes"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": "PRD-7: See '§6 API Requirements' for all query/export contracts"
+    },
+    {
+      "id": "US-048",
+      "title": "Reports screen — Income and Expenses tabs with charts",
+      "description": "As a user, I want Income and Expenses report tabs with summary figures, charts, and category breakdowns.",
+      "acceptanceCriteria": [
+        "Reports screen at /app/reports with three tabs: Income | Expenses | Year-on-Year; Income default",
+        "Date range selector: segmented control (This Year | Last Year | Custom); custom opens date picker with start/end",
+        "Income tab: 3 summary cards (Total Income, Foreign Income, Avg Monthly Income), monthly bar chart (primary green), income by category breakdown list sorted by amount",
+        "Expenses tab: 3 summary cards (Total Expenses, Deductible, Non-Deductible), doughnut chart by category (centre shows total), expense category list with deductible badges",
+        "Chart interactions: tap bar/segment for tooltip with exact value; doughnut segments <3% grouped into 'Other'",
+        "Empty states per tab: illustration + 'No [income/expense] data for this period' + 'Import Transactions' CTA",
+        "Skeleton loading states matching content dimensions; date range persists across tab switches",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": "PRD-7: US-701 through US-708 — See '§4 UI Specifications' for chart specs and design tokens"
+    },
+    {
+      "id": "US-049",
+      "title": "Reports — Year-on-Year tab and CSV/PDF export",
+      "description": "As a user, I want year-on-year comparison and the ability to export reports as CSV or PDF.",
+      "acceptanceCriteria": [
+        "Year-on-Year tab: two-column comparison card (current vs prior year) with metrics: Total Income, Total Expenses, Tax Liability, Effective Tax Rate; change indicators (↑/↓ with percentage)",
+        "Dual-line chart: current year solid primary, prior year dashed accent; monthly income overlay",
+        "Prior year missing: '—' for values, 'N/A' for changes, single line on chart, info message",
+        "Export floating button (FAB on mobile, header button on web): opens bottom sheet with 'Download as CSV' and 'Download as PDF'",
+        "CSV export: loading state during generation; success toast; file opens in share sheet (mobile) or downloads (web)",
+        "PDF export: loading state 'Generating PDF…'; calls NestJS service; success toast; professional layout with TaxEase branding",
+        "Export filenames: taxease_{tab}_{dates}.csv/.pdf; entity name in PDF header",
+        "Error handling: toast with retry on failure; 30s timeout",
+        "Typecheck passes"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": "PRD-7: US-709 through US-720 — See '§4 UI Specifications' for chart and export specs"
+    },
+    {
+      "id": "US-050",
+      "title": "Bank linking schema, encryption, and OAuth state management",
+      "description": "As a developer, I need the schema updates, token encryption helpers, and OAuth state management for bank linking.",
+      "acceptanceCriteria": [
+        "Add `metadata` field to connectedAccounts: institutionId, institutionLogo, accountType, accountNumber, linkProvider (mono/stitch), apiKeyHash",
+        "Add indexes: connectedAccounts.by_providerAccountId (webhook lookup), by_status (scheduled sync)",
+        "Add `oauthStates` table: userId, entityId, provider, stateToken, redirectUri, expiresAt; indexes by_stateToken, by_expiresAt",
+        "Create lib/encryption.ts: AES-256-GCM encrypt/decrypt functions using ENCRYPTION_KEY env var; 12-byte random IV prepended to ciphertext",
+        "Create accounts.initiateOAuth mutation: creates oauthStates entry with random UUID state token and 10-minute TTL",
+        "Create oauthStates.validate mutation: looks up by stateToken, verifies not expired, returns data, deletes entry (one-time use)",
+        "Scheduled cleanup: delete expired oauthStates entries hourly",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": "PRD-8: See '§7.2 connectedAccounts Enhanced Schema', '§7.3 oauthStates', 'Appendix A Security'"
+    },
+    {
+      "id": "US-051",
+      "title": "Bank and payment platform connection flows",
+      "description": "As a developer, I need the OAuth and API key connection actions for all supported providers.",
+      "acceptanceCriteria": [
+        "Create accounts.handleOAuthCallback action: validates state token, exchanges auth code for tokens via provider API, encrypts tokens (AES-256-GCM), fetches account details, creates/updates connectedAccounts, triggers initial syncNow",
+        "Create accounts.addApiKeyAccount action: validates Paystack key via /balance endpoint (or Flutterwave /balances), encrypts key, stores SHA-256 hash in metadata.apiKeyHash, creates account",
+        "Provider client modules: lib/providers/mono.ts, stitch.ts, paystack.ts, flutterwave.ts, payoneer.ts, wise.ts — each with exchangeCode, getAccountDetails, getTransactions functions",
+        "OAuth error handling: user cancel → no account created; provider error → toast with retry",
+        "API key validation failure: 'Invalid API key. Please check and try again.'",
+        "Webhook endpoints: POST /webhooks/oauth-callback (returns HTML for WebView communication), POST /webhooks/bank-notification (verifies HMAC signature, triggers sync)",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": "PRD-8: US-804 through US-809 — See '§6.3 Connected Accounts Actions' and 'Appendix B Provider Matrix'"
+    },
+    {
+      "id": "US-052",
+      "title": "Sync pipeline — manual, scheduled, and webhook-triggered",
+      "description": "As a developer, I need the sync pipeline that fetches transactions from providers and feeds them through batchUpsert.",
+      "acceptanceCriteria": [
+        "Create accounts.syncNow action: reads account → decrypts tokens → checks expiry/refreshes → calls provider API for transactions since lastSyncedAt → creates importJob → parses response via provider transformer → calls batchUpsert → updates lastSyncedAt",
+        "Provider transformer (lib/providers/transformer.ts): normalises provider-specific responses to canonical transaction shape; handles Mono/Paystack kobo amounts (÷100), Flutterwave currency units, Wise multi-currency",
+        "Create accounts.scheduledSync cron (every 6 hours): queries active accounts with tokens (excludes manual/statement_upload), stagger syncs to respect rate limits",
+        "Webhook-triggered sync: POST /webhooks/bank-notification verifies HMAC-SHA256, looks up account by providerAccountId, triggers syncNow; reauthorization_required sets status='error'",
+        "Create accounts.refreshToken action: decrypts refresh token, calls provider refresh endpoint, encrypts new tokens, stores; 5-minute proactive refresh buffer",
+        "Rate limiting: max one manual sync per account per 60 seconds",
+        "FX conversion for foreign-currency synced transactions using CBN rates (same pipeline as PRD-1)",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": "PRD-8: US-810 through US-823 — See '§6 API Requirements' for all sync function specs"
+    },
+    {
+      "id": "US-053",
+      "title": "Connected accounts UI and onboarding Step 4 activation",
+      "description": "As a user, I want to manage connected accounts and have real bank linking options in onboarding.",
+      "acceptanceCriteria": [
+        "Connected Accounts screen: list of account cards (institution logo, name, type badge, last synced, status badge Active/Error/Disconnected); sorted active first",
+        "Account detail screen: full info card, sync status, 'Sync Now' button (disabled during sync), last sync result (imported/duplicates/status), sync history (last 5 jobs), error banner with 'Retry'/'Re-authenticate', 'Disconnect' in danger zone",
+        "Add Account screen: method cards (Connect Bank, Connect Paystack, Connect Flutterwave, Connect Payoneer, Connect Wise, Upload Statement)",
+        "API Key form for Paystack/Flutterwave: account name, masked secret key input, security callout, 'Connect' button with loading validation",
+        "Disconnect: confirmation dialog, clears tokens, sets status='disconnected', preserves transactions",
+        "Reconnect: same OAuth/API flow targeting existing document; providerAccountId must match",
+        "Onboarding Step 4: previously placeholder cards now navigate to real linking flows; after link, return to Step 4 with checkmark",
+        "Empty state: 'No accounts linked yet' + 'Link an Account' CTA + 'Or upload a bank statement' secondary link",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": "PRD-8: US-801 through US-824 — See '§4.2 Connected Accounts Screen' through '§4.8 Disconnect Dialog'"
+    },
+    {
+      "id": "US-054",
+      "title": "Notifications schema, CRUD backend, and push tokens",
+      "description": "As a developer, I need the notifications infrastructure — tables, CRUD, push tokens, and the internal create mutation.",
+      "acceptanceCriteria": [
+        "Add `notifications` table: userId, type (8 notification types), title, body, entityId, relatedId, read (boolean), readAt; indexes by_userId_read, by_userId_creationTime",
+        "Add `pushTokens` table: userId, token, platform (ios/android/web), active, lastUsedAt; indexes by_userId_active, by_token",
+        "Create notifications.list query: paginated (default 50), ordered by _creationTime desc",
+        "Create notifications.getUnreadCount query: count where userId + read=false",
+        "Create notifications.markRead and notifications.markAllRead mutations",
+        "Create notifications.create internal mutation: inserts notification, checks pushEnabled, schedules push.send if enabled",
+        "Create pushTokens.register mutation: upserts by token string",
+        "Create push.send internal action: queries active tokens, dispatches via Firebase Admin SDK, deactivates invalid tokens on NotRegistered error",
+        "Typecheck passes"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": "PRD-9: See '§7 Data Models' for table schemas and '§6 API Requirements' for function specs"
+    },
+    {
+      "id": "US-055",
+      "title": "Scheduled notification functions — deadlines, alerts, and reminders",
+      "description": "As a developer, I need all 7 scheduled cron jobs that monitor deadlines and events and emit notifications.",
+      "acceptanceCriteria": [
+        "Create reminders.checkFilingDeadline (daily 08:00 WAT): checks daysUntilDeadline against each user's deadlineReminderDays; creates notification per entity with penalty-aware message templates",
+        "Create reminders.checkVatDeadline (daily 08:00 WAT): for users with vatReminderEnabled and VAT-registered entities; reminds at 7, 3, 1 days before 21st",
+        "Create reminders.uncategorisedAlert (daily 10:00 WAT): for users with frequency='daily'; counts uncategorised transactions per entity",
+        "Create reminders.uncategorisedAlertWeekly (Mondays 10:00 WAT): same for frequency='weekly'",
+        "Notification deduplication: check for existing notification of same type+user+day before creating",
+        "All message templates include penalty amounts for deadline-related notifications (₦100k filing, ₦50k/month, ₦50k VAT)",
+        "Create notifications.cleanup (weekly Sundays 02:00 WAT): delete read >90 days, unread >180 days, batch of 100",
+        "Register all crons in convex/crons.ts",
+        "Typecheck passes"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": "PRD-9: US-915 through US-923, US-929/US-930 — See '§6.4 Scheduled Functions' for cron specs"
+    },
+    {
+      "id": "US-056",
+      "title": "Notification centre UI, bell badge, and settings",
+      "description": "As a user, I want a notification centre with date grouping, bell badge, and granular notification preferences.",
+      "acceptanceCriteria": [
+        "Notification bell icon in header on all authenticated screens with red unread badge (max '99+'); real-time reactive via getUnreadCount",
+        "Notification centre screen: chronological list grouped by date (Today, Yesterday, This Week, Earlier); unread cards have primary-light background + coloured left border",
+        "Each card: type icon (colour-coded), title, body (truncated 2 lines), relative timestamp; tapping marks read and navigates to related screen",
+        "'Mark all as read' button in header; swipe-to-mark-read on mobile",
+        "Empty state: bell+checkmark illustration, 'You're all caught up!'",
+        "Notification Settings screen (Settings → Notifications): grouped toggles for filing deadlines (with day chips 30/14/7/1), VAT reminders, uncategorised alerts (daily/weekly), invoice overdue (1/3/7 days), push notifications (with device permission status)",
+        "Push toggle: triggers OS permission request on first enable; 'Enable in Settings' deep link when denied",
+        "Save preferences via updatePreferences mutation with success toast",
+        "Typecheck passes"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": "PRD-9: US-901 through US-914 — See '§4 UI Specifications' for notification centre and settings layouts"
     }
   ]
 }
