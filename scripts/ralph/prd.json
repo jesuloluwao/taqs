@@ -963,7 +963,7 @@
         "Typecheck passes"
       ],
       "priority": 42,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-5: US-507 through US-514 — See '§4.9 Deadline Reminders', '§4.10 Deadline Countdown' for specs"
     },
     {

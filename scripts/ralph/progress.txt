@@ -632,3 +632,25 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `TaxPosition.effectiveTaxRate` is the field name (NOT `effectiveRate`) — check interface definition before accessing
   - Deadline widget visibility: `daysRemaining <= 60` covers both 60-day window AND overdue (negative values)
 ---
+
+## 2026-02-25 - US-042
+- Updated `convex/dashboard.ts` `getRecentTransactions`: added `taxYear: v.optional(v.number())` arg; fetches 50 then JS-filters by taxYear + slice(0,5)
+- Rewrote `apps/web/src/pages/Dashboard.tsx` with full US-042 spec:
+  - `TaxYearSelector`: `<select>` dropdown in page header; shows last 5 years (current year down); updates `taxYear` state; all 3 queries now pass `taxYear` arg
+  - `ReminderChips`: horizontal scrollable row of chips from `deadlines.reminders`; colour-coded by severity (safe=accent/info, warning=amber, danger=red); Calendar/FileText/AlertTriangle icons by type; each chip Links to actionPath; always shown (not gated on daysRemaining)
+  - Per-section independent loading states: `TaxPositionSkeleton`, `QuickStatsSkeleton`, `DeadlineWidgetSkeleton`, `ReminderChipsSkeleton`, `RecentTransactionsSkeleton`, `InvoiceActivitySkeleton` — each section shows its own skeleton when `=== undefined`; removed monolithic early-return skeleton
+  - Per-section error states: `SectionError` component with "Something went wrong" + Retry button (calls `window.location.reload()`); shown when query settles to `null` (auth failure/entity not found); each section handles independently
+  - Full-page error: shown only when ALL queries settled to null; full-page error with Retry button
+  - Entity switching: already works via `useEntity()` context — Convex re-subscribes on entityId change; all queries temporarily return `undefined` → skeletons show automatically
+  - Tax year changes: `taxYear` state passed to getSummary + getRecentTransactions + getDeadlines; all cards update reactively
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Per-section loading: remove early `if (isLoading) return <full skeleton>` pattern — render page frame always, each section conditionally shows its own skeleton when `=== undefined`
+  - Per-section error: check `!loading && data === null` for each query independently; use a generic `SectionError` component for consistency
+  - Full-page error: `allFailed = allSettled && summaryError && deadlinesError && recentError` pattern
+  - Entity switching triggers Convex re-subscription automatically — queries briefly return `undefined` (skeleton) before resolving; no extra state needed
+  - Tax year selector: pass to ALL related queries so data stays in sync; `getRecentTransactions` needed a taxYear filter added (backend change)
+  - Retry for Convex: `window.location.reload()` is honest — live queries auto-retry network issues; null data means server-side auth/entity issue that needs fresh session
+  - ReminderChips use `type` field to pick icon (self_assessment→Calendar, vat_return→FileText, overdue_invoice→AlertTriangle)
+  - `safe` severity maps to accent/info color (blue), NOT green — per spec "info=accent"
+---
