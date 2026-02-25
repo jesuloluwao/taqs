@@ -654,3 +654,30 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - ReminderChips use `type` field to pick icon (self_assessment→Calendar, vat_return→FileText, overdue_invoice→AlertTriangle)
   - `safe` severity maps to accent/info color (blue), NOT green — per spec "info=accent"
 ---
+
+## 2026-02-25 - US-043
+- Added `filingRecords` table to `convex/schema.ts`: entityId, userId, taxYear, status (draft/generated/submitted/payment_pending/payment_confirmed/tcc_obtained), selfAssessmentPdfId, paymentReceiptId, tccDocumentId, submittedAt, netTaxPayable, taxSummarySnapshot (string), generatedAt, engineVersion, isNilReturn, createdAt, updatedAt; indexes by_entityId_taxYear, by_userId, by_status
+- Added `getFilingChecklist` query to `convex/tax.ts`:
+  - Fetches user, entity, connectedAccounts, transactions (entity+taxYear), taxDeclarations, invoices
+  - 10 checklist items grouped into: Identity & Entity (NIN, entityType/TIN), Accounts (bankAccounts), Transactions (foreignIncome, incomeReviewed, categorisation, expensesVerified), Reliefs (rentDeclared), Invoices & WHT (invoicesMatched, wht)
+  - readinessPercent = complete items / 10 × 100; filing gate at ≥90%
+  - Returns { items, readinessPercent, grouped } — null if unauthenticated/entity not found
+- Created `convex/filing.ts`:
+  - `initiate` mutation: creates draft filing record for entity+taxYear; returns existing ID if record already exists (idempotent)
+  - `markGenerated` mutation: sets status='generated', records selfAssessmentPdfId, taxSummarySnapshot, netTaxPayable, engineVersion, isNilReturn, generatedAt; can reset from any status except tcc_obtained (re-generation pattern)
+  - `markSubmitted` mutation: validates status='generated'; advances to 'submitted'; nil return auto-transitions to 'payment_confirmed'
+  - `uploadPaymentReceipt` mutation: validates status='submitted'|'payment_pending'; sets paymentReceiptId, advances to 'payment_confirmed'
+  - `uploadTcc` mutation: validates status='payment_confirmed'; sets tccDocumentId, advances to 'tcc_obtained'
+  - `get` query: auth-guarded fetch of single filing record
+  - `getForEntity` query: fetches filing record by entity+taxYear
+  - `listByUser` query: filing history for current user (up to 50)
+  - Status transition enforcement: `canAdvanceTo()` helper using STATUS_ORDER array; errors thrown on invalid transitions
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `filingRecords` uses by_entityId_taxYear index — same pattern as transactions/taxDeclarations
+  - Status ordering enforced via STATUS_ORDER array + indexOf comparison — simple and readable
+  - Nil return auto-transition: check isNilReturn on the DB record in markSubmitted and jump directly to 'payment_confirmed'
+  - `markGenerated` is intentionally allowed to reset status backwards (from submitted/payment_pending back to 'generated') to support re-generation use case
+  - `void activeAccounts` suppression anti-pattern: just delete the unused variable; TS6133 is a hard error
+  - `getFilingChecklist` uses by_userId index on invoices + JS filter for entityId — invoices table lacks a plain by_entityId index
+---
