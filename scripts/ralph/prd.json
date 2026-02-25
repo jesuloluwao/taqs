@@ -1108,7 +1108,7 @@
         "Typecheck passes"
       ],
       "priority": 50,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-8: See '§7.2 connectedAccounts Enhanced Schema', '§7.3 oauthStates', 'Appendix A Security'"
     },
     {

@@ -841,3 +841,20 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - Unused `useQuery` (for entities list): remove or suppress with void if not used in JSX to avoid TS6133 error
   - `hasPriorData` passed as prop to child SVG components — avoids prop drilling through intermediate components
 ---
+
+## 2026-02-25 - US-050
+- Extended `connectedAccounts` in `convex/schema.ts`: added optional `metadata` object (institutionId, institutionLogo, accountType, accountNumber, linkProvider: 'mono'|'stitch', apiKeyHash); added two new indexes: `by_providerAccountId` (webhook lookup) and `by_status` (scheduled sync)
+- Added `oauthStates` table to `convex/schema.ts`: userId, entityId, provider, stateToken, redirectUri, expiresAt; indexes `by_stateToken` and `by_expiresAt`
+- Created `convex/lib/encryption.ts`: AES-256-GCM encrypt/decrypt using Web Crypto API (`crypto.subtle`) — works in Convex V8 runtime without "use node"; 12-byte random IV; IV prepended to ciphertext in base64 output; reads ENCRYPTION_KEY env var (must be 64-char hex = 32 bytes)
+- Created `convex/accounts.ts`: `initiateOAuth` mutation — auth-guards, validates entity ownership, generates UUID v4 state token via `crypto.getRandomValues`, inserts `oauthStates` entry with `expiresAt = now + 10 min`, returns `{ stateToken, expiresAt }`
+- Created `convex/oauthStates.ts`: `validate` mutation — looks up by stateToken index, checks expiry, deletes entry (single-use), returns state data; `_cleanupExpired` internalMutation — queries by_expiresAt with lt(now) and bulk-deletes
+- Updated `convex/crons.ts`: hourly cron at minute :05 UTC calling `(internal as any).oauthStates._cleanupExpired`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Web Crypto API (`crypto.subtle`) is available in Convex V8 runtime — no "use node" needed for AES-GCM; `crypto.getRandomValues` also available globally
+  - AES-GCM ciphertext from `subtle.encrypt` already includes the 16-byte auth tag appended — no need to handle separately
+  - For UUID state tokens in Convex mutations: `crypto.getRandomValues(new Uint8Array(16))` + bit-twiddling for v4 format — no uuid package needed
+  - `by_expiresAt` index enables efficient range query: `.withIndex('by_expiresAt', q => q.lt('expiresAt', now))` for cleanup
+  - internalMutation imported from `./_generated/server` (same as mutation); callable from crons via `(internal as any).module.fn`
+  - `metadata` field on connectedAccounts uses `v.optional(v.object({...}))` — each sub-field also optional to allow partial updates
+---
