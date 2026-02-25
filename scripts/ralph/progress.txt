@@ -282,3 +282,22 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - autoCategorise action returns `{ categorisingJobId: null, totalTransactions: 0 }` when nothing to process — always check before setting activeJobId
   - Already-reviewed exclusion is server-side in getUncategorisedForEntity (filters type='uncategorised' AND reviewedByUser != true)
 ---
+
+## 2026-02-25 - US-026
+- Added `transactions.getAiStats` public query: computes accuracy rate, per-category stats, override rate, AI-categorised vs manual counts from aiCategorisationFeedback records
+- Created `convex/aiCategoriseHelpers.ts` additions:
+  - `getFewShotExamples`: fetches up to 20 recent user corrections ordered by recency for few-shot prompting
+  - `checkCircuitBreaker`: queries last 10 categorisingJobs, counts consecutive failures; opens circuit for 10 min after 3 failures within 5 min
+- Updated `convex/aiCategorise.ts`:
+  - `buildPrompt` now accepts `FewShotExample[]` and appends a personalised corrections section when available
+  - Both `categoriseBatch` and `categoriseBatchForEntity` now: check circuit breaker at start, fetch few-shot examples alongside categories and transactions, pass examples to `buildPrompt`
+  - ANTHROPIC_API_KEY missing → silent failure (job marked failed, no errors propagated to UI)
+- Created `apps/web/src/pages/AiInsights.tsx`: stat cards (AI categorised, overall accuracy, override rate, reviews done), AI vs manual breakdown bar, per-category accuracy table with colour-coded badges, empty state with CTA to Triage, CTA banner when fewer than 20 reviews done
+- Added `/app/ai-insights` route to `App.tsx`
+- Added "AI Insights" link button (Sparkles icon) to Transactions page header
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - Circuit breaker implemented via querying recent categorisingJobs — no extra schema table needed
+  - Few-shot examples live in `aiCategorisationFeedback` table (already seeded when user accepts/overrides AI in Triage)
+  - `useQuery` with `'skip'` as second arg prevents firing when `activeEntityId` is undefined — use `(api as any).module.fn` for unstubbed modules
+---
