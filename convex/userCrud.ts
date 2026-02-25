@@ -39,6 +39,7 @@ export const updateProfile = mutation({
     fullName: v.optional(v.string()),
     phone: v.optional(v.string()),
     profession: v.optional(v.string()),
+    firsTin: v.optional(v.string()),
     preferredCurrency: v.optional(
       v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))
     ),
