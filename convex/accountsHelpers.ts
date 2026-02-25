@@ -184,6 +184,82 @@ export const updateAccountStatus = internalMutation({
 });
 
 /**
+ * List all connected accounts with status='active' that have an access token.
+ * Excludes 'manual' and 'statement_upload' provider types (no API to sync).
+ * Used by the scheduled 6-hour sync cron.
+ */
+export const listActiveAccountsWithTokens = internalQuery({
+  handler: async (ctx) => {
+    const accounts = await ctx.db
+      .query('connectedAccounts')
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
+      .collect();
+
+    return accounts.filter(
+      (a) =>
+        a.accessToken &&
+        a.provider !== 'manual' &&
+        a.provider !== 'statement_upload'
+    );
+  },
+});
+
+/**
+ * Update encrypted tokens on an account after a token refresh.
+ */
+export const updateTokens = internalMutation({
+  args: {
+    connectedAccountId: v.id('connectedAccounts'),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    tokenExpiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { connectedAccountId, accessToken, refreshToken, tokenExpiresAt }) => {
+    await ctx.db.patch(connectedAccountId, {
+      accessToken,
+      refreshToken,
+      tokenExpiresAt,
+    });
+  },
+});
+
+/**
+ * Fetch the most recent CBN FX rates for the requested currencies.
+ * Returns a map: { USD: 1650, GBP: 2100, EUR: 1750 } (Naira per 1 major unit).
+ * Uses the latest stored rate per currency (nearest available date).
+ *
+ * The fxRates table is small (≤365 × 3 currencies = ~1095 rows/year), so a
+ * full collect + JS reduce is efficient enough.
+ */
+export const getFxRates = internalQuery({
+  args: {
+    currencies: v.array(v.string()),
+  },
+  handler: async (ctx, { currencies }) => {
+    const currencySet = new Set(currencies.filter((c) => c !== 'NGN'));
+    if (currencySet.size === 0) return {};
+
+    // Collect all rates, then find the most recent date per currency
+    const allRates = await ctx.db.query('fxRates').collect();
+
+    // Track latest date string and its rate for each currency
+    const latestDate: Record<string, string> = {};
+    const result: Record<string, number> = {};
+
+    for (const row of allRates) {
+      if (!currencySet.has(row.currency)) continue;
+      if (row.cbnRate <= 0) continue;
+      if (!latestDate[row.currency] || row.date > latestDate[row.currency]) {
+        latestDate[row.currency] = row.date;
+        result[row.currency] = row.cbnRate;
+      }
+    }
+
+    return result;
+  },
+});
+
+/**
  * Create a bank_api import job for a sync operation.
  * Returns the new importJob._id.
  */

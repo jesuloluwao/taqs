@@ -236,6 +236,27 @@ export const bankNotification = httpAction(async (ctx, request) => {
       };
       providerAccountId = payload.data?.account?.id ?? null;
       provider = 'mono';
+
+      // Mono reauthorization events — mark account as error (re-auth required)
+      const reauthEvents = ['ACCOUNT_DISCONNECTED', 'ACCOUNT_TOKEN_EXPIRED', 'REAUTHORIZATION_REQUIRED'];
+      if (payload.event && reauthEvents.includes(payload.event) && providerAccountId) {
+        const reauthAccount = await ctx.runQuery(
+          (internal as any).accountsHelpers.findByProviderAccountId as any,
+          { providerAccountId }
+        ) as { _id: string } | null;
+
+        if (reauthAccount) {
+          await ctx.runMutation(
+            (internal as any).accountsHelpers.updateAccountStatus as any,
+            {
+              connectedAccountId: reauthAccount._id,
+              status: 'error',
+              errorMessage: 'Re-authentication required. Please reconnect your account.',
+            }
+          );
+        }
+        return new Response('OK', { status: 200 });
+      }
     } catch {
       return new Response('Invalid JSON body', { status: 400 });
     }

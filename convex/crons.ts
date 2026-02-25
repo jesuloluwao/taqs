@@ -40,4 +40,20 @@ crons.hourly(
   (internal as any).oauthStates._cleanupExpired
 );
 
+/**
+ * Every 6 hours: sync all active connected bank/payment accounts.
+ *
+ * Queries all accounts with status='active' and an access token, then
+ * fetches new transactions from each provider since lastSyncedAt.
+ * Syncs are staggered by 2 seconds to respect provider rate limits.
+ *
+ * Schedule: 00:10, 06:10, 12:10, 18:10 UTC (offset by :10 to avoid
+ * peak API load at the top of the hour).
+ */
+crons.interval(
+  'scheduledBankSync',
+  { hours: 6 },
+  (internal as any).accountsActions.runScheduledSync
+);
+
 export default crons;
