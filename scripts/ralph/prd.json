@@ -1162,7 +1162,7 @@
         "Typecheck passes"
       ],
       "priority": 53,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-8: US-801 through US-824 — See '§4.2 Connected Accounts Screen' through '§4.8 Disconnect Dialog'"
     },
     {

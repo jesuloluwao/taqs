@@ -921,3 +921,37 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `crons.interval({ hours: 6 })` is valid Convex cron syntax (not just daily/hourly/weekly)
   - Rate limiting via `lastSyncedAt`: no separate tracking table needed — comparing lastSyncedAt to Date.now() is sufficient for 60-second window
 ---
+
+## 2026-02-26 - US-053
+- Fixed build error in `apps/web/src/pages/AccountDetail.tsx`: removed unused `isActive` variable
+- **ConnectedAccounts page** (`/app/settings/accounts`):
+  - Account list cards with institution logo/initials, name, StatusBadge (Active/Error/Expired/Disconnected), provider type, last synced time
+  - Sorted active-first in `convex/connectedAccounts.ts` list query
+  - Empty state: "No accounts linked yet" + "Link an Account" CTA + "Or upload a bank statement" secondary link
+  - Skeleton loading state
+- **AccountDetail page** (`/app/settings/accounts/:id`):
+  - Full info card: logo, name, status badge, account type, account number (masked), currency, last synced, API key hash (masked)
+  - Sync Now button (disabled during sync), animating spinner during sync
+  - Last Sync Result card with imported/duplicates counts or error message
+  - Sync history (last 5 jobs via `importJobs.listByAccount`)
+  - Error banner for error/expired status with Retry + Re-authenticate buttons
+  - Danger Zone card with Disconnect button → confirmation dialog (preserves transactions)
+  - Reconnect option for disconnected accounts → navigates to connect flow
+- **AddAccount page** (`/app/settings/accounts/add`):
+  - Grouped method cards: Nigerian Banks (coming soon), Payment Gateways (Paystack, Flutterwave), International (Payoneer/Wise coming soon), Manual (Upload Statement)
+  - Non-disabled cards navigate to `/app/settings/accounts/connect/:provider`
+- **ConnectApiKey page** (`/app/settings/accounts/connect/:provider`):
+  - Supports paystack + flutterwave configs (key label, prefix, help text)
+  - Masked password input with show/hide toggle
+  - AES-256-GCM security callout + read-only permission note
+  - Validates key length ≥20 chars before calling `accountsActions.addApiKeyAccount`
+  - Reconnect mode via `?reconnect=<id>` query param
+- **Onboarding Step 4**: already had real ApiKeyForm inline for Paystack/Flutterwave; bank/Payoneer/Wise as coming-soon; linked state tracks checkmarks
+- **Convex**: `connectedAccounts.ts` (get, list, add, disconnect); `importJobs.ts` (listByAccount, get, list)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useAction((api as any).accountsActions.syncNow)` — public actions in new modules still need `as any` cast
+  - DisconnectDialog with backdrop blur + `animate-slide-up` is the confirmed pattern for confirmation modals (reuse across delete/disconnect flows)
+  - AccountDetail uses `useQuery((api as any).importJobs.listByAccount, ...)` for sync history — Convex reactivity keeps it live
+  - Provider `apiKeyHash` stored in `metadata.apiKeyHash` — display last 8 chars with `···· ` prefix for security UX
+---
