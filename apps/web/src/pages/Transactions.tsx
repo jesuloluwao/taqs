@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useQuery } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
 import { ManualTransactionModal } from '../components/ManualTransactionModal';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
+import type { CategoryOption } from '../components/CategoryPickerModal';
+import { toast } from 'sonner';
 import {
   Upload,
   Search,
@@ -19,6 +22,11 @@ import {
   SlidersHorizontal,
   Check,
   Plus,
+  CheckSquare,
+  Square,
+  Tag,
+  Trash2,
+  ListChecks,
 } from 'lucide-react';
 
 // ── Transaction type (matches convex/transactions.ts list result) ──────────
@@ -282,6 +290,62 @@ function CustomRangePicker({
   );
 }
 
+// ── Delete confirmation dialog ─────────────────────────────────────────────
+function DeleteConfirmDialog({
+  count,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  count: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !loading && onCancel()} />
+      <div className="relative bg-white rounded-2xl shadow-medium w-full max-w-sm p-6 animate-slide-up">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center flex-shrink-0">
+            <Trash2 className="w-5 h-5 text-danger" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-neutral-900">Delete {count} transaction{count !== 1 ? 's' : ''}?</h3>
+            <p className="text-xs text-neutral-500 mt-0.5">This action cannot be undone</p>
+          </div>
+        </div>
+        <p className="text-body-sm text-neutral-500 mb-5">
+          The selected transaction{count !== 1 ? 's' : ''} will be permanently deleted from your records.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-body-sm font-medium text-neutral-700 bg-muted rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 text-body-sm font-medium text-white bg-danger rounded-lg hover:bg-danger/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function Transactions() {
   const { activeEntityId } = useEntity();
@@ -296,7 +360,19 @@ export default function Transactions() {
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [showManualModal, setShowManualModal] = useState(false);
 
+  // Bulk select state
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkPicker, setShowBulkPicker] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
   const debouncedSearch = useDebounce(searchInput, 350);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bulkCategoriseMutation = useMutation((api as any).transactions.bulkCategorise);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bulkDeleteMutation = useMutation((api as any).transactions.bulkDelete);
 
   // Derive query params from active filter
   const queryParams = useMemo(() => {
@@ -356,6 +432,15 @@ export default function Transactions() {
     }
   }, [activeFilter, sortBy, sortOrder, debouncedSearch, customRange]);
 
+  // Exit bulk mode and clear selection when filter/search changes
+  useEffect(() => {
+    if (bulkMode) {
+      setBulkMode(false);
+      setSelectedIds(new Set());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, debouncedSearch]);
+
   // Group by month
   const grouped = useMemo(() => {
     const map = new Map<string, TransactionRow[]>();
@@ -391,6 +476,74 @@ export default function Transactions() {
     navigate('/app/import');
   }
 
+  function toggleBulkMode() {
+    setBulkMode((m) => !m);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleSelectAll() {
+    if (selectedIds.size === transactions.length) {
+      // Deselect all
+      setSelectedIds(new Set());
+    } else {
+      // Select all visible
+      setSelectedIds(new Set(transactions.map((t) => t._id)));
+    }
+  }
+
+  async function handleBulkCategorise(category: CategoryOption) {
+    setShowBulkPicker(false);
+    if (selectedIds.size === 0) return;
+    setBulkProcessing(true);
+    try {
+      const ids = Array.from(selectedIds) as Id<'transactions'>[];
+      const result = await bulkCategoriseMutation({
+        ids,
+        categoryId: category._id,
+        type: category.type,
+      });
+      toast.success(`Categorised ${result.updated} transaction${result.updated !== 1 ? 's' : ''} as "${category.name}"`);
+      setSelectedIds(new Set());
+      setBulkMode(false);
+    } catch {
+      toast.error('Failed to categorise transactions');
+    } finally {
+      setBulkProcessing(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    setShowDeleteConfirm(false);
+    if (selectedIds.size === 0) return;
+    setBulkProcessing(true);
+    try {
+      const ids = Array.from(selectedIds) as Id<'transactions'>[];
+      const result = await bulkDeleteMutation({ ids });
+      toast.success(`Deleted ${result.deleted} transaction${result.deleted !== 1 ? 's' : ''}`);
+      setSelectedIds(new Set());
+      setBulkMode(false);
+    } catch {
+      toast.error('Failed to delete transactions');
+    } finally {
+      setBulkProcessing(false);
+    }
+  }
+
+  const allVisibleSelected = transactions.length > 0 && selectedIds.size === transactions.length;
+  const someSelected = selectedIds.size > 0;
+
   if (!activeEntityId) {
     return (
       <div className="max-w-4xl mx-auto animate-fade-in">
@@ -417,20 +570,37 @@ export default function Transactions() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Select / Cancel bulk mode */}
           <button
-            onClick={() => setShowManualModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-body-sm font-medium text-neutral-700 hover:text-neutral-900 hover:bg-muted transition-colors"
+            onClick={toggleBulkMode}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-body-sm font-medium transition-colors ${
+              bulkMode
+                ? 'bg-neutral-900 border-neutral-900 text-white hover:bg-neutral-800'
+                : 'border-border text-neutral-700 hover:text-neutral-900 hover:bg-muted'
+            }`}
           >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add</span>
+            <ListChecks className="w-4 h-4" />
+            <span className="hidden sm:inline">{bulkMode ? 'Cancel' : 'Select'}</span>
           </button>
-          <button
-            onClick={handleImport}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
-          >
-            <Upload className="w-4 h-4" />
-            <span>Import</span>
-          </button>
+
+          {!bulkMode && (
+            <>
+              <button
+                onClick={() => setShowManualModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-body-sm font-medium text-neutral-700 hover:text-neutral-900 hover:bg-muted transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Add</span>
+              </button>
+              <button
+                onClick={handleImport}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -499,6 +669,31 @@ export default function Transactions() {
             }}
           />
         </div>
+
+        {/* Bulk mode: select all bar */}
+        {bulkMode && !isLoading && transactions.length > 0 && (
+          <div className="flex items-center gap-3 px-3 py-2 bg-neutral-50 border border-border rounded-lg">
+            <button
+              onClick={handleSelectAll}
+              className="flex items-center gap-2 text-body-sm font-medium text-neutral-700 hover:text-primary transition-colors"
+            >
+              {allVisibleSelected ? (
+                <CheckSquare className="w-4 h-4 text-primary" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+              {allVisibleSelected ? 'Deselect all' : 'Select all'}
+            </button>
+            <span className="text-body-sm text-neutral-400">
+              ({transactions.length} on this page)
+            </span>
+            {someSelected && (
+              <span className="ml-auto text-body-sm font-medium text-primary">
+                {selectedIds.size} selected
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Transaction list card */}
@@ -560,25 +755,49 @@ export default function Transactions() {
                     const isCredit = tx.direction === 'credit';
                     const isUncategorised = !tx.categoryId || tx.type === 'uncategorised';
                     const isForeign = tx.currency !== 'NGN';
+                    const isSelected = selectedIds.has(tx._id);
 
                     return (
                       <div
                         key={tx._id}
-                        onClick={() => navigate(`/app/transactions/${tx._id}`)}
-                        className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors cursor-pointer group"
+                        onClick={() => {
+                          if (bulkMode) {
+                            toggleSelect(tx._id);
+                          } else {
+                            navigate(`/app/transactions/${tx._id}`);
+                          }
+                        }}
+                        className={`flex items-center gap-3 px-4 py-3.5 transition-colors cursor-pointer group ${
+                          isSelected
+                            ? 'bg-primary-light/70'
+                            : 'hover:bg-muted/40'
+                        }`}
                       >
+                        {/* Checkbox in bulk mode */}
+                        {bulkMode && (
+                          <div className="flex-shrink-0">
+                            {isSelected ? (
+                              <CheckSquare className="w-5 h-5 text-primary" />
+                            ) : (
+                              <Square className="w-5 h-5 text-neutral-300" />
+                            )}
+                          </div>
+                        )}
+
                         {/* Direction icon */}
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform duration-150 group-hover:scale-105 ${
-                            isCredit ? 'bg-success/10' : 'bg-danger/10'
-                          }`}
-                        >
-                          {isCredit ? (
-                            <ArrowDownLeft className="w-4 h-4 text-success" />
-                          ) : (
-                            <ArrowUpRight className="w-4 h-4 text-danger" />
-                          )}
-                        </div>
+                        {!bulkMode && (
+                          <div
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform duration-150 group-hover:scale-105 ${
+                              isCredit ? 'bg-success/10' : 'bg-danger/10'
+                            }`}
+                          >
+                            {isCredit ? (
+                              <ArrowDownLeft className="w-4 h-4 text-success" />
+                            ) : (
+                              <ArrowUpRight className="w-4 h-4 text-danger" />
+                            )}
+                          </div>
+                        )}
 
                         {/* Description + meta */}
                         <div className="flex-1 min-w-0">
@@ -667,8 +886,55 @@ export default function Transactions() {
         )}
       </div>
 
+      {/* Bulk action bar (bottom) */}
+      {bulkMode && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 md:left-64">
+          <div className="bg-neutral-900 text-white px-4 py-3 flex items-center gap-3 shadow-medium">
+            <span className="text-body-sm font-medium flex-1">
+              {someSelected
+                ? `${selectedIds.size} selected`
+                : 'Tap rows to select'}
+            </span>
+            <button
+              disabled={!someSelected || bulkProcessing}
+              onClick={() => setShowBulkPicker(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Tag className="w-4 h-4" />
+              Categorise
+            </button>
+            <button
+              disabled={!someSelected || bulkProcessing}
+              onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-danger text-white text-body-sm font-medium hover:bg-danger/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
       {showManualModal && (
         <ManualTransactionModal onClose={() => setShowManualModal(false)} />
+      )}
+
+      {showBulkPicker && (
+        <CategoryPickerModal
+          title="Categorise Selected"
+          onClose={() => setShowBulkPicker(false)}
+          onSelect={handleBulkCategorise}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <DeleteConfirmDialog
+          count={selectedIds.size}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+          loading={bulkProcessing}
+        />
       )}
     </div>
   );
