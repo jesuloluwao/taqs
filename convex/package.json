@@ -6,6 +6,7 @@
     "lint": "eslint . --ext .ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "convex": "^1.11.0",
     "pdf-parse": "^1.1.1"
   },
@@ -14,4 +15,3 @@
     "typescript": "^5.3.3"
   }
 }
-

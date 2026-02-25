@@ -606,7 +606,7 @@ export const processImport = action({
       return;
     }
 
-    // Mark complete
+    // Mark import complete (AI categorisation runs separately below)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await ctx.runMutation((internal as any).importHelpers.setJobComplete, {
       jobId,
@@ -614,5 +614,34 @@ export const processImport = action({
       totalImported,
       duplicatesSkipped,
     });
+
+    // ─── AI Categorisation Pipeline ───────────────────────────────────────
+    // Runs after import is marked complete. Failure does NOT affect import.
+    if (totalImported > 0) {
+      try {
+        // Create a categorisingJob record
+        const categorisingJobId = await ctx.runMutation(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (internal as any).aiCategoriseHelpers.createCategorisingJob,
+          {
+            entityId,
+            userId,
+            importJobId: jobId,
+            totalTransactions: totalImported,
+          }
+        );
+
+        // Run AI categorisation as a separate action
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await ctx.runAction((internal as any).aiCategorise.categoriseBatch, {
+          categorisingJobId,
+          entityId,
+          importJobId: jobId,
+        });
+      } catch {
+        // AI failure is non-fatal — transactions remain as uncategorised
+        // and will surface in the triage queue
+      }
+    }
   },
 });

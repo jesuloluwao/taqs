@@ -139,6 +139,20 @@ export default defineSchema({
     isDuplicate: v.optional(v.boolean()),
     taxYear: v.number(),
     reviewedByUser: v.optional(v.boolean()),
+    // AI categorisation fields (PRD-2)
+    aiCategorySuggestion: v.optional(v.string()),
+    aiTypeSuggestion: v.optional(v.union(
+      v.literal('income'),
+      v.literal('business_expense'),
+      v.literal('personal_expense'),
+      v.literal('transfer'),
+      v.literal('uncategorised')
+    )),
+    aiCategoryConfidence: v.optional(v.number()),
+    aiReasoning: v.optional(v.string()),
+    aiCategorisingJobId: v.optional(v.id('categorisingJobs')),
+    aiCategorisedAt: v.optional(v.number()),
+    userOverrodeAi: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -182,6 +196,72 @@ export default defineSchema({
     .index('by_entityId', ['entityId'])
     .index('by_connectedAccountId', ['connectedAccountId'])
     .index('by_userId', ['userId']),
+
+  /**
+   * Tracks batch AI categorisation operations (PRD-2).
+   */
+  categorisingJobs: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    importJobId: v.optional(v.id('importJobs')),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('processing'),
+      v.literal('complete'),
+      v.literal('failed')
+    ),
+    totalTransactions: v.number(),
+    totalCategorised: v.optional(v.number()),
+    totalLowConfidence: v.optional(v.number()),
+    totalFailed: v.optional(v.number()),
+    batchesTotal: v.optional(v.number()),
+    batchesCompleted: v.optional(v.number()),
+    confidenceThreshold: v.number(),
+    modelUsed: v.optional(v.string()),
+    totalTokensUsed: v.optional(v.number()),
+    estimatedCostUsd: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId', ['entityId'])
+    .index('by_importJobId', ['importJobId'])
+    .index('by_userId', ['userId']),
+
+  /**
+   * Records user overrides of AI category suggestions for few-shot learning (PRD-2).
+   */
+  aiCategorisationFeedback: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    transactionId: v.id('transactions'),
+    aiSuggestedCategory: v.optional(v.string()),
+    aiSuggestedType: v.optional(v.union(
+      v.literal('income'),
+      v.literal('business_expense'),
+      v.literal('personal_expense'),
+      v.literal('transfer'),
+      v.literal('uncategorised')
+    )),
+    aiConfidence: v.optional(v.number()),
+    userChosenCategory: v.string(),
+    userChosenType: v.union(
+      v.literal('income'),
+      v.literal('business_expense'),
+      v.literal('personal_expense'),
+      v.literal('transfer'),
+      v.literal('uncategorised')
+    ),
+    transactionDescription: v.string(),
+    transactionAmount: v.number(),
+    transactionDirection: v.union(v.literal('credit'), v.literal('debit')),
+    createdAt: v.number(),
+  })
+    .index('by_entityId', ['entityId'])
+    .index('by_userId', ['userId'])
+    .index('by_transactionId', ['transactionId']),
 
   documents: defineTable({
     userId: v.id('users'),
