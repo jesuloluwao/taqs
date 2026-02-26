@@ -981,3 +981,29 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - `ctx.scheduler.runAfter(0, internal.push.send, args)` is the pattern for fire-and-forget push from internalMutation
   - `by_userId_creationTime` index: just `['userId']` — Convex orders by _creationTime natively on queries so `['userId']` index is sufficient for the order('desc') pattern
 ---
+
+## 2026-02-26 - US-055
+- Added `by_userId_type` index `['userId', 'type']` to notifications table in convex/schema.ts for efficient deduplication queries
+- Created `convex/reminders.ts` with 4 internalMutation cron handlers:
+  - `checkFilingDeadline`: fires on FILING_MILESTONES [30,14,7,3,1] days before 31 March; filters by user's deadlineReminderDays preference (default 30); penalty message: ₦100k late filing + ₦50k/month
+  - `checkVatDeadline`: fires on VAT_MILESTONES [7,3,1] days before 21st; only for vatReminderEnabled=true users with vatRegistered entities; penalty: ₦50k
+  - `uncategorisedAlert`: daily; users with uncategorisedAlertFrequency='daily'; counts by_entityId_type index for uncategorised transactions
+  - `uncategorisedAlertWeekly`: Monday; users with uncategorisedAlertFrequency='weekly'; same logic via shared helper
+  - `isDuplicate` helper: uses by_userId_type index + _creationTime filter for today's window + entityId equality — prevents same-day repeat notifications
+  - `insertNotification` helper: inserts DB record + schedules push via ctx.scheduler.runAfter if pushEnabled
+- Updated `convex/notifications.ts`: added `cleanup` internalMutation — deletes read>90 days and unread>180 days, processes oldest 100 per run via `.order('asc').take(100)`
+- Updated `convex/crons.ts`: registered 5 new crons:
+  - checkFilingDeadline: daily 07:00 UTC (08:00 WAT)
+  - checkVatDeadline: daily 07:00 UTC (08:00 WAT)
+  - uncategorisedAlert: daily 09:00 UTC (10:00 WAT)
+  - uncategorisedAlertWeekly: weekly Monday 09:00 UTC (10:00 WAT)
+  - notificationsCleanup: weekly Sunday 01:00 UTC (02:00 WAT)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `crons.weekly(name, { dayOfWeek: 'monday', hourUTC, minuteUTC }, fn)` is valid Convex cron syntax; dayOfWeek accepts 'sunday'–'saturday'
+  - Dedup check pattern: by_userId_type index `.eq('userId').eq('type')` + `.filter(q => q.and(q.gte('_creationTime', todayStart), q.eq('entityId', id)))` is efficient — queries only same-type notifications for the user
+  - `ctx.db.query('table').order('asc').take(N)` gives the N oldest records in the table (by _creationTime) without needing an explicit index — safe for low-frequency cleanup jobs
+  - WAT timing: 08:00 WAT = 07:00 UTC, 10:00 WAT = 09:00 UTC, 02:00 WAT = 01:00 UTC
+  - JS filter for `deletedAt`: use `entities.filter(e => !e.deletedAt)` instead of Convex `.filter()` to avoid issues with optional fields (per earlier pattern)
+  - For shared logic between two internalMutations with identical code: extract to a plain async function typed `(ctx: any, ...)` called from both handlers
+---

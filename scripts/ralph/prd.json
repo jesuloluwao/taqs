@@ -1200,7 +1200,7 @@
         "Typecheck passes"
       ],
       "priority": 55,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-9: US-915 through US-923, US-929/US-930 — See '§6.4 Scheduled Functions' for cron specs"
     },
     {
