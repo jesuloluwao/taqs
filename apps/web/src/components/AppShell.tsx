@@ -297,6 +297,11 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
 
 export default function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const navigate = useNavigate();
+  const unreadCount = useQuery((api as any).notifications.getUnreadCount) as number | undefined;
+
+  const badgeCount = unreadCount ?? 0;
+  const badgeLabel = badgeCount > 99 ? '99+' : badgeCount > 0 ? String(badgeCount) : null;
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -346,13 +351,19 @@ export default function AppShell() {
             </span>
           </div>
 
-          {/* Right: notification bell */}
+          {/* Right: notification bell with unread badge */}
           <div className="ml-auto">
             <button
-              className="p-2 text-neutral-500 hover:text-neutral-900 transition-colors rounded-lg hover:bg-muted"
-              aria-label="Notifications"
+              onClick={() => navigate('/app/notifications')}
+              className="relative p-2 text-neutral-500 hover:text-neutral-900 transition-colors rounded-lg hover:bg-muted"
+              aria-label={badgeCount > 0 ? `Notifications (${badgeCount} unread)` : 'Notifications'}
             >
               <Bell className="w-5 h-5" />
+              {badgeLabel && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {badgeLabel}
+                </span>
+              )}
             </button>
           </div>
         </header>

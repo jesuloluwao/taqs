@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import { toast } from 'sonner';
-import { Bell, Clock, RefreshCcw, AlertTriangle, FileText, Smartphone } from 'lucide-react';
+import { Bell, Clock, RefreshCcw, AlertTriangle, FileText, Smartphone, ChevronLeft, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Skeleton } from '../components/Skeleton';
 
 const DEADLINE_DAYS_OPTIONS = [30, 14, 7, 1];
@@ -69,7 +70,13 @@ function PreferenceCard({
   );
 }
 
-export default function Notifications() {
+/** Get current browser push notification permission state */
+function getBrowserPermission(): NotificationPermission | 'unsupported' {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+  return Notification.permission;
+}
+
+export default function NotificationSettings() {
   const prefs = useQuery(api.userCrud.getPreferences);
   const createDefaultPreferences = useMutation(api.userCrud.createDefaultPreferences);
   const updatePreferences = useMutation(api.userCrud.updatePreferences);
@@ -79,8 +86,14 @@ export default function Notifications() {
   const [vatEnabled, setVatEnabled] = useState(false);
   const [alertFreq, setAlertFreq] = useState<'daily' | 'weekly' | 'never'>('weekly');
   const [invoiceDays, setInvoiceDays] = useState(7);
-  const [pushEnabled, setPushEnabled] = useState(true);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
+
+  // Refresh push permission state on mount and on change
+  useEffect(() => {
+    setPushPermission(getBrowserPermission());
+  }, []);
 
   // Create defaults on first access if no preferences exist
   useEffect(() => {
@@ -98,9 +111,68 @@ export default function Notifications() {
       setVatEnabled(prefs.vatReminderEnabled ?? false);
       setAlertFreq((prefs.uncategorisedAlertFrequency as 'daily' | 'weekly' | 'never') ?? 'weekly');
       setInvoiceDays(prefs.invoiceOverdueDays ?? 7);
-      setPushEnabled(prefs.pushEnabled ?? true);
+      setPushEnabled(prefs.pushEnabled ?? false);
     }
   }, [prefs]);
+
+  const handlePushToggle = async (enabled: boolean) => {
+    if (!enabled) {
+      // Turning off — just update state
+      setPushEnabled(false);
+      return;
+    }
+
+    // Turning on — request browser permission first
+    if (pushPermission === 'unsupported') {
+      toast.error('Push notifications are not supported in this browser');
+      return;
+    }
+
+    if (pushPermission === 'denied') {
+      // Already denied — can't re-request; show instructions
+      toast.error(
+        'Push notifications are blocked. Enable them in your browser settings.',
+        {
+          duration: 6000,
+          action: {
+            label: 'How to enable',
+            onClick: () => {
+              // Most browsers: Settings → Site Settings → Notifications
+              // No direct deep-link available on web; open a help article or just inform
+              window.open(
+                'https://support.google.com/chrome/answer/3220216',
+                '_blank',
+                'noopener,noreferrer'
+              );
+            },
+          },
+        }
+      );
+      return;
+    }
+
+    if (pushPermission === 'default') {
+      try {
+        const result = await Notification.requestPermission();
+        setPushPermission(result);
+        if (result === 'granted') {
+          setPushEnabled(true);
+          toast.success('Push notifications enabled');
+        } else if (result === 'denied') {
+          toast.error('Push notifications were blocked');
+        } else {
+          // dismissed
+          toast('Permission request dismissed');
+        }
+      } catch {
+        toast.error('Could not request notification permission');
+      }
+      return;
+    }
+
+    // Permission already granted
+    setPushEnabled(true);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -124,9 +196,12 @@ export default function Notifications() {
   if (prefs === undefined) {
     return (
       <div className="max-w-2xl mx-auto animate-fade-in">
-        <div className="mb-8 space-y-2">
-          <Skeleton className="h-8 w-44" />
-          <Skeleton className="h-4 w-72" />
+        <div className="mb-8 flex items-center gap-3">
+          <Skeleton className="w-7 h-7 rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-44" />
+            <Skeleton className="h-4 w-72" />
+          </div>
         </div>
         <div className="space-y-4">
           {[...Array(5)].map((_, i) => (
@@ -148,10 +223,19 @@ export default function Notifications() {
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
-      {/* Page header */}
+      {/* Page header with back button */}
       <div className="mb-8">
-        <h1 className="text-2xl font-display font-bold text-foreground">Notifications</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <div className="flex items-center gap-2 mb-1">
+          <Link
+            to="/app/settings"
+            className="p-1.5 -ml-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
+            aria-label="Back to Settings"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-2xl font-display font-bold text-foreground">Notifications</h1>
+        </div>
+        <p className="text-sm text-muted-foreground pl-7">
           Choose when and how TaxEase notifies you
         </p>
       </div>
@@ -256,10 +340,37 @@ export default function Notifications() {
           icon={<Smartphone className="w-5 h-5" />}
           title="Push Notifications"
           description="Allow browser push notifications from TaxEase"
-          control={<Toggle checked={pushEnabled} onChange={setPushEnabled} />}
-        />
+          control={<Toggle checked={pushEnabled} onChange={handlePushToggle} />}
+        >
+          {pushPermission === 'denied' && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2.5 border border-amber-200">
+              <span className="flex-1">
+                Push notifications are blocked in your browser. To enable them, update your browser's site notification settings.
+              </span>
+              <a
+                href="https://support.google.com/chrome/answer/3220216"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 font-medium text-amber-800 hover:underline flex-shrink-0"
+              >
+                Enable in Settings
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          )}
+          {pushPermission === 'granted' && pushEnabled && (
+            <p className="text-xs text-green-700">
+              Push notifications are active on this device.
+            </p>
+          )}
+          {pushPermission === 'unsupported' && (
+            <p className="text-xs text-muted-foreground">
+              Push notifications are not supported in this browser.
+            </p>
+          )}
+        </PreferenceCard>
 
-        {/* Bell icon placeholder card for visual context */}
+        {/* Informational callout */}
         <div className="flex items-start gap-3 px-5 py-4 bg-primary-light/40 rounded-xl border border-primary/20">
           <Bell className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
           <p className="text-xs text-primary/80 leading-relaxed">

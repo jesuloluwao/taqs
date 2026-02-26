@@ -24,6 +24,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import TaxEntities from './pages/TaxEntities';
 import Notifications from './pages/Notifications';
+import NotificationCentre from './pages/NotificationCentre';
 import DeleteAccount from './pages/DeleteAccount';
 import HelpSupport from './pages/HelpSupport';
 import Documents from './pages/Documents';
@@ -115,6 +116,7 @@ function App() {
           <Route path="settings/delete-account" element={<DeleteAccount />} />
           <Route path="ai-insights" element={<AiInsights />} />
           <Route path="declarations" element={<Declarations />} />
+          <Route path="notifications" element={<NotificationCentre />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />
         </Route>
