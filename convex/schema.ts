@@ -572,7 +572,8 @@ export default defineSchema({
     readAt: v.optional(v.number()),
   })
     .index('by_userId_read', ['userId', 'read'])
-    .index('by_userId_creationTime', ['userId']),
+    .index('by_userId_creationTime', ['userId'])
+    .index('by_userId_type', ['userId', 'type']),
 
   /**
    * FCM/APNs push tokens per user device (PRD-9).

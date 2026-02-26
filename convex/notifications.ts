@@ -156,3 +156,37 @@ export const create = internalMutation({
     return notificationId;
   },
 });
+
+/**
+ * Weekly cleanup (Sundays 02:00 WAT / 01:00 UTC):
+ *   – Delete read notifications older than 90 days
+ *   – Delete unread notifications older than 180 days
+ *
+ * Processes the 100 oldest notifications per run to stay within Convex
+ * mutation time limits. Designed to be run repeatedly until caught up.
+ */
+export const cleanup = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const readCutoff = now - 90 * 24 * 60 * 60 * 1000;   // 90 days
+    const unreadCutoff = now - 180 * 24 * 60 * 60 * 1000; // 180 days
+
+    // Fetch the 100 oldest notifications across all users (ascending _creationTime)
+    const oldest = await ctx.db.query('notifications').order('asc').take(100);
+
+    let deleted = 0;
+    for (const n of oldest) {
+      const isExpired =
+        (n.read && n._creationTime < readCutoff) ||
+        (!n.read && n._creationTime < unreadCutoff);
+
+      if (isExpired) {
+        await ctx.db.delete(n._id);
+        deleted++;
+      }
+    }
+
+    return deleted;
+  },
+});

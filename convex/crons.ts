@@ -56,4 +56,71 @@ crons.interval(
   (internal as any).accountsActions.runScheduledSync
 );
 
+// ============================================================
+// PRD-9 Notification cron jobs
+// ============================================================
+
+/**
+ * Daily 08:00 WAT (07:00 UTC): check self-assessment filing deadlines.
+ *
+ * Fires on milestone days [30, 14, 7, 3, 1] before 31 March. Sends one
+ * notification per entity whose user has enabled deadline reminders.
+ * Message templates include ₦100k filing penalty + ₦50k/month delay penalty.
+ */
+crons.daily(
+  'checkFilingDeadline',
+  { hourUTC: 7, minuteUTC: 0 },
+  (internal as any).reminders.checkFilingDeadline
+);
+
+/**
+ * Daily 08:00 WAT (07:00 UTC): check monthly VAT return deadline.
+ *
+ * Fires on days [7, 3, 1] before the 21st of the month for VAT-registered
+ * entities whose users have vatReminderEnabled=true.
+ * Message templates include ₦50k late VAT penalty.
+ */
+crons.daily(
+  'checkVatDeadline',
+  { hourUTC: 7, minuteUTC: 0 },
+  (internal as any).reminders.checkVatDeadline
+);
+
+/**
+ * Daily 10:00 WAT (09:00 UTC): uncategorised transaction alert (daily cadence).
+ *
+ * Notifies users with uncategorisedAlertFrequency='daily' about entities
+ * that have uncategorised transactions. Deduplication prevents repeat
+ * notifications within the same calendar day.
+ */
+crons.daily(
+  'uncategorisedAlert',
+  { hourUTC: 9, minuteUTC: 0 },
+  (internal as any).reminders.uncategorisedAlert
+);
+
+/**
+ * Mondays 10:00 WAT (09:00 UTC): uncategorised transaction alert (weekly cadence).
+ *
+ * Same logic as uncategorisedAlert but for users with
+ * uncategorisedAlertFrequency='weekly'. Runs once per week on Monday mornings.
+ */
+crons.weekly(
+  'uncategorisedAlertWeekly',
+  { dayOfWeek: 'monday', hourUTC: 9, minuteUTC: 0 },
+  (internal as any).reminders.uncategorisedAlertWeekly
+);
+
+/**
+ * Sundays 02:00 WAT (01:00 UTC): clean up old notification records.
+ *
+ * Deletes read notifications older than 90 days and unread notifications
+ * older than 180 days, processing up to 100 records per run.
+ */
+crons.weekly(
+  'notificationsCleanup',
+  { dayOfWeek: 'sunday', hourUTC: 1, minuteUTC: 0 },
+  (internal as any).notifications.cleanup
+);
+
 export default crons;
