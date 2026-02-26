@@ -1007,3 +1007,31 @@ Started: Wed Feb 25 10:30:23 WAT 2026
   - JS filter for `deletedAt`: use `entities.filter(e => !e.deletedAt)` instead of Convex `.filter()` to avoid issues with optional fields (per earlier pattern)
   - For shared logic between two internalMutations with identical code: extract to a plain async function typed `(ctx: any, ...)` called from both handlers
 ---
+
+## 2026-02-26 - US-056
+- Created `apps/web/src/pages/NotificationCentre.tsx`: full notification centre page at `/app/notifications`
+  - Date-grouped sections: Today, Yesterday, This Week, Earlier (grouped by _creationTime)
+  - 8 notification types with distinct icons + border/background colors (filing_deadline=amber, vat_return=blue, uncategorised_alert=yellow, invoice_overdue=red, import_result=green, sync_error=red, recurring_invoice=purple, general=neutral)
+  - Unread cards: type-colored bg + 4px left border + bold title + unread dot indicator
+  - Read cards: neutral bg-card styling
+  - Click to mark read + navigate to related route (filing, triage, invoices/:id, import, accounts/:id)
+  - Mark all as read button in header (shown only when unread exist)
+  - Empty state: Bell + CheckCircle2 illustration, "You're all caught up!" message
+  - Skeleton loading state (6 shimmer cards)
+- Updated `apps/web/src/components/AppShell.tsx`:
+  - Bell button now calls `useQuery((api as any).notifications.getUnreadCount)` reactively
+  - Red badge: absolute positioned, -top-0.5 -right-0.5, shows count up to 99+
+  - Bell button `onClick` navigates to `/app/notifications` via `useNavigate`
+- Updated `apps/web/src/App.tsx`: added `<Route path="notifications" element={<NotificationCentre />} />` under `/app`
+- Updated `apps/web/src/pages/Notifications.tsx` (settings page):
+  - Added back button (ChevronLeft) linking to `/app/settings`
+  - Push toggle: calls `Notification.requestPermission()` on first enable; handles 'denied' state with amber warning banner + "Enable in Settings" link (opens Chrome help); handles 'unsupported' gracefully; 'granted' shows confirmation text
+  - Push permission state tracked via `getBrowserPermission()` + `useState`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useQuery((api as any).notifications.getUnreadCount)` in AppShell — same pattern as other new modules; cast to `number | undefined` for safe rendering
+  - Bell badge: use absolute positioning with `min-w-[18px]` for dynamic count width (handles both '5' and '99+')
+  - `getDateGroup` uses pure timestamps vs Date() objects — avoid instantiating `new Date(ts)` for unused variables (triggers TS6133)
+  - Browser push permissions: `Notification.requestPermission()` is async; always check `typeof window !== 'undefined'` + `'Notification' in window` guard for SSR safety
+  - `border-l-4` with `borderLeftWidth: '4px'` inline style needed when combining Tailwind border-l classes with dynamic border-color classes
+---

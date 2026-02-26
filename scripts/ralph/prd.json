@@ -1219,7 +1219,7 @@
         "Typecheck passes"
       ],
       "priority": 56,
-      "passes": false,
+      "passes": true,
       "notes": "PRD-9: US-901 through US-914 — See '§4 UI Specifications' for notification centre and settings layouts"
     }
   ]
