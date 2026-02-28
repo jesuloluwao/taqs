@@ -272,12 +272,12 @@ export const handleOAuthCallback = action({
       }
     )) as string;
 
-    // 6. Trigger initial sync — fire and forget (sync failure must not block callback)
-    ctx
-      .runAction((internal as any).accountsActions.syncAccount, { connectedAccountId })
-      .catch(() => {
-        // Non-blocking: account was created; sync will retry on next scheduled run
-      });
+    // 6. Trigger initial sync as a scheduled function (non-blocking; retries on next scheduled run)
+    await ctx.scheduler.runAfter(
+      0,
+      (internal as any).accountsActions.syncAccount,
+      { connectedAccountId }
+    );
 
     return { connectedAccountId, cancelled: false as const };
   },
@@ -352,10 +352,12 @@ export const addApiKeyAccount = action({
       }
     )) as string;
 
-    // 5. Trigger initial sync (fire and forget)
-    ctx
-      .runAction((internal as any).accountsActions.syncAccount, { connectedAccountId })
-      .catch(() => {});
+    // 5. Trigger initial sync as a scheduled function (non-blocking)
+    await ctx.scheduler.runAfter(
+      0,
+      (internal as any).accountsActions.syncAccount,
+      { connectedAccountId }
+    );
 
     return { connectedAccountId };
   },

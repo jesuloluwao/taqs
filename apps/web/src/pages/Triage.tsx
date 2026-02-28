@@ -792,6 +792,7 @@ export default function Triage() {
       {showPicker && currentTx && (
         <CategoryPickerModal
           title={currentTx.aiCategorySuggestion ? 'Override Category' : 'Choose Category'}
+          direction={currentTx.direction}
           onClose={() => setShowPicker(false)}
           onSelect={async (cat) => {
             setShowPicker(false);

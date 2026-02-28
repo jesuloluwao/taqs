@@ -8,6 +8,7 @@ export interface CategoryOption {
   _id: Id<'categories'>;
   name: string;
   type: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  direction?: 'credit' | 'debit' | 'both';
   isDeductibleDefault?: boolean;
 }
 
@@ -15,6 +16,8 @@ interface Props {
   onSelect: (category: CategoryOption) => void;
   onClose: () => void;
   title?: string;
+  /** When provided, only categories matching this direction (or 'both') are shown */
+  direction?: 'credit' | 'debit';
 }
 
 const GROUP_LABELS: Record<string, string> = {
@@ -26,14 +29,16 @@ const GROUP_LABELS: Record<string, string> = {
 
 const GROUP_ORDER = ['income', 'business_expense', 'personal_expense', 'transfer'];
 
-export function CategoryPickerModal({ onSelect, onClose, title = 'Select Category' }: Props) {
+export function CategoryPickerModal({ onSelect, onClose, title = 'Select Category', direction }: Props) {
   const [search, setSearch] = useState('');
   const categories = useQuery(api.categories.listAll) as CategoryOption[] | undefined;
 
   const searchLower = search.toLowerCase();
-  const filtered = (categories ?? []).filter((c) =>
-    c.name.toLowerCase().includes(searchLower)
-  );
+  const filtered = (categories ?? []).filter((c) => {
+    if (!c.name.toLowerCase().includes(searchLower)) return false;
+    if (direction && c.direction && c.direction !== 'both' && c.direction !== direction) return false;
+    return true;
+  });
 
   const grouped = GROUP_ORDER.map((type) => ({
     type,

@@ -65,6 +65,8 @@ export const clerkWebhook = httpAction(async (ctx, request) => {
       email: getPrimaryEmail(data),
       fullName: getFullName(data),
     });
+    // Ensure system categories exist (idempotent — safe to call on every user creation)
+    await ctx.runMutation(api.categories.seed, {});
   } else if (type === 'user.updated') {
     await ctx.runMutation(api.userMutations.updateUserFromClerk, {
       clerkUserId: data.id,
@@ -315,12 +317,11 @@ export const bankNotification = httpAction(async (ctx, request) => {
     ) as { _id: string } | null;
 
     if (account) {
-      // Fire and forget — don't await sync completion
-      ctx
-        .runAction((internal as any).accountsActions.syncAccount as any, {
-          connectedAccountId: account._id,
-        })
-        .catch(() => {});
+      await ctx.scheduler.runAfter(
+        0,
+        (internal as any).accountsActions.syncAccount as any,
+        { connectedAccountId: account._id }
+      );
     }
   }
 

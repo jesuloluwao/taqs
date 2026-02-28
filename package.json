@@ -16,7 +16,10 @@
     "packages/*"
   ],
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "convex": "^1.11.0",
+    "firebase-admin": "^12.0.0",
+    "pdf-parse": "^1.1.1",
     "svix": "^1.86.0"
   },
   "devDependencies": {

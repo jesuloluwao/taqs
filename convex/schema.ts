@@ -52,6 +52,8 @@ export default defineSchema({
       v.literal('personal_expense'),
       v.literal('transfer')
     ),
+    /** Which transaction direction this category applies to */
+    direction: v.optional(v.union(v.literal('credit'), v.literal('debit'), v.literal('both'))),
     isDeductibleDefault: v.optional(v.boolean()),
     ntaReference: v.optional(v.string()),
     isSystem: v.optional(v.boolean()),

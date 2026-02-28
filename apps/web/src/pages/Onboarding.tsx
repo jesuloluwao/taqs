@@ -978,6 +978,7 @@ export default function Onboarding() {
   const saveNinAndTin = useMutation(api.onboarding.saveNinAndTin);
   const completeOnboarding = useMutation(api.userCrud.completeOnboarding);
   const createDefaultPreferences = useMutation(api.userCrud.createDefaultPreferences);
+  const seedCategories = useMutation(api.categories.seed);
 
   // Loading / auth guards
   if (!isLoaded || (isSignedIn && me === undefined)) {
@@ -1053,6 +1054,7 @@ export default function Onboarding() {
   async function handleFinish() {
     setLoading(true);
     try {
+      await seedCategories();
       await createDefaultPreferences();
       await completeOnboarding();
       toast.success("You're all set! Add transactions when you're ready.");

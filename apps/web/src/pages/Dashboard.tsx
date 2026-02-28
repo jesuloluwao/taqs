@@ -226,7 +226,7 @@ function TaxPositionCard({
   return (
     <button
       type="button"
-      onClick={() => navigate('/app/tax')}
+      onClick={() => navigate('/app/tax-summary')}
       className="w-full text-left bg-primary-light rounded-xl border border-primary/20 shadow-soft overflow-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none hover:shadow-medium transition-shadow"
     >
       <div className="px-5 pt-5 pb-4">
@@ -380,7 +380,7 @@ function DeadlineWidget({ daysRemaining, severity, label }: DeadlineWidgetProps)
 
   return (
     <Link
-      to="/app/tax"
+      to="/app/tax-summary"
       className={`flex items-center gap-4 rounded-xl border ${sev.border} ${sev.bg} px-5 py-4 hover:shadow-soft transition-shadow`}
     >
       <div className={`w-10 h-10 rounded-lg ${sev.bg} border ${sev.border} flex items-center justify-center flex-shrink-0`}>
@@ -431,7 +431,7 @@ function ReminderChips({ reminders }: { reminders: DeadlineReminder[] }) {
           const chipCls = reminderChipClasses(sev);
           const iconCls = reminderIconColor(sev);
           const Icon = reminderIcon(r.type);
-          const to = r.actionPath ?? '/app/tax';
+          const to = r.actionPath ?? '/app/tax-summary';
 
           return (
             <Link
@@ -895,7 +895,7 @@ export default function Dashboard() {
               icon={CreditCard}
               iconBg="bg-accent/10"
               iconColor="text-accent"
-              to="/app/tax"
+              to="/app/tax-summary"
             />
             <QuickStatChip
               label="Invoices Outstanding"

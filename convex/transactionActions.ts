@@ -58,20 +58,19 @@ export const autoCategorise = action({
       }
     ) as string;
 
-    // Fire-and-forget the AI batch pipeline
-    ctx
-      .runAction(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (internal as any).aiCategorise.categoriseBatchForEntity,
-        {
-          categorisingJobId,
-          entityId,
-          transactionIds,
-        }
-      )
-      .catch(() => {
-        // Errors are recorded in the job record by the pipeline itself
-      });
+    // Schedule the AI batch pipeline as a separate function so it runs
+    // independently. Using scheduler.runAfter(0, ...) avoids the "unawaited
+    // operation" error that fire-and-forget ctx.runAction causes.
+    await ctx.scheduler.runAfter(
+      0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (internal as any).aiCategorise.categoriseBatchForEntity,
+      {
+        categorisingJobId,
+        entityId,
+        transactionIds,
+      }
+    );
 
     return { categorisingJobId, totalTransactions };
   },

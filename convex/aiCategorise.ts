@@ -7,7 +7,6 @@ import { v } from 'convex/values';
 // Constants
 // ─────────────────────────────────────────────
 
-const CONFIDENCE_THRESHOLD = 0.7;
 const BATCH_SIZE = 50;
 const INTER_BATCH_DELAY_MS = 500;
 const MAX_RETRIES = 3;
@@ -25,6 +24,7 @@ interface CategoryInfo {
   _id: string;
   name: string;
   type: string;
+  direction?: string;
 }
 
 interface TransactionForAi {
@@ -87,7 +87,9 @@ function buildPrompt(
   transactions: TransactionForAi[],
   fewShotExamples: FewShotExample[] = []
 ): string {
-  const categoryList = categories.map((c) => `- "${c.name}" (${c.type})`).join('\n');
+  const categoryList = categories
+    .map((c) => `- "${c.name}" (${c.type}${c.direction ? `, ${c.direction}` : ''})`)
+    .join('\n');
 
   const txList = transactions.map((tx, i) => ({
     index: i,
@@ -117,6 +119,7 @@ ${categoryList}
 Direction context:
 - "credit" = money IN (income, refunds, transfers received)
 - "debit" = money OUT (expenses, payments, transfers sent)
+Each category has a direction (credit, debit, or both). Match the transaction direction to category direction — e.g. credit transactions should use income or credit/both transfer categories, debit transactions should use expense or debit/both transfer categories.
 
 Nigerian context: "TRF", "TRANSFER", "NIP", "INT" in descriptions usually indicate transfers. "NEPA", "IKEDC", "EKEDC" = electricity. "AIRTEL", "MTN", "GLO", "9MOBILE" = telecom/internet.
 ${fewShotSection}

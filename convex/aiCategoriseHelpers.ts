@@ -231,7 +231,7 @@ export const getUncategorisedForEntity = internalQuery({
   handler: async (ctx, args) => {
     if (args.transactionIds && args.transactionIds.length > 0) {
       // Fetch specific transactions, filter to uncategorised+unreviewed
-      const results = [];
+      const results: { _id: any; description: string; amount: number; direction: "credit" | "debit" }[] = [];
       for (const id of args.transactionIds) {
         const tx = await ctx.db.get(id);
         if (
@@ -290,6 +290,7 @@ export const getCategoriesList = internalQuery({
       _id: c._id,
       name: c.name,
       type: c.type,
+      direction: c.direction,
     }));
   },
 });

@@ -24,7 +24,7 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-async function importKey(): Promise<CryptoKey> {
+async function importKey() {
   const keyBytes = hexToBytes(getKeyHex());
   return crypto.subtle.importKey(
     'raw',

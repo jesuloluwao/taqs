@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useParams, useBlocker } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import { useEntity } from '../contexts/EntityContext';
@@ -317,7 +317,15 @@ export default function InvoiceForm() {
 
   // ── Dirty Form Warning ─────────────────────────────────────────────────────
 
-  const blocker = useBlocker(isDirty);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+
+  const safeNavigate = (to: string) => {
+    if (isDirty) {
+      setPendingNavigation(to);
+    } else {
+      navigate(to);
+    }
+  };
 
   useEffect(() => {
     if (!isDirty) return;
@@ -1247,14 +1255,14 @@ export default function InvoiceForm() {
       )}
 
       {/* ─── Dirty Form Blocker Dialog ────────────────────────────────────── */}
-      {blocker.state === 'blocked' && (
+      {pendingNavigation && (
         <ConfirmDialog
           title="Unsaved changes"
           message="You have unsaved changes to this invoice. If you leave now, your changes will be lost."
           confirmLabel="Leave anyway"
           cancelLabel="Keep editing"
-          onConfirm={() => blocker.proceed()}
-          onCancel={() => blocker.reset()}
+          onConfirm={() => { const dest = pendingNavigation; setPendingNavigation(null); navigate(dest); }}
+          onCancel={() => setPendingNavigation(null)}
         />
       )}
     </div>

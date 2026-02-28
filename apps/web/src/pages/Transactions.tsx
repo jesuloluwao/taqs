@@ -86,6 +86,15 @@ function formatNaira(kobo: number): string {
   }).format(kobo / 100);
 }
 
+function formatCurrency(minorUnits: number, currency: string): string {
+  return new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(minorUnits / 100);
+}
+
 function formatDate(ts: number): string {
   return new Intl.DateTimeFormat('en-NG', {
     day: 'numeric',
@@ -936,7 +945,7 @@ export default function Transactions() {
       </div>
 
       {/* Transaction list card */}
-      <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+      <div className="bg-white rounded-xl border border-border shadow-soft overflow-clip">
         {isLoading ? (
           <div className="divide-y divide-border">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -982,7 +991,7 @@ export default function Transactions() {
             {grouped.map(([monthKey, txns]) => (
               <div key={monthKey}>
                 {/* Month header */}
-                <div className="px-4 py-2 bg-neutral-100/70 border-b border-border sticky top-14 z-10">
+                <div className="px-4 py-2 bg-neutral-100 border-b border-border">
                   <p className="text-label text-neutral-500 font-medium uppercase tracking-wider">
                     {getMonthLabel(monthKey)}
                   </p>
@@ -1100,15 +1109,11 @@ export default function Transactions() {
                             }`}
                           >
                             {isCredit ? '+' : '-'}
-                            {formatNaira(tx.amountNgn)}
+                            {formatCurrency(tx.amount, tx.currency)}
                           </p>
                           {isForeign && (
                             <p className="text-[10px] text-neutral-400 mt-0.5">
-                              {new Intl.NumberFormat('en', {
-                                style: 'currency',
-                                currency: tx.currency,
-                                minimumFractionDigits: 0,
-                              }).format(tx.amount / 100)}
+                              {formatCurrency(tx.amountNgn, 'NGN')}
                             </p>
                           )}
                         </div>

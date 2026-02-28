@@ -254,229 +254,270 @@ function parseCSV(content: string): ParsedRow[] {
 }
 
 // ─────────────────────────────────────────────
-// PDF parsing
+// PDF parsing (AI-powered)
 // ─────────────────────────────────────────────
 
-/**
- * Extract text from a PDF buffer using pdf-parse.
- * Returns the full text content.
- */
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  // Dynamic import handles the CJS module
+  console.log(`[importPipeline] Extracting text from PDF (${buffer.length} bytes)…`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mod = await import('pdf-parse' as any);
   const pdfParse = mod.default ?? mod;
   const data = await pdfParse(buffer);
-  return data.text as string;
+  const text = data.text as string;
+  console.log(`[importPipeline] PDF text extracted — ${text.length} chars, ${data.numpages} pages`);
+  return text;
+}
+
+const PDF_PARSE_MODEL = 'claude-haiku-4-5-20251001';
+const PDF_MAX_RETRIES = 3;
+
+interface AiExtractedTransaction {
+  date: string;
+  description: string;
+  amount: number;
+  direction: 'credit' | 'debit';
+  currency: string;
+}
+
+function buildPdfExtractionPrompt(pdfText: string): string {
+  return `Extract ALL financial transactions from this bank statement text.
+Return a JSON array. Each object: {"d":"YYYY-MM-DD","n":"counterparty or purpose","a":1234.56,"dir":"c" or "d","cur":"USD"}
+- "d": date, "n": short description (counterparty, NOT transaction IDs), "a": positive amount, "dir": "c"=credit/incoming "d"=debit/outgoing, "cur": ISO currency
+- Negative amounts → positive "a" with "dir":"d"
+- Include fees, charges, conversions
+- Detect currency from statement header (e.g. "USD statement" → "USD")
+- Ignore headers, balances, page numbers
+- Output compact JSON (no extra whitespace). No markdown, no explanation.
+
+Statement:
+${pdfText}`;
 }
 
 /**
- * Detect Nigerian bank from PDF text content.
+ * Recover valid JSON objects from a truncated JSON array string.
+ * Finds the last complete object and closes the array.
  */
-type BankFormat = 'gtbank' | 'zenith' | 'access' | 'generic';
+function recoverTruncatedJson(text: string): AiExtractedTransaction[] | null {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
 
-function detectBankFormat(text: string): BankFormat {
-  const lower = text.toLowerCase();
-  if (lower.includes('guaranty trust') || lower.includes('gtbank') || lower.includes('gt bank')) {
-    return 'gtbank';
-  }
-  if (lower.includes('zenith bank')) {
-    return 'zenith';
-  }
-  if (lower.includes('access bank')) {
-    return 'access';
-  }
-  return 'generic';
+  // Try direct parse first
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* continue to recovery */ }
+
+  // Find the last complete object: look for "}," or "}" before the truncation
+  const lastCompleteObj = trimmed.lastIndexOf('},');
+  const lastObj = trimmed.lastIndexOf('}');
+
+  const cutPoint = lastCompleteObj > 0 ? lastCompleteObj + 1 : lastObj > 0 ? lastObj + 1 : -1;
+  if (cutPoint <= 0) return null;
+
+  const recovered = trimmed.slice(0, cutPoint) + ']';
+  try {
+    const parsed = JSON.parse(recovered);
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* recovery failed */ }
+
+  return null;
 }
 
-/**
- * GTBank PDF statement parser.
- *
- * Row pattern (space-separated columns):
- *   DD/MM/YY  Narration text  DD/MM/YY  DebitAmt  CreditAmt  Balance
- * The value-date column is optional.
- */
-function parseGTBankPDF(text: string): ParsedRow[] {
-  const results: ParsedRow[] = [];
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l);
+/** Normalise the compact field names back to the full interface. */
+function normaliseAiRow(row: Record<string, unknown>): AiExtractedTransaction | null {
+  const date = (row.d ?? row.date) as string | undefined;
+  const description = (row.n ?? row.description) as string | undefined;
+  const amount = (row.a ?? row.amount) as number | undefined;
+  const dirRaw = (row.dir ?? row.direction) as string | undefined;
+  const currency = (row.cur ?? row.currency) as string | undefined;
 
-  // Match line starting with a date, then narration, then optional value date, then amounts
-  const rowRe = /^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+)?([\d,]+\.\d{2})?\s*([\d,]+\.\d{2})?\s+([\d,]+\.\d{2})/;
+  if (!date || !description || amount === undefined) return null;
+
+  const direction = dirRaw === 'c' || dirRaw === 'credit' ? 'credit' : 'debit';
+  return { date, description, amount: Number(amount), direction, currency: currency ?? 'NGN' };
+}
+
+const PDF_CHUNK_CHAR_LIMIT = 12000;
+
+/**
+ * Split PDF text into chunks at page boundaries.
+ * The header (first ~15 lines) is prepended to each chunk for context.
+ */
+function chunkPdfText(fullText: string): string[] {
+  if (fullText.length <= PDF_CHUNK_CHAR_LIMIT) return [fullText];
+
+  const lines = fullText.split('\n');
+  const headerLines = lines.slice(0, 15).join('\n');
+
+  // Split on page break markers like "-- 1 of 6 --" or "ref:... N / M"
+  const pageBreakRe = /^--\s*\d+\s*of\s*\d+\s*--$/i;
+  const refPageRe = /^ref:[a-f0-9-]+\s+\d+\s*\/\s*\d+$/i;
+
+  const chunks: string[] = [];
+  let currentChunk = '';
 
   for (const line of lines) {
-    const m = line.match(rowRe);
-    if (!m) continue;
+    if ((pageBreakRe.test(line.trim()) || refPageRe.test(line.trim())) && currentChunk.length > 500) {
+      chunks.push(currentChunk);
+      currentChunk = headerLines + '\n\n';
+      continue;
+    }
+    currentChunk += line + '\n';
 
-    const date = parseDate(m[1]);
-    if (!date) continue;
-
-    const description = m[2].trim();
-    const debitAmt = m[3] ? parseAmount(m[3]) : null;
-    const creditAmt = m[4] ? parseAmount(m[4]) : null;
-
-    let amount = 0;
-    let direction: Direction = 'debit';
-
-    if (creditAmt && creditAmt > 0) {
-      amount = creditAmt;
-      direction = 'credit';
-    } else if (debitAmt && debitAmt > 0) {
-      amount = debitAmt;
-      direction = 'debit';
-    } else continue;
-
-    if (!description) continue;
-
-    results.push({
-      date,
-      description,
-      amount,
-      currency: 'NGN',
-      amountNgn: amount,
-      fxRate: 1,
-      direction,
-      type: 'uncategorised',
-      externalRef: makeExternalRef(date, description, amount, direction),
-      taxYear: new Date(date).getUTCFullYear(),
-    });
+    if (currentChunk.length > PDF_CHUNK_CHAR_LIMIT) {
+      chunks.push(currentChunk);
+      currentChunk = headerLines + '\n\n';
+    }
   }
 
-  return results;
+  if (currentChunk.trim().length > headerLines.length + 10) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.length > 0 ? chunks : [fullText];
 }
 
-/**
- * Zenith Bank PDF statement parser.
- * Row pattern: Date  |  Remarks  |  Debit  |  Credit  |  Balance
- */
-function parseZenithPDF(text: string): ParsedRow[] {
-  const results: ParsedRow[] = [];
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l);
+async function callClaudeForPdfParse(
+  pdfText: string,
+): Promise<AiExtractedTransaction[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('[importPipeline] ANTHROPIC_API_KEY not set');
+    throw new Error('ANTHROPIC_API_KEY not configured — cannot parse PDF');
+  }
 
-  // Pattern: date + narration + 2-3 amounts at end of line
-  const rowRe = /^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
-  const rowRe2 = /^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AnthropicModule = await import('@anthropic-ai/sdk' as any);
+  const Anthropic = AnthropicModule.default ?? AnthropicModule;
+  const client = new Anthropic({ apiKey });
 
-  for (const line of lines) {
-    let m = line.match(rowRe);
-    let debitAmt: number | null = null;
-    let creditAmt: number | null = null;
-    let date: number | null = null;
-    let description = '';
+  const chunks = chunkPdfText(pdfText);
+  console.log(`[importPipeline] PDF split into ${chunks.length} chunk(s) (total ${pdfText.length} chars)`);
 
-    if (m) {
-      date = parseDate(m[1]);
-      description = m[2].trim();
-      // In Zenith: col3=Debit, col4=Credit, col5=Balance
-      debitAmt = parseAmount(m[3]);
-      creditAmt = parseAmount(m[4]);
-    } else {
-      m = line.match(rowRe2);
-      if (!m) continue;
-      date = parseDate(m[1]);
-      description = m[2].trim();
-      // Two amounts: debit and balance (credit assumed 0) — check for "CR" in description
-      const lineUpper = line.toUpperCase();
-      if (lineUpper.includes('CR') || lineUpper.includes('CREDIT')) {
-        creditAmt = parseAmount(m[3]);
-      } else {
-        debitAmt = parseAmount(m[3]);
+  const allResults: AiExtractedTransaction[] = [];
+
+  for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+    const chunk = chunks[chunkIdx];
+    const prompt = buildPdfExtractionPrompt(chunk);
+    console.log(`[importPipeline] Processing chunk ${chunkIdx + 1}/${chunks.length} (${chunk.length} chars)`);
+
+    let chunkResults: AiExtractedTransaction[] | null = null;
+
+    for (let attempt = 0; attempt <= PDF_MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[importPipeline] Claude attempt ${attempt + 1}/${PDF_MAX_RETRIES + 1} for chunk ${chunkIdx + 1}`);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const response: any = await client.messages.create({
+          model: PDF_PARSE_MODEL,
+          max_tokens: 8192,
+          system:
+            'You are a precise financial document parser. Extract transactions as a compact JSON array. No explanation, no markdown — only valid JSON.',
+          messages: [{ role: 'user', content: prompt }],
+        });
+
+        const stopReason = response.stop_reason;
+        console.log(`[importPipeline] Claude responded — stop_reason: ${stopReason}, tokens: ${response.usage?.output_tokens ?? '?'}`);
+
+        const rawText: string =
+          response.content[0]?.type === 'text' ? response.content[0].text : '[]';
+
+        let parsed: unknown[] | null = null;
+
+        if (stopReason === 'max_tokens') {
+          console.log('[importPipeline] Response truncated (max_tokens) — attempting recovery');
+          parsed = recoverTruncatedJson(rawText);
+          if (parsed) {
+            console.log(`[importPipeline] Recovered ${parsed.length} transactions from truncated response`);
+          }
+        } else {
+          const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+          const result = JSON.parse(cleaned);
+          if (Array.isArray(result)) parsed = result;
+        }
+
+        if (!parsed || !Array.isArray(parsed)) {
+          throw new Error('AI response is not a valid array');
+        }
+
+        // Normalise compact field names to full interface
+        chunkResults = parsed
+          .map((r) => normaliseAiRow(r as Record<string, unknown>))
+          .filter((r): r is AiExtractedTransaction => r !== null);
+
+        console.log(`[importPipeline] Chunk ${chunkIdx + 1}: extracted ${chunkResults.length} transactions`);
+        break;
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const status = (err as any)?.status ?? 0;
+        console.error(`[importPipeline] Chunk ${chunkIdx + 1} attempt ${attempt + 1} failed: status=${status} error=${errMsg}`);
+
+        if ((status === 429 || status >= 500) && attempt < PDF_MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+          continue;
+        }
+        if (err instanceof SyntaxError && attempt < PDF_MAX_RETRIES) {
+          continue;
+        }
+
+        if (chunks.length > 1) {
+          console.log(`[importPipeline] Skipping failed chunk ${chunkIdx + 1}, continuing with remaining`);
+          break;
+        }
+        throw err;
       }
     }
 
-    if (!date || !description) continue;
-
-    let amount = 0;
-    let direction: Direction = 'debit';
-    if (creditAmt && creditAmt > 0) {
-      amount = creditAmt;
-      direction = 'credit';
-    } else if (debitAmt && debitAmt > 0) {
-      amount = debitAmt;
-      direction = 'debit';
-    } else continue;
-
-    results.push({
-      date,
-      description,
-      amount,
-      currency: 'NGN',
-      amountNgn: amount,
-      fxRate: 1,
-      direction,
-      type: 'uncategorised',
-      externalRef: makeExternalRef(date, description, amount, direction),
-      taxYear: new Date(date).getUTCFullYear(),
-    });
+    if (chunkResults) {
+      allResults.push(...chunkResults);
+    }
   }
 
-  return results;
+  console.log(`[importPipeline] Total AI-extracted transactions across all chunks: ${allResults.length}`);
+
+  if (allResults.length === 0) {
+    throw new Error('AI could not extract any transactions from the PDF');
+  }
+
+  return allResults;
 }
 
-/**
- * Access Bank PDF statement parser.
- * Row pattern: Date  Narration  Debit  Credit  Balance
- */
-function parseAccessPDF(text: string): ParsedRow[] {
-  // Access Bank statements follow a similar tabular layout to Zenith
-  return parseGenericBankPDF(text);
-}
+const VALID_CURRENCIES = new Set(['NGN', 'USD', 'GBP', 'EUR']);
 
-/**
- * Generic bank PDF parser.
- * Extracts lines that begin with a recognisable date and contain at least one monetary amount.
- * Direction is inferred from position (last 2 amounts = debit + balance, or credit + balance).
- */
-function parseGenericBankPDF(text: string): ParsedRow[] {
+function aiResultsToParsedRows(aiRows: AiExtractedTransaction[]): ParsedRow[] {
   const results: ParsedRow[] = [];
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l);
 
-  const dateRe = /^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/;
-  const amountRe = /\d{1,3}(?:,\d{3})*\.\d{2}/g;
+  for (const row of aiRows) {
+    try {
+      const date = parseDate(row.date);
+      if (!date) continue;
 
-  for (const line of lines) {
-    const dateMatch = line.match(dateRe);
-    if (!dateMatch) continue;
+      const description = (row.description ?? '').trim();
+      if (!description) continue;
 
-    const date = parseDate(dateMatch[1]);
-    if (!date) continue;
+      const rawAmount = typeof row.amount === 'number' ? row.amount : parseFloat(String(row.amount));
+      if (!rawAmount || isNaN(rawAmount) || rawAmount <= 0) continue;
 
-    // Extract all money-like values from the line
-    const rawAmounts: string[] = line.match(amountRe) ?? [];
-    if (rawAmounts.length === 0) continue;
+      const amountMinor = Math.round(rawAmount * 100);
+      const direction: Direction = row.direction === 'credit' ? 'credit' : 'debit';
+      const curRaw = (row.currency ?? 'NGN').toUpperCase();
+      const currency: Currency = VALID_CURRENCIES.has(curRaw) ? (curRaw as Currency) : 'NGN';
 
-    const amounts = rawAmounts.map(parseAmount).filter((a): a is number => a !== null && a > 0);
-    if (amounts.length === 0) continue;
-
-    // Extract description: text between date and first amount
-    const afterDate = line.slice(dateMatch[0].length).trim();
-    const descEnd = afterDate.search(/\d{1,3}(?:,\d{3})*\.\d{2}/);
-    const description = descEnd > 0 ? afterDate.slice(0, descEnd).trim() : afterDate.split(/\s{2,}/)[0].trim();
-
-    if (!description || description.length < 2) continue;
-
-    // Determine direction: look for CR/DR markers
-    const lineUpper = line.toUpperCase();
-    let direction: Direction = 'debit';
-    if (lineUpper.includes(' CR') || lineUpper.match(/\bCREDIT\b/)) {
-      direction = 'credit';
+      results.push({
+        date,
+        description,
+        amount: amountMinor,
+        currency,
+        amountNgn: amountMinor,
+        fxRate: 1,
+        direction,
+        type: 'uncategorised',
+        externalRef: makeExternalRef(date, description, amountMinor, direction),
+        taxYear: new Date(date).getUTCFullYear(),
+      });
+    } catch {
+      // Skip malformed rows
     }
-
-    // Use first amount as transaction amount (last is typically balance)
-    const amount = amounts[0];
-    if (!amount) continue;
-
-    results.push({
-      date,
-      description,
-      amount,
-      currency: 'NGN',
-      amountNgn: amount,
-      fxRate: 1,
-      direction,
-      type: 'uncategorised',
-      externalRef: makeExternalRef(date, description, amount, direction),
-      taxYear: new Date(date).getUTCFullYear(),
-    });
   }
 
   return results;
@@ -484,18 +525,8 @@ function parseGenericBankPDF(text: string): ParsedRow[] {
 
 async function parsePDF(buffer: Buffer): Promise<ParsedRow[]> {
   const text = await extractPdfText(buffer);
-  const bankFormat = detectBankFormat(text);
-
-  switch (bankFormat) {
-    case 'gtbank':
-      return parseGTBankPDF(text);
-    case 'zenith':
-      return parseZenithPDF(text);
-    case 'access':
-      return parseAccessPDF(text);
-    default:
-      return parseGenericBankPDF(text);
-  }
+  const aiRows = await callClaudeForPdfParse(text);
+  return aiResultsToParsedRows(aiRows);
 }
 
 // ─────────────────────────────────────────────
@@ -507,14 +538,17 @@ export const processImport = action({
     jobId: v.id('importJobs'),
   },
   handler: async (ctx, { jobId }) => {
-    // Fetch the job record
+    console.log(`[importPipeline] processImport started for job ${jobId}`);
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const job = await ctx.runQuery((internal as any).importHelpers.getJob, { jobId });
     if (!job) throw new Error('Import job not found');
 
     const { entityId, userId, storageId, source } = job;
+    console.log(`[importPipeline] Job details — source: ${source}, storageId: ${storageId}`);
 
     if (!storageId) {
+      console.error('[importPipeline] No storageId on job');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await ctx.runMutation((internal as any).importHelpers.setJobFailed, {
         jobId,
@@ -523,7 +557,6 @@ export const processImport = action({
       return;
     }
 
-    // Mark job as processing
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await ctx.runMutation((internal as any).importHelpers.setJobProcessing, { jobId });
 
@@ -531,14 +564,13 @@ export const processImport = action({
     let parseError: string | null = null;
 
     try {
-      // Download file from Convex Storage
       const blob = await ctx.storage.get(storageId);
       if (!blob) throw new Error('File not found in storage');
 
       const arrayBuf = await blob.arrayBuffer();
       const buffer = Buffer.from(arrayBuf);
+      console.log(`[importPipeline] File downloaded — ${buffer.length} bytes`);
 
-      // Detect format: use job source field, or sniff first bytes (CSV is text, PDF starts with %PDF)
       const isPdf =
         source === 'pdf' ||
         (buffer.length > 4 &&
@@ -547,15 +579,19 @@ export const processImport = action({
           buffer[2] === 0x44 && // D
           buffer[3] === 0x46);  // F
 
+      console.log(`[importPipeline] Format detected: ${isPdf ? 'PDF' : 'CSV'}`);
+
       if (isPdf) {
         parsed = await parsePDF(buffer);
       } else {
-        // CSV (and other text-based formats)
         const text = buffer.toString('utf-8');
         parsed = parseCSV(text);
       }
+
+      console.log(`[importPipeline] Parsing complete — ${parsed.length} rows extracted`);
     } catch (err: unknown) {
       parseError = err instanceof Error ? err.message : String(err);
+      console.error(`[importPipeline] Parse error: ${parseError}`);
     }
 
     if (parseError !== null) {
@@ -570,27 +606,33 @@ export const processImport = action({
       return;
     }
 
-    // If we parsed 0 rows, mark as failed with a descriptive error
-    // (but still succeed if the file was valid yet empty)
     const totalParsed = parsed.length;
+    console.log(`[importPipeline] Total parsed: ${totalParsed}`);
 
-    // Insert parsed transactions (with dedup)
+    // Insert parsed transactions in chunks to stay within Convex mutation limits.
+    const IMPORT_CHUNK_SIZE = 100;
     let totalImported = 0;
     let duplicatesSkipped = 0;
     let insertError: string | null = null;
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await ctx.runMutation((internal as any).importHelpers.batchInsert, {
-        jobId,
-        entityId,
-        userId,
-        transactions: parsed,
-      });
-      totalImported = result.totalImported;
-      duplicatesSkipped = result.duplicatesSkipped;
+      for (let i = 0; i < parsed.length; i += IMPORT_CHUNK_SIZE) {
+        const chunk = parsed.slice(i, i + IMPORT_CHUNK_SIZE);
+        console.log(`[importPipeline] Inserting chunk ${Math.floor(i / IMPORT_CHUNK_SIZE) + 1} (${chunk.length} transactions)…`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await ctx.runMutation((internal as any).importHelpers.batchInsert, {
+          jobId,
+          entityId,
+          userId,
+          transactions: chunk,
+        });
+        totalImported += result.totalImported;
+        duplicatesSkipped += result.duplicatesSkipped;
+      }
+      console.log(`[importPipeline] Insert complete — imported: ${totalImported}, duplicates: ${duplicatesSkipped}`);
     } catch (err: unknown) {
       insertError = err instanceof Error ? err.message : String(err);
+      console.error(`[importPipeline] Insert error: ${insertError}`);
     }
 
     if (insertError !== null) {
@@ -606,7 +648,7 @@ export const processImport = action({
       return;
     }
 
-    // Mark import complete (AI categorisation runs separately below)
+    // Mark import complete
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await ctx.runMutation((internal as any).importHelpers.setJobComplete, {
       jobId,
@@ -615,32 +657,19 @@ export const processImport = action({
       duplicatesSkipped,
     });
 
-    // ─── AI Categorisation Pipeline ───────────────────────────────────────
-    // Runs after import is marked complete. Failure does NOT affect import.
+    // ─── Rule-Based Categorisation ──────────────────────────────────────
+    // Instant, zero API calls.  Applies high-confidence pattern matches to
+    // newly imported transactions.  Remaining uncategorised transactions
+    // surface in the triage queue where the user can opt-in to AI.
     if (totalImported > 0) {
       try {
-        // Create a categorisingJob record
-        const categorisingJobId = await ctx.runMutation(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (internal as any).aiCategoriseHelpers.createCategorisingJob,
-          {
-            entityId,
-            userId,
-            importJobId: jobId,
-            totalTransactions: totalImported,
-          }
-        );
-
-        // Run AI categorisation as a separate action
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await ctx.runAction((internal as any).aiCategorise.categoriseBatch, {
-          categorisingJobId,
-          entityId,
+        await ctx.runMutation((internal as any).importHelpers.categoriseImportByRules, {
           importJobId: jobId,
+          entityId,
         });
       } catch {
-        // AI failure is non-fatal — transactions remain as uncategorised
-        // and will surface in the triage queue
+        // Rule-based failure is non-fatal — transactions remain uncategorised
       }
     }
   },

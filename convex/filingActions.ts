@@ -51,7 +51,6 @@ function buildMinimalPdf(lines: PdfLine[]): Buffer {
   const MARGIN_LEFT = 50;
   const MARGIN_TOP = 742; // y-start (top of page, PDF coords are bottom-up)
   const MARGIN_BOTTOM = 50;
-  const LINE_HEIGHT_BASE = 14; // base leading in points
 
   // ── Build content stream ──────────────────────────────────────────────────
   let stream = '';
@@ -237,7 +236,7 @@ function buildPdfLines(
   const dataRow = (label: string, value: string, indent = 0): void => {
     row(label, value, indent).forEach((l) => lines.push(l));
   };
-  const blank = (): void => lines.push({ text: '', size: 4 });
+  const blank = () => { lines.push({ text: '', size: 4 }); };
 
   // ── Cover ─────────────────────────────────────────────────────────────────
   lines.push({ text: 'FEDERAL INLAND REVENUE SERVICE (FIRS)', bold: true, size: 14, spaceBefore: 0 });

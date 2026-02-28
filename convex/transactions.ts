@@ -125,8 +125,8 @@ export const list = query({
     const categoryIds = [...new Set(transactions.flatMap((t) => (t.categoryId ? [t.categoryId] : [])))];
     const categoryMap = new Map<string, { name: string; color?: string; icon?: string }>();
     for (const catId of categoryIds) {
-      const cat = await ctx.db.get(catId);
-      if (cat) categoryMap.set(catId, { name: cat.name, color: cat.color, icon: cat.icon });
+      const cat = await ctx.db.get(catId as any);
+      if (cat && 'name' in cat) categoryMap.set(catId as string, { name: (cat as any).name, color: (cat as any).color, icon: (cat as any).icon });
     }
 
     const enriched = transactions.map((t) => ({

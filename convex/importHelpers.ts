@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
+import { categorise } from './ruleBasedCategoriser';
 
 const currencyValidator = v.union(
   v.literal('NGN'),
@@ -92,6 +93,10 @@ export const setJobFailed = internalMutation({
 /**
  * Batch insert parsed transactions with dedup logic.
  * Deduplicates on (entityId, date, amount, description) and externalRef.
+ *
+ * Pre-fetches existing transactions for the relevant dates in bulk to avoid
+ * per-transaction queries that blow past Convex's 32k read limit.
+ *
  * Returns { totalImported, duplicatesSkipped }.
  */
 export const batchInsert = internalMutation({
@@ -120,37 +125,37 @@ export const batchInsert = internalMutation({
     let duplicatesSkipped = 0;
     const now = Date.now();
 
-    for (const tx of args.transactions) {
-      // Primary dedup: match by entityId + date + amount + description
-      const existing = await ctx.db
+    // Pre-fetch existing transactions for the dates we're about to insert.
+    // One query per unique date (very selective via the composite index).
+    const uniqueDates = [...new Set(args.transactions.map((tx) => tx.date))];
+
+    const existingKeySet = new Set<string>();
+    const existingRefSet = new Set<string>();
+
+    for (const date of uniqueDates) {
+      const rows = await ctx.db
         .query('transactions')
         .withIndex('by_entityId_date', (q) =>
-          q.eq('entityId', args.entityId).eq('date', tx.date)
+          q.eq('entityId', args.entityId).eq('date', date)
         )
-        .filter((q) =>
-          q.and(
-            q.eq(q.field('amount'), tx.amount),
-            q.eq(q.field('description'), tx.description)
-          )
-        )
-        .first();
+        .collect();
 
-      if (existing) {
+      for (const row of rows) {
+        existingKeySet.add(`${row.date}|${row.amount}|${row.description}`);
+        if (row.externalRef) existingRefSet.add(row.externalRef);
+      }
+    }
+
+    for (const tx of args.transactions) {
+      const dedupKey = `${tx.date}|${tx.amount}|${tx.description}`;
+      if (existingKeySet.has(dedupKey)) {
         duplicatesSkipped++;
         continue;
       }
 
-      // Secondary dedup: match by externalRef within entity
-      if (tx.externalRef) {
-        const byRef = await ctx.db
-          .query('transactions')
-          .withIndex('by_entityId_date', (q) => q.eq('entityId', args.entityId))
-          .filter((q) => q.eq(q.field('externalRef'), tx.externalRef))
-          .first();
-        if (byRef) {
-          duplicatesSkipped++;
-          continue;
-        }
+      if (tx.externalRef && existingRefSet.has(tx.externalRef)) {
+        duplicatesSkipped++;
+        continue;
       }
 
       await ctx.db.insert('transactions', {
@@ -172,9 +177,74 @@ export const batchInsert = internalMutation({
         createdAt: now,
         updatedAt: now,
       });
+
+      // Track newly inserted transactions so intra-batch duplicates are caught
+      existingKeySet.add(dedupKey);
+      if (tx.externalRef) existingRefSet.add(tx.externalRef);
       totalImported++;
     }
 
     return { totalImported, duplicatesSkipped };
+  },
+});
+
+const RULE_CONFIDENCE_THRESHOLD = 0.7;
+
+/**
+ * Apply rule-based categorisation to all uncategorised transactions from an
+ * import job.  Runs synchronously in a mutation (no API calls).  High-confidence
+ * matches (≥0.7) are applied directly; lower-confidence results are left for
+ * AI or manual triage.
+ */
+export const categoriseImportByRules = internalMutation({
+  args: {
+    importJobId: v.id('importJobs'),
+    entityId: v.id('entities'),
+  },
+  handler: async (ctx, args) => {
+    const allCategories = await ctx.db
+      .query('categories')
+      .filter((q) => q.eq(q.field('isSystem'), true))
+      .collect();
+    const categoryByName = new Map(
+      allCategories.map((c) => [c.name, c])
+    );
+
+    const transactions = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_date', (q) => q.eq('entityId', args.entityId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('importJobId'), args.importJobId),
+          q.eq(q.field('type'), 'uncategorised')
+        )
+      )
+      .collect();
+
+    let categorised = 0;
+    const now = Date.now();
+
+    for (const tx of transactions) {
+      const result = categorise(tx.description, tx.amount, tx.direction);
+
+      if (
+        result.categoryName &&
+        result.confidence >= RULE_CONFIDENCE_THRESHOLD
+      ) {
+        const category = categoryByName.get(result.categoryName);
+        if (category) {
+          await ctx.db.patch(tx._id, {
+            categoryId: category._id,
+            type: category.type,
+            isDeductible: category.isDeductibleDefault ?? false,
+            enrichedDescription: result.subcategory,
+            updatedAt: now,
+          });
+          categorised++;
+        }
+      }
+    }
+
+    return { total: transactions.length, categorised };
   },
 });

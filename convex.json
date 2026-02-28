@@ -2,7 +2,11 @@
   "functions": "convex/",
   "generateCommonJSApi": false,
   "node": {
-    "externalPackages": []
+    "externalPackages": [
+      "@anthropic-ai/sdk",
+      "firebase-admin",
+      "pdf-parse"
+    ]
   }
 }
 

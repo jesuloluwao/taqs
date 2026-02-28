@@ -45,7 +45,6 @@ const CIT_SMALL_CO_ASSETS_CAP   = KOBO(250_000_000); // ₦250m gross fixed asse
 const CGT_LLC_RATE              = 0.30;            // 30% flat for LLCs
 
 // VAT constants (NTA 2025 §5.10)
-const VAT_RATE                  = 0.075;           // 7.5%
 const VAT_INCLUSIVE_FACTOR      = 7.5 / 107.5;    // back-calculation from VAT-inclusive amount
 
 /** Currencies supported for amountNgn computation. */

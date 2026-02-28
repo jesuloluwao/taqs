@@ -1,8 +1,6 @@
 import { SignUp, useAuth } from '@clerk/clerk-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '@convex/_generated/api';
 
 const clerkAppearance = {
   variables: {
@@ -18,9 +16,13 @@ const clerkAppearance = {
     borderRadius: '8px',
     spacingUnit: '4px',
   },
+  layout: {
+    socialButtonsPlacement: 'top' as const,
+  },
   elements: {
-    rootBox: 'w-full',
-    card: 'shadow-none border-0 p-0',
+    rootBox: 'w-full max-w-none',
+    cardBox: 'w-full max-w-none shadow-none',
+    card: 'shadow-none border-0 p-0 w-full max-w-none',
     headerTitle: 'hidden',
     headerSubtitle: 'hidden',
     socialButtonsBlockButton:
@@ -46,18 +48,13 @@ const clerkAppearance = {
 export default function SignUpPage() {
   const { isSignedIn, isLoaded } = useAuth();
   const navigate = useNavigate();
-  const me = useQuery(api.userCrud.getMe);
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (isSignedIn && me !== undefined) {
-      if (me?.onboardingComplete) {
-        navigate('/app/dashboard', { replace: true });
-      } else {
-        navigate('/app/onboarding', { replace: true });
-      }
+    if (isSignedIn) {
+      navigate('/app/onboarding', { replace: true });
     }
-  }, [isLoaded, isSignedIn, me, navigate]);
+  }, [isLoaded, isSignedIn, navigate]);
 
   if (!isLoaded || isSignedIn) {
     return (
@@ -69,7 +66,7 @@ export default function SignUpPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-sm animate-slide-up">
+      <div className="w-full max-w-md animate-slide-up">
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2">

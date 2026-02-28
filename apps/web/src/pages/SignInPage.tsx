@@ -18,9 +18,13 @@ const clerkAppearance = {
     borderRadius: '8px',
     spacingUnit: '4px',
   },
+  layout: {
+    socialButtonsPlacement: 'top' as const,
+  },
   elements: {
-    rootBox: 'w-full',
-    card: 'shadow-none border-0 p-0',
+    rootBox: 'w-full max-w-none',
+    cardBox: 'w-full max-w-none shadow-none',
+    card: 'shadow-none border-0 p-0 w-full max-w-none',
     headerTitle: 'hidden',
     headerSubtitle: 'hidden',
     socialButtonsBlockButton:
@@ -46,16 +50,15 @@ const clerkAppearance = {
 export default function SignInPage() {
   const { isSignedIn, isLoaded } = useAuth();
   const navigate = useNavigate();
-  const me = useQuery(api.userCrud.getMe);
+  const me = useQuery(api.userCrud.getMe, isSignedIn ? {} : "skip");
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (isSignedIn && me !== undefined) {
-      if (me?.onboardingComplete) {
-        navigate('/app/dashboard', { replace: true });
-      } else {
-        navigate('/app/onboarding', { replace: true });
-      }
+    if (!isLoaded || !isSignedIn) return;
+    if (me === undefined) return; // still loading
+    if (me?.onboardingComplete) {
+      navigate('/app/dashboard', { replace: true });
+    } else {
+      navigate('/app/onboarding', { replace: true });
     }
   }, [isLoaded, isSignedIn, me, navigate]);
 
@@ -69,7 +72,7 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-sm animate-slide-up">
+      <div className="w-full max-w-md animate-slide-up">
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2">

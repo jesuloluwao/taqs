@@ -5,47 +5,68 @@ import { getCurrentUser } from './auth';
 type SystemCategory = {
   name: string;
   type: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  direction: 'credit' | 'debit' | 'both';
   isDeductibleDefault?: boolean;
   ntaReference?: string;
 };
 
 const SYSTEM_CATEGORIES: SystemCategory[] = [
-  // Income
-  { name: 'Freelance/Client Income', type: 'income' },
-  { name: 'Foreign Income', type: 'income' },
-  { name: 'Investment Returns', type: 'income' },
-  { name: 'Rental Income', type: 'income' },
+  // ── Income (credit / inflow) ──────────────────────────────────────────
+  { name: 'Freelance/Client Income', type: 'income', direction: 'credit' },
+  { name: 'Business Revenue', type: 'income', direction: 'credit' },
+  { name: 'Commission Income', type: 'income', direction: 'credit' },
+  { name: 'Salary/PAYE', type: 'income', direction: 'credit', ntaReference: 'Excluded from self-assessment — already taxed at source' },
+  { name: 'Foreign Income', type: 'income', direction: 'credit' },
+  { name: 'Investment Returns', type: 'income', direction: 'credit' },
+  { name: 'Rental Income', type: 'income', direction: 'credit' },
+  { name: 'Digital Asset Income', type: 'income', direction: 'credit', ntaReference: 'NTA 2025 — crypto/virtual asset gains' },
+  { name: 'Other Taxable Income', type: 'income', direction: 'credit' },
 
-  // Business expenses (deductible)
-  { name: 'Internet & Data', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Electricity & Fuel', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Software Subscriptions', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Equipment Purchase', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Professional Development', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Workspace/Rent', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Transport (Business)', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Marketing & Advertising', type: 'business_expense', isDeductibleDefault: true },
-  { name: 'Bank Charges', type: 'business_expense', isDeductibleDefault: true },
+  // ── Business expenses (debit / outflow, deductible) ───────────────────
+  { name: 'Internet & Data', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Electricity & Fuel', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Software Subscriptions', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Equipment Purchase', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Professional Development', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Workspace/Rent', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Transport (Business)', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Marketing & Advertising', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Bank Charges', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Professional Services', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Content Creation & Production', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
+  { name: 'Insurance (Business)', type: 'business_expense', direction: 'debit', isDeductibleDefault: true },
 
-  // Personal expenses
-  { name: 'Personal — Groceries', type: 'personal_expense', isDeductibleDefault: false },
-  { name: 'Personal — Entertainment', type: 'personal_expense', isDeductibleDefault: false },
+  // ── Personal expenses (debit / outflow, non-deductible) ───────────────
+  { name: 'Personal — Groceries', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Entertainment', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Shopping/Clothing', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Health/Medical', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Transport', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Housing & Utilities', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
+  { name: 'Personal — Other', type: 'personal_expense', direction: 'debit', isDeductibleDefault: false },
 
-  // Transfers
-  { name: 'Transfer (Own Account)', type: 'transfer' },
-  { name: 'Loan Disbursement', type: 'transfer' },
-  { name: 'Refund/Reimbursement', type: 'transfer' },
+  // ── Transfers (direction varies) ──────────────────────────────────────
+  { name: 'Transfer (Own Account)', type: 'transfer', direction: 'both' },
+  { name: 'Loan Disbursement', type: 'transfer', direction: 'credit' },
+  { name: 'Loan Repayment', type: 'transfer', direction: 'debit' },
+  { name: 'Refund/Reimbursement', type: 'transfer', direction: 'credit' },
+  { name: 'Gift (Non-Taxable)', type: 'transfer', direction: 'both' },
+  { name: 'Capital Injection', type: 'transfer', direction: 'credit' },
+  { name: 'Savings/Investment Transfer', type: 'transfer', direction: 'debit' },
 ];
 
 /**
- * Idempotent seed mutation — inserts all system categories.
- * Safe to run multiple times; skips categories that already exist by name+type.
+ * Idempotent seed mutation — inserts or updates all system categories.
+ * Safe to run multiple times; existing rows are patched with any new fields
+ * (e.g. `direction`), and missing categories are inserted.
  */
 export const seed = mutation({
   args: {},
   handler: async (ctx) => {
+    let inserted = 0;
+    let updated = 0;
+
     for (const cat of SYSTEM_CATEGORIES) {
-      // Check if a system category with the same name and type already exists
       const existing = await ctx.db
         .query('categories')
         .withIndex('by_type', (q) => q.eq('type', cat.type))
@@ -57,19 +78,33 @@ export const seed = mutation({
         )
         .first();
 
-      if (!existing) {
+      if (existing) {
+        const needsPatch =
+          existing.direction !== cat.direction ||
+          existing.isDeductibleDefault !== cat.isDeductibleDefault ||
+          existing.ntaReference !== cat.ntaReference;
+        if (needsPatch) {
+          await ctx.db.patch(existing._id, {
+            direction: cat.direction,
+            isDeductibleDefault: cat.isDeductibleDefault,
+            ntaReference: cat.ntaReference,
+          });
+          updated++;
+        }
+      } else {
         await ctx.db.insert('categories', {
           name: cat.name,
           type: cat.type,
+          direction: cat.direction,
           isSystem: true,
           isDeductibleDefault: cat.isDeductibleDefault,
           ntaReference: cat.ntaReference,
-          // userId is null/undefined for system categories
         });
+        inserted++;
       }
     }
 
-    return { seeded: SYSTEM_CATEGORIES.length };
+    return { total: SYSTEM_CATEGORIES.length, inserted, updated };
   },
 });
 
