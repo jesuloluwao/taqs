@@ -1,0 +1,935 @@
+{
+  "project": "Practice Management",
+  "branchName": "ralph/practice-management-platform",
+  "description": "Practice Management Platform - Complete ground-up build with Next.js, ShadCN, Convex, and Clerk",
+  "prdContext": {
+    "PRD-002": {
+      "name": "Email Ticketing Module",
+      "overview": "A Zendesk-inspired helpdesk system for managing incoming email communications. The module enables teams to connect email inboxes, automatically route incoming emails to queues, assign tickets to groups or individuals, track SLAs, and maintain organized views of all communications.",
+      "background": "Accounting firms and professional services organizations receive high volumes of client communications via email. Traditional email management approaches (folder-based routing, manual assignment) fail to scale and make it difficult to track response times, ensure accountability, and maintain service quality. A proper ticketing system provides the structure needed for efficient team collaboration, SLA compliance, and comprehensive reporting.",
+      "goals": [
+        "Centralized Email Management: Connect multiple email inboxes and manage all incoming communications from a single interface",
+        "Queue-Based Organization: Route tickets to queues based on configurable rules (inbox source, client, keywords)",
+        "Flexible Assignment: Assign tickets to groups (teams) or individual agents with clear accountability",
+        "SLA Compliance: Track response times and resolution times with configurable SLA policies",
+        "Powerful Views: Create filtered views across queues for efficient ticket management",
+        "Team Collaboration: Internal notes, collision detection, and shared macros for team efficiency",
+        "Integration: Link tickets to work items, clients, and other modules"
+      ],
+      "coreConcepts": {
+        "ConnectedInbox": "An email account (Gmail, Outlook, Exchange) connected via OAuth. Emails arriving at connected inboxes automatically become tickets.",
+        "Queue": "A named container for organizing tickets (backend concept for routing and SLA assignment). Users primarily interact with Views, not Queues directly.",
+        "Group": "A team of agents who can be assigned tickets. Tickets can be assigned to a group (any member can pick it up) or to a specific agent.",
+        "View": "A saved filter that displays tickets matching certain criteria. Views are the primary user-facing navigation for accessing tickets.",
+        "Ticket": "The core entity representing an email conversation with status lifecycle, assignment, tags, priority, and SLA tracking.",
+        "SLAPolicy": "Time-based targets for ticket handling (first response, next response, resolution time) with business hours and escalations.",
+        "Macro": "A reusable action template that applies multiple changes to a ticket at once (canned response, status, assignment, tags)."
+      }
+    },
+    "PRD-003": {
+      "name": "Work Module",
+      "overview": "The Work Module is the core/main part of the entire system. This is where all client work is tracked, managed, and monitored. It provides template-driven work creation, task management, time tracking integration, budget management, and workflow automation.",
+      "background": "This is a practice management solution for accounting firms serving multiple clients. The Work Module is designed around the client-service relationship model where firms have agreed-upon services with clients defined in Statements of Work (SOW). Work items represent the actual work being performed, and templates standardize service delivery across clients.",
+      "goals": [
+        "Work Management: Track and manage all client work items",
+        "Template System: Standardize work structures using templates",
+        "Task Management: Break down work into manageable tasks with optional checklists",
+        "Automation: Automatically create recurring work items",
+        "Budget Tracking: Monitor time and budget against work items",
+        "Collaboration: Enable team collaboration on work items",
+        "Visibility: Provide multiple views (List, Kanban) with saved view configurations",
+        "Efficiency: Support bulk operations for managing large numbers of items",
+        "Organization: Enable favorites and archiving for work item lifecycle management"
+      ]
+    },
+    "PRD-004": {
+      "name": "Contact Module",
+      "overview": "Provides contact and client relationship management (CRM) functionality using a Zendesk-style model where Contacts (people) can exist standalone or belong to Organizations (companies). Organizations can have multiple email domains, enabling automatic contact association.",
+      "background": "Accounting firms need to manage relationships with clients, vendors, and other contacts. The Contact Module serves as the central repository for all contact information and enables firms to organize contacts by type, group them, and associate them with work items and other system entities.",
+      "goals": [
+        "Contact Management: Centralized contact database for people and organizations",
+        "Smart Association: Automatic contact-to-organization linking via email domain matching",
+        "Domain Management: Organizations can own multiple email domains for auto-association",
+        "Flexible Grouping: Client groups and segments for organizing contacts",
+        "Customization: Custom fields for firm-specific data capture",
+        "Integration: Link contacts to work items, emails, and other entities",
+        "Client Portal: Support for client portal access"
+      ],
+      "coreConcepts": {
+        "Contact": "An individual person. Contacts can be standalone (not associated with any organization) or organization members (associated with an organization, either manually or via auto-association).",
+        "Organization": "A company or entity. Organizations have one or more email domains and can have multiple contacts (people) associated with them. Domains are unique across the tenant - a domain can only belong to one organization.",
+        "Auto-Association": "When a contact is created with an email address, the system checks if the email domain matches any organization's domains. If a match is found, the contact is automatically associated with that organization and flagged as autoAssociated: true.",
+        "Client Group": "Manual groupings of contacts and/or organizations for organizing related entities.",
+        "Segment": "Dynamic groups based on filter criteria. Segment membership updates automatically as contacts match criteria."
+      }
+    },
+    "PRD-005": {
+      "name": "Time Tracking Module",
+      "overview": "Provides built-in time tracking functionality that integrates directly with work items. The module enables users to track time using stopwatches or manual entry, view timesheets, and analyze team utilization.",
+      "background": "Time tracking is essential for accounting firms to bill clients accurately and monitor project profitability. The Time Tracking Module provides a seamless way for team members to log their time against work items, with automatic aggregation and billing integration.",
+      "goals": [
+        "Time Entry: Enable users to log time against work items",
+        "Stopwatch Functionality: Provide timer-based time tracking",
+        "Timesheet Management: Display and manage time entries in timesheet format",
+        "Utilization Reporting: Track team member utilization and capacity",
+        "Integration: Seamless integration with work items and billing",
+        "Billing Integration: Support conversion of time entries to billable items"
+      ],
+      "coreConcepts": {
+        "Time Entry": "A record of time worked on a work item, including date, hours, role, task type, notes, billing rate, and billable status.",
+        "Stopwatch": "A running timer that tracks elapsed time. Only one stopwatch can run per user at a time. Stopwatches persist across page navigation and browser sessions (within 24 hours).",
+        "Timesheet": "A collection of time entries organized by period (weekly, bi-weekly, or monthly). Users can view current and historical timesheets.",
+        "Utilization": "A metric showing hours worked vs. capacity. Capacity is configurable per user (default 8 hours/day, 40 hours/week). Utilization percentage = (hoursWorked / capacity) * 100.",
+        "Billing Rate Hierarchy": "Rates are resolved in order: work item rate > user rate > role rate > default rate. If no rate found, use $0.00 and flag for administrator review.",
+        "Locked Entry": "A time entry that has been finalized and cannot be edited or deleted. Locked entries are included in billing runs."
+      }
+    },
+    "PRD-006": {
+      "name": "Billing Module",
+      "overview": "Provides comprehensive billing, invoicing, and financial management functionality. The module enables firms to track unbilled time, create invoices, process billing runs, manage receivables, and analyze financial performance.",
+      "background": "Billing is a critical function for accounting firms. The Billing Module integrates with time tracking to convert time entries into billable items, generates invoices, tracks receivables, and provides financial reporting. Most accounting firm clients operate under fixed Statements of Work (SOW) that define agreed services and pricing. The system must track actual work against SOW commitments to identify scope creep and ensure profitability.",
+      "goals": [
+        "SOW Management: Create and manage Statements of Work that define client agreements, deliverables, and pricing",
+        "Scope Creep Detection: Compare actual work against SOW budgets to identify profitability issues",
+        "Fixed Fee Billing: Support billing against SOW milestones, schedules, or progress",
+        "Unbilled Tracking: Track time entries that haven't been billed",
+        "Invoice Creation: Generate invoices from time entries, work items, or SOW schedules",
+        "Billing Runs: Process multiple invoices in batch",
+        "Receivables Management: Track outstanding invoices and payments",
+        "Financial Reporting: Provide realization, receivables, scope analysis, and financial reports",
+        "Recurring Billing: Support automated recurring billing"
+      ],
+      "coreConcepts": {
+        "Statement of Work (SOW)": "A client agreement defining services, deliverables, and pricing. SOWs track actual work against budgets to identify scope creep. Status workflow: Draft → Active → Complete/Cancelled.",
+        "SOW Deliverable": "A specific service or output within an SOW with budgeted hours, fixed amount, and billing trigger. Deliverables can be linked to work items to track actual vs budgeted time/cost.",
+        "Scope Creep": "When actual work exceeds SOW budget. System calculates variance (hours and cost) and flags SOWs as On Track (0-10% over), At Risk (10-25% over), or Over Budget (>25% over).",
+        "Billing Run": "Batch processing that groups unbilled time entries by client and creates multiple invoices at once. Tracks status (Pending → Processing → Completed/Failed) and errors.",
+        "Invoice": "A billable document with line items from time entries or fixed fees. Status: Draft → Sent → Paid/Overdue. Invoice numbers format: INV-YYYY-NNNN.",
+        "Payment": "Record of payment against an invoice. Supports partial payments. Can be edited within edit window (default 7 days) or voided within void window (default 30 days).",
+        "Recurring Billing": "Automated billing configuration that generates invoices on schedule (Monthly, Quarterly, Annually). Can be Fixed Amount or Time-Based (bills unbilled time entries).",
+        "Change Order": "Modification to an SOW (add deliverable, modify deliverable, price adjustment). Tracks approval status and maintains change history."
+      }
+    },
+    "CHANGE-028": {
+      "name": "SOW Document Uploads",
+      "overview": "Add document upload capability to SOWs, allowing users to store signed service agreements, contracts, and engagement letters directly with each SOW.",
+      "background": "SOWs currently have no way to store associated documents. Users must store documents in external systems and manually track which SOW corresponds to which signed document, leading to disconnected information, manual tracking, compliance risk, and duplicate effort.",
+      "goals": [
+        "Centralized Storage: Store signed agreements and related documents directly with SOWs",
+        "Audit Trail: Track upload timestamp and uploader for compliance",
+        "Access Control: Restrict uploads/deletes based on SOW status (Draft/Active only)",
+        "File Management: Support upload, download, delete, and description editing for documents"
+      ]
+    },
+    "PRD-014": {
+      "name": "Queue Management & Ticket Enhancements",
+      "overview": "Queue management system that organizes tickets by client and enables team members to manage their client workload. Includes category/subcategory system for ticket classification.",
+      "background": "Users need to see tickets organized by client (their 'triage boxes'), be assigned to specific client queues they're responsible for, manage queue configuration (which inboxes feed which queues, who's assigned), and classify tickets by category for reporting and filtering.",
+      "goals": [
+        "Client Organization: Organize tickets by client through queues linked to organizations",
+        "Queue Management: Configure which inboxes feed which queues and assign team members",
+        "Queue Visibility: Show assigned queues in sidebar for quick access",
+        "Ticket Classification: Categorize tickets by type (Tax, AP, AR, etc.) for reporting and filtering",
+        "Team Assignment: Assign team members to queues they're responsible for",
+        "Auto-Routing: Automatically route tickets to queues based on connected inbox configuration"
+      ],
+      "coreConcepts": {
+        "Queue": "A named container for organizing tickets. Every connected inbox feeds into exactly one queue. A queue can optionally link to an organization (client). Queues without organizations are 'general queues'.",
+        "Queue Membership": "Assignment of users to queues they're responsible for. Determines what appears in sidebar and filtered views. Roles: member or manager (managers can edit queue settings).",
+        "Category": "Classification of ticket TYPE (Tax, AP, AR, etc.). Categories are separate from Queues - categories classify type, queues organize by client. Maximum depth: 2 levels (Category → Subcategory only).",
+        "Inbox → Queue → Organization": "Architecture: Every connected inbox feeds into exactly one queue. A queue can receive from multiple inboxes. A queue optionally links to an organization (client)."
+      }
+    },
+    "PRD-016": {
+      "name": "Recurring Work & Automation",
+      "overview": "Enables accounting firms to automate the creation of recurring work items for clients. The system introduces a subscription model where clients are subscribed to work templates, each with customizable schedules, and work items are automatically created based on those schedules.",
+      "background": "Accounting firms perform recurring work for clients on predictable schedules: monthly accounts payable processing, quarterly tax estimates, annual tax returns, weekly payroll, etc. Currently, users must manually create each work item, which is time-consuming, error-prone, and inconsistent. The Recurring Work system solves this by allowing firms to define templates with default schedules, subscribing clients to templates with customizable settings, automatically creating work items on schedule, and providing visibility into upcoming and past automation activity.",
+      "goals": [
+        "Automation: Automatically create recurring work items based on schedules",
+        "Flexibility: Allow per-client customization of schedules, budgets, and team assignments",
+        "Visibility: Provide dashboards showing upcoming work and automation history",
+        "Control: Enable pause, skip, and manual trigger capabilities",
+        "Bulk Operations: Support mass-subscribing clients to templates",
+        "Consistency: Ensure all recurring work follows template structure",
+        "Auditability: Track who created subscriptions and when automation ran"
+      ],
+      "coreConcepts": {
+        "Recurring Work": "A per-client subscription to a template that defines when and how work items are automatically created. Links Client ↔ Template with customizable schedule, budget, and team settings.",
+        "Schedule Configuration": "Defines frequency (Weekly, Monthly, Quarterly, Annually), day specification, due date offset (days after period end), and lead time (days before due to create work).",
+        "Automation Run": "A record of when automation executed, tracking which subscriptions were processed, work items created, errors encountered, and overall status.",
+        "Period": "The time range the work covers, stored in ISO 8601 format (YYYY-MM), e.g., '2026-01' for January 2026."
+      }
+    },
+    "PRD-013": {
+      "name": "API Architecture",
+      "overview": "Defines the external API architecture for third-party integrations. Provides REST API endpoints with API key authentication, webhooks for event notifications, auto-generated OpenAPI documentation, and admin interfaces for managing API credentials.",
+      "background": "The platform has a robust internal API via Convex queries and mutations authenticated through Clerk. However, third-party systems (Zapier, accounting software, custom integrations) need a way to interact with the platform programmatically. This requires API key authentication (external systems don't have Clerk sessions), RESTful HTTP endpoints (universal compatibility), webhooks (push notifications when events occur), auto-generated documentation (always in sync), and admin UI for managing keys and webhooks.",
+      "goals": [
+        "External API Access: Enable third-party integrations via REST API with API key authentication",
+        "Developer Experience: Auto-generated OpenAPI documentation that stays in sync with code",
+        "Security: Scoped API keys with granular permissions and usage tracking",
+        "Webhooks: Event-driven notifications for external systems",
+        "Admin Control: Settings pages for API key and webhook management",
+        "Observability: Usage metrics, rate limiting, and audit logs"
+      ],
+      "coreConcepts": {
+        "API Key": "A credential for external API access with scoped permissions. Keys have a prefix (pm_live_ or pm_test_), environment (test/live), and permission scopes. Full key shown only once on creation; only hash stored.",
+        "Scope": "Permission granted to an API key (e.g., work:read, contacts:write). Scopes limit what operations a key can perform. Common bundles: Read Only, Full Access, Accounting Integration.",
+        "Webhook Endpoint": "A URL that receives HTTP POST notifications when events occur. Endpoints subscribe to specific events, receive HMAC-signed payloads, and auto-disable after consecutive failures.",
+        "Webhook Delivery": "A record of an attempt to deliver a webhook payload, including status, HTTP response, attempts count, and retry scheduling.",
+        "Rate Limiting": "Limits on API requests per minute per key. Enforced at Vercel edge before compute costs. Default: 1000 requests/minute."
+      }
+    },
+    "CHANGE-003": {
+      "name": "Work Page Client-Filtered Empty State & Entry Points",
+      "overview": "Enhances the Work page when filtered to a single client by showing client context, recurring work status, and contextual empty states with direct creation paths.",
+      "background": "When users filter the Work page to a specific client with no work items, they currently see a generic 'No work items match your filters' message. This creates confusion about whether recurring work is set up, provides no clear path to create work, and requires navigation away to understand the client's automation status.",
+      "goals": [
+        "Contextual Awareness: Show client context and recurring work status when viewing a single client's work",
+        "Action-Oriented Empty States: Provide different empty state messages based on whether recurring work exists",
+        "Direct Creation Paths: Enable work creation and recurring work setup directly from the filtered Work page",
+        "Non-Intrusive: Changes only apply when filtered to exactly one client, preserving normal Work page behavior"
+      ]
+    },
+    "CHANGE-016": {
+      "name": "Recurring Work UX Improvements",
+      "overview": "Addresses multiple usability issues identified in UX journey review: adds creation paths from dashboard, concept onboarding, inline schedule configuration, bulk assignment preview, error navigation links, and filter state preservation.",
+      "background": "A UX journey review of PRD-016 identified several friction points: no creation path from dashboard, unclear concept relationships, templates without schedules creating dead-ends, ambiguous tab naming, no direct links from errors to fixes, unhelpful empty states, unclear team assignment sources, no preview for bulk assignment, unclear period selection, and filter state not preserved.",
+      "goals": [
+        "Creation Accessibility: Enable recurring work creation directly from dashboard without navigating to client first",
+        "Concept Clarity: Provide onboarding explaining Template → Subscription → Work Item relationship",
+        "Workflow Continuity: Allow inline schedule configuration when templates lack defaults",
+        "Bulk Assignment Transparency: Show preview table before bulk assignment with per-client customization",
+        "Error Resolution: Add direct navigation links from automation errors to affected subscriptions",
+        "Period Selection: Make period selection explicit when manually triggering automation",
+        "State Preservation: Preserve filters, sort, and scroll position when navigating to detail views"
+      ]
+    },
+    "PRD-018": {
+      "name": "Global Search",
+      "overview": "A powerful, unified global search system that allows users to search across all major entities in the application from a single command palette interface. The search is context-aware, keyboard-driven, and provides instant access to work items, tickets, contacts, organizations, invoices, time entries, users, and templates.",
+      "background": "Currently, the application has a non-functional search button in the header. Users must navigate to specific modules to find items, which is inefficient. A top-tier global search is a defining feature of modern productivity applications (Linear, Notion, Superhuman, Raycast) that dramatically reduces friction and enables power-user workflows.",
+      "goals": [
+        "Universal Access: Search across all major entity types from anywhere in the app",
+        "Context-Awareness: Default search scope based on current page context",
+        "Speed: Sub-200ms results for most queries",
+        "Keyboard-First: Full keyboard navigation without requiring mouse",
+        "Power User Features: Search operators, filters, and saved searches",
+        "Actionable Results: Navigate to items, or take actions directly from search"
+      ],
+      "coreConcepts": {
+        "SearchableEntityType": "The types of entities that can be searched: workItems, tickets, contacts, organizations, invoices, timeEntries, users, templates",
+        "Scope": "The entity type(s) being searched. Can be 'all' or a specific entity type. Defaults based on current page context.",
+        "Scope Prefix": "Keyboard shortcuts like 'w:' for work items, 't:' for tickets that quickly narrow search scope",
+        "Recent Search": "A saved search query with scope and filters that can be quickly re-run",
+        "Entity Access History": "Tracks which entities users access most frequently for type-ahead suggestions",
+        "Command Palette": "Action system that recognizes natural language commands like 'new ticket' or 'go to work' and executes them"
+      }
+    },
+    "CHANGE-017": {
+      "name": "Ticket List Layout Improvements",
+      "overview": "Enhances ticket list UX with preview pane mode for efficient triage, collapsible views sidebar, multi-ticket tab support, auto-advance after actions, draft auto-save, and column customization.",
+      "background": "The current ticket list design has limitations identified during UX review: no triage efficiency (40+ clicks to process 10 tickets), no multi-ticket workflow, fixed sidebar taking horizontal space, and single-task design when agents often need to reference multiple tickets simultaneously.",
+      "goals": [
+        "Triage Efficiency: Enable preview pane mode for scanning and triaging tickets without navigation",
+        "Space Optimization: Collapsible sidebar that auto-collapses in preview mode",
+        "Multi-Ticket Workflow: Tab support for working on multiple tickets simultaneously",
+        "Workflow Speed: Auto-advance after reply/note submission",
+        "Draft Protection: Auto-save drafts to prevent lost work",
+        "Personalization: Column customization for relevant information display"
+      ],
+      "coreConcepts": {
+        "PreviewMode": "Split-view layout with ticket list on left and selected ticket content on right. Single click loads ticket in preview pane without navigation.",
+        "TabSystem": "Browser-like tabs for opening multiple tickets. Each tab maintains independent state (scroll, drafts). Home icon returns to list.",
+        "AutoAdvance": "After submitting reply/note, automatically close tab (tab mode) or advance to next ticket (preview mode).",
+        "DraftAutoSave": "Drafts saved to localStorage after 2s debounce. Persist across sessions. Confirmation dialog when closing tab with draft."
+      }
+    },
+    "CHANGE-018": {
+      "name": "Preview Mode UX Redesign",
+      "overview": "Fixes critical UX issues in preview mode: transforms the list layout from a squished table to email-style cards, and fixes the sidebar hover animation to slide smoothly instead of showing a double-sidebar overlay effect.",
+      "background": "The current preview mode implementation simply compresses the table layout into less horizontal space, making columns unreadable and the interface unusable. Additionally, the sidebar hover behavior shows both the collapsed icon bar and the expanded overlay simultaneously, creating visual confusion. These issues deviate from email client patterns (Outlook, Gmail) where preview modes completely transform the list layout.",
+      "goals": [
+        "List Transformation: Completely change list layout in preview mode to email-style cards with avatar, requester, subject, snippet, and timestamp",
+        "Sidebar Animation: Fix hover behavior to slide smoothly without double-sidebar effect",
+        "Visual Polish: Ensure animations are smooth (150-200ms), with appropriate delays to prevent accidental triggers"
+      ],
+      "coreConcepts": {
+        "EmailStyleCards": "In preview mode, each ticket becomes a card showing avatar (with initials), requester name, subject (2 lines max), message snippet, relative timestamp, and status dot - instead of compressed table columns.",
+        "SidebarSlide": "When hovering over collapsed sidebar, the entire sidebar animates from 48px to 220px width with the same element sliding, not a popup overlay on top of the collapsed bar.",
+        "LayoutModeAwareness": "Components render differently based on current mode - table layout vs card layout, column settings vs sort dropdown."
+      }
+    },
+    "CHANGE-019": {
+      "name": "Ticket to Work Item Linking",
+      "overview": "Add bidirectional linking between tickets and work items with UI support for creating work items from tickets, linking existing work items, and displaying related items on both ticket and work item detail pages.",
+      "background": "Currently there is no path from tickets to work items, creating a critical workflow gap. Users cannot create work items directly from tickets, forcing manual copy-paste. When a ticket requires larger work effort, there's no way to link the ticket to the resulting work item.",
+      "goals": [
+        "Workflow Integration: Enable seamless transition from tickets (client requests) to work items (tracked deliverables)",
+        "Traceability: Maintain bidirectional links between tickets and work items",
+        "User Efficiency: Provide one-click work item creation from tickets with pre-populated context",
+        "Visibility: Show related work items on tickets and related tickets on work items"
+      ],
+      "coreConcepts": {
+        "BidirectionalLinking": "Both tickets and work items maintain arrays of linked IDs. Linking updates both entities atomically.",
+        "CreateFromTicket": "Work item creation flow that pre-populates fields from ticket data (subject, client, assignee, first message) and automatically links the entities."
+      }
+    },
+    "CHANGE-020": {
+      "name": "Work Bulk Actions UX Improvements",
+      "overview": "Replace manual user ID input and native date input in bulk actions with searchable combobox and Calendar component patterns used throughout the application.",
+      "background": "The current bulk actions implementation has severe UX issues: users must manually type user IDs (e.g., user_abc123xyz) to reassign work items, which is completely unusable. Additionally, native date inputs are inconsistent with the rest of the application.",
+      "goals": [
+        "Usability: Replace manual ID entry with searchable user/group picker",
+        "Consistency: Use Calendar component pattern for date selection",
+        "Discoverability: Provide visual user selection with avatars and names",
+        "Efficiency: Enable bulk reassign in under 10 seconds"
+      ]
+    },
+    "CHANGE-021": {
+      "name": "Unified Assignment View",
+      "overview": "Make both assignment systems (direct assignments via assigneeId and delegations via assignments table) visible and understandable, adding 'Assigned to Me' tab and optional delegated items in My Week.",
+      "background": "The application currently has two disconnected assignment systems that create confusion. Users cannot see items delegated TO them (only what they delegated to others), and My Week misses delegated items. This breaks the natural workflow where users need to see all their assigned work in one place.",
+      "goals": [
+        "Visibility: Show all items assigned to user (both direct and delegated) in accessible views",
+        "Clarity: Distinguish between direct assignments and delegations with visual indicators",
+        "Completeness: Include delegated items in My Week when enabled",
+        "Terminology: Clarify difference between 'Assign' (direct) and 'Delegate' (tracked)"
+      ],
+      "coreConcepts": {
+        "DirectAssignment": "Assignment via assigneeId field - appears in My Week for items with due dates",
+        "Delegation": "Assignment via assignments table - tracks progress, appears in Assignments page",
+        "AssignmentSource": "Visual indicator showing whether item was directly assigned or delegated"
+      }
+    },
+    "CHANGE-022": {
+      "name": "Contact Billing History",
+      "overview": "Add billing history tabs to Contact and Organization detail pages, and make client names clickable throughout the application for quick navigation to client detail pages.",
+      "background": "Billing history is not accessible from contact pages, creating broken workflows. Users viewing a contact must navigate to separate invoice list and filter by client to see billing history. Additionally, client names are not clickable, preventing quick navigation.",
+      "goals": [
+        "Workflow Integration: Enable viewing billing history directly from contact pages",
+        "Navigation Efficiency: Make client names clickable for quick access to client detail pages",
+        "Context Preservation: Keep users in client context when viewing billing information",
+        "Discoverability: Make billing history visible where users expect it"
+      ]
+    },
+    "CHANGE-023": {
+      "name": "Work Item Source Traceability",
+      "overview": "Display work item source information (template, recurring work, automation) in work item detail pages and add 'Generated Work Items' tab to template detail pages.",
+      "background": "Work items have source tracking fields (templateId, recurringWorkId, automationRunId) in the schema, but the UI does not display this information. Users cannot see where a work item came from or navigate to related templates/recurring work subscriptions.",
+      "goals": [
+        "Traceability: Show work item origins (template, recurring work, automation) in detail pages",
+        "Navigation: Enable navigation from work items to source templates and recurring work",
+        "Visibility: Display all work items created from a template on template detail page",
+        "Automation Clarity: Show visual indicators for auto-generated work items in lists"
+      ],
+      "coreConcepts": {
+        "SourceSection": "New section in work item Details tab showing template, recurring work, automation run, period, and created by type",
+        "GeneratedWorkItems": "Tab on template detail page listing all work items created from that template"
+      }
+    },
+    "CHANGE-024": {
+      "name": "Shared Picker Components",
+      "overview": "Create two shared, reusable picker components (ClientPicker and UserPicker) to standardize client and user selection across all modules, replacing inconsistent Select components and manual text inputs.",
+      "background": "Client/contact and user pickers are implemented inconsistently across modules. Work and Billing modules use basic Select components that become unusable with 50+ clients. Work bulk actions require manual user ID input, which is completely broken. This creates poor UX and code duplication.",
+      "goals": [
+        "Consistency: Standardize picker UX across all modules",
+        "Usability: Replace unusable Select components and manual ID inputs with searchable pickers",
+        "Maintainability: Extract shared picker logic into reusable components",
+        "Scalability: Support large lists (50+ clients, 100+ users) with search functionality"
+      ],
+      "coreConcepts": {
+        "ClientPicker": "Searchable client/contact/organization picker using Popover + Command pattern",
+        "UserPicker": "Searchable user picker with avatars, names, emails, extracted from AssigneeCombobox pattern"
+      }
+    },
+    "CHANGE-025": {
+      "name": "Shared UI Components for Consistency",
+      "overview": "Create three shared components (StatusBadge, EmptyState, ConfirmationDialog) to standardize UI patterns across all modules, ensuring consistent status colors, empty state messaging, and confirmation dialog terminology.",
+      "background": "Three UX consistency issues were identified: status badge styling varies by module (different colors for same status), empty state messaging is inconsistent (some have actions, some don't), and confirmation dialog terminology varies (Delete vs Remove, inconsistent warnings).",
+      "goals": [
+        "Visual Consistency: Standardize status badge colors across all modules",
+        "Messaging Consistency: Standardize empty state patterns and terminology",
+        "Terminology Consistency: Standardize confirmation dialog patterns (Delete vs Remove, warning text)",
+        "Maintainability: Centralize UI patterns in shared components"
+      ],
+      "coreConcepts": {
+        "StatusBadge": "Component with standardized status-to-color mapping and normalization",
+        "EmptyState": "Component with consistent messaging patterns and action buttons",
+        "ConfirmationDialog": "Component with standardized terminology (Delete vs Remove) and warning text"
+      }
+    },
+    "CHANGE-026": {
+      "name": "Time Module Navigation",
+      "overview": "Update sidebar navigation to add Time section sub-items (My Time, Timesheets, Utilization) matching the pattern used by Work, Contacts, and Billing sections.",
+      "background": "The Time module has sub-routes (/time/timesheets, /time/utilization) that are not discoverable through sidebar navigation. Users cannot access these features without knowing direct URLs, reducing feature adoption.",
+      "goals": [
+        "Discoverability: Make Time sub-routes visible in sidebar navigation",
+        "Consistency: Follow same expandable sub-menu pattern as other sections",
+        "Accessibility: Enable easy navigation to timesheet management and utilization reports"
+      ]
+    },
+    "CHANGE-027": {
+      "name": "Terminology Standardization",
+      "overview": "Standardize status value casing (lowercase with underscores in data, Title Case in display) and remove incorrect 'project' terminology from search keywords.",
+      "background": "Status values are stored inconsistently (mix of lowercase and capitalized), and global search includes 'project' as a keyword for work items, which is not the canonical term. These inconsistencies cause minor confusion and maintenance overhead.",
+      "goals": [
+        "Data Consistency: Standardize status values to lowercase with underscores in database",
+        "Display Consistency: Use centralized formatStatus() helper for Title Case display",
+        "Terminology Accuracy: Remove 'project' from search keywords, use only 'work item'"
+      ]
+    },
+    "CHANGE-029": {
+      "name": "Task Management UX Overhaul",
+      "overview": "Redesigns the task management experience within work items to match Asana-level UX with sheet-based detail views, quick inline task creation, persistent quick-add inputs, and visible section actions.",
+      "background": "The current task management UI is clunky and unintuitive. Key issues include empty state dead-ends, clunky inline expansion, multi-step task creation, hidden section actions, and inconsistent Uncategorized section behavior. This overhaul addresses all critical UX failures.",
+      "goals": [
+        "Sheet-based Task Detail: Replace inline expansion with right-side sheet panel for better context preservation",
+        "Quick Task Creation: Enable rapid task creation via inline inputs (type + Enter)",
+        "Full Detail Creation: Provide header button for creating tasks with all details from the start",
+        "Visible Section Actions: Make per-section task creation discoverable with visible buttons",
+        "Consistent Uncategorized: Always show Uncategorized section when named sections exist",
+        "Modern UX Patterns: Match expectations from modern task management tools like Asana and Linear"
+      ]
+    },
+    "CHANGE-030-Work-Item-Custom-Fields": {
+      "name": "Work Item Custom Fields & Status Stages",
+      "overview": "The current work item system has a fixed structure with sections, tasks, and subtasks.",
+      "background": "The current work item system has a fixed structure with sections, tasks, and subtasks. However, different teams and service lines need more nuanced tracking beyond the basic task completion model. For example:",
+      "goals": [
+        "Custom Field Definitions (Tenant-Level)\n\nAllow admins to define custom fields that can be used across work items:\n\n**Supported Field Types:**\n- **Text"
+      ]
+    },
+    "CHANGE-031-Team-Management": {
+      "name": "Team Management & Hierarchy",
+      "overview": "Currently, there's no concept of organizational teams beyond basic agent groups used for ticketing.",
+      "background": "Currently, there's no concept of organizational teams beyond basic agent groups used for ticketing. The User Management module lists \"Teams/Departments\" and \"User hierarchies (manager/report-to relationships)\" as explicitly out of scope. However, firms need team structures to manage work effectively:",
+      "goals": [
+        "Teams Entity\nCreate organizational teams with names, descriptions, and optional hierarchy.\n\n- Teams have one or more managers\n- Teams have members (us"
+      ]
+    },
+    "CHANGE-032-Custom-Views-System": {
+      "name": "Unified Custom Views System",
+      "overview": "The current view system across the application is fragmented, limited, and lacks modern view management capabilities:.",
+      "background": "The current view system across the application is fragmented, limited, and lacks modern view management capabilities:",
+      "goals": [
+        "**Unified View Architecture**",
+        "**View Ownership & Sharing**",
+        "**Advanced Filter System**",
+        "**Comprehensive View Configuration**",
+        "**View Management UI**"
+      ]
+    },
+    "CHANGE-033-Timer-UX-Improvements": {
+      "name": "Timer UX Improvements",
+      "overview": "The current timer experience has several usability issues that create friction for users trying to track time against work items:.",
+      "background": "The current timer experience has several usability issues that create friction for users trying to track time against work items:",
+      "goals": [
+        "Add Prominent Timer Button in Work Item Header\n\nAdd a visible \"Start Timer\" button in the work item header, next to the status selector. This makes ti"
+      ]
+    },
+    "CHANGE-034-Concurrent-Timers": {
+      "name": "Concurrent Timers",
+      "overview": "Currently only one timer can run at a time.",
+      "background": "Currently only one timer can run at a time. When a user starts a new timer, the existing timer is either forcefully stopped or blocked. This creates significant friction for users who context-switch throughout their workday:",
+      "goals": [
+        "Timer A automatically pauses (preserves accumulated elapsed time)",
+        "Timer B becomes the active timer and starts counting",
+        "User can click back to Timer A to resume it (which pauses Timer B)"
+      ]
+    },
+    "CHANGE-035-Multi-Client-Time-Tracking": {
+      "name": "Multi-Client Time Tracking",
+      "overview": "Some work items involve multiple clients.",
+      "background": "Some work items involve multiple clients. Currently, the system only supports a single client per work item, which creates friction for common multi-client scenarios:",
+      "goals": [
+        "Multiple Clients per Work Item\n\n**Schema Change:**\n- `WorkItem.clientId` becomes `WorkItem.clientIds` (array of client IDs)\n- Backwards compatible: ex"
+      ]
+    },
+    "CHANGE-036-Advanced-Queue-Routing": {
+      "name": "Advanced Queue Routing Rules",
+      "overview": "Current queue routing is functional but limited in scope and usability:.",
+      "background": "Current queue routing is functional but limited in scope and usability:",
+      "goals": [
+        "**Simple for simple cases** - 80% of users just need domain→queue mapping",
+        "**Progressive disclosure** - Advanced options available but not overwhelming",
+        "**Visual clarity** - See what rules do in plain English",
+        "**Safe experimentation** - Test rules before activating them"
+      ]
+    },
+    "CHANGE-037-User-Tagging-Mentions": {
+      "name": "User Tagging & Mentions in Tickets",
+      "overview": "When writing internal notes or replies in tickets, users often need to bring a colleague's attention to specific information or request their input.",
+      "background": "When writing internal notes or replies in tickets, users often need to bring a colleague's attention to specific information or request their input. The current implementation has several gaps:",
+      "goals": [
+        "**@Mention Autocomplete** - When user types `@` in the reply or internal note editor, show autocomplete dropdown with tenant users",
+        "**Mention Display** - Mentions appear as styled badges/chips that are visually distinct and interactive",
+        "**Mention Notifications** - Mentioned users receive in-app and email notifications",
+        "**Input Styling Fix** - Clean up border styling on reply and internal note input boxes"
+      ]
+    },
+    "CHANGE-038-Profile-Settings-Signatures": {
+      "name": "Profile Settings & Email Signatures",
+      "overview": "The current settings architecture has several issues that need to be addressed:.",
+      "background": "The current settings architecture has several issues that need to be addressed:",
+      "goals": [
+        "**Personal Profile Settings Page** - New page at `/settings/my-settings` (or `/profile/settings`)",
+        "**Email Signature Editor** - Rich text editor for creating/editing email signatures",
+        "**Notification Preferences** - Moved from admin settings, personal to each user",
+        "**Display Preferences** - Theme, default views, timezone, date/time format",
+        "**Clear Settings Separation** - Admin Settings vs Profile Settings distinction"
+      ]
+    },
+    "CHANGE-039-Personal-Email-Calendar": {
+      "name": "Personal Email & Calendar Integration",
+      "overview": "The current email ticketing system only allows administrators to connect inboxes for the shared ticketing queues.",
+      "background": "The current email ticketing system only allows administrators to connect inboxes for the shared ticketing queues. This creates several gaps in the user experience:",
+      "goals": [
+        "Personal Email Inbox Connection\n\nEach user can connect their own email inbox (separate from admin-connected ticketing inboxes):\n\n- **Personal inbox co"
+      ]
+    },
+    "CHANGE-040-Real-Time-Email-Sync": {
+      "name": "Real-Time Email Sync",
+      "overview": "Current email synchronization has significant delays that undermine the value of the integrated email system:.",
+      "background": "Current email synchronization has significant delays that undermine the value of the integrated email system:",
+      "goals": [
+        "**Webhook-Based Incoming Email** (Primary)",
+        "**Synchronous Outgoing Email**",
+        "**Real-Time User Notifications**",
+        "**Sync Status Dashboard**"
+      ]
+    },
+    "CHANGE-041-Forward-Email-Attachment": {
+      "name": "Forward Email as Attachment",
+      "overview": "Users need to prove that they sent an email to a client.",
+      "background": "Users need to prove that they sent an email to a client. This is a common scenario in professional services:",
+      "goals": [
+        "**Forward as Attachment Action** - On any ticket message, add \"Forward as Attachment\" action",
+        "**Enhanced Email Search** - Find specific emails by content, date, recipient, subject",
+        "**Compose with Message Attachments** - New compose flow allowing attachment of existing messages",
+        "**EML File Generation** - Generate proper .eml files that Outlook/Gmail can open",
+        "**Viewing Forwarded Emails** - Handle receiving emails with .eml attachments"
+      ]
+    },
+    "CHANGE-042-Contextual-Ticket-Search": {
+      "name": "Contextual Ticket Search",
+      "overview": "Global search (⌘K) exists but is designed for finding things across the entire application.",
+      "background": "Global search (⌘K) exists but is designed for finding things across the entire application. When users are working in the tickets module with specific views or queues filtered, they need a way to search **within that context** rather than globally.",
+      "goals": [
+        "**Embedded Search Bar** in ticket list header (distinct from global ⌘K search)",
+        "**Scope Selection** to control search breadth (Current View, Current Queue, All Tickets)",
+        "**Multi-field Search** across subject, body content, requester, and tags",
+        "**Real-time Filtering** as user types (with debounce)",
+        "**Search Results Integration** that replaces ticket list with matching results",
+        "**Match Highlighting** to show where search terms match"
+      ]
+    },
+    "CHANGE-044": {
+      "name": "Ticket UX Improvements",
+      "overview": "Comprehensive UX overhaul addressing views sidebar hierarchy, Views Management page for admins, multi-select behavior, archive quick actions, submit button positioning, status dropdown workflow, assignment UI, and attach message dialog.",
+      "background": "The tickets module has accumulated several UX issues that create friction for daily users: confusing sidebar hierarchy, no centralized view management, clunky multi-select, no quick dismiss action, submit button in wrong location, status dropdown requiring two clicks, flat assignment UI, and attach message defaults to current ticket.",
+      "goals": [
+        "Sidebar Clarity: Consolidate views sidebar with clear hierarchy (Views → Personal Views → Queues)",
+        "Views Management: Dedicated admin page at /settings/views for managing system and shared views",
+        "Clean Multi-Select: Hover checkboxes in list view, Outlook-style selection in preview view",
+        "Quick Archive: One-click archive action for non-actionable tickets",
+        "Consistent Submit: Fixed submit button position in preview mode matching full-screen",
+        "Efficient Status: One-click status+submit with split button design",
+        "Hierarchical Assignment: Tree-structured assignment showing users within teams",
+        "Simplified Attach: Search-only attach message dialog pre-populated with requester email"
+      ]
+    }
+  },
+  "userStories": [
+    {
+      "id": "US-509",
+      "title": "Consolidated views sidebar with Manage Views button",
+      "description": "As a user, I want to see all admin-controlled views in one 'Views' section, and as an admin I want a button to access the Views Management page",
+      "acceptanceCriteria": [
+        "Views section combines system views and shared views into single section",
+        "System views shown with lock icon indicator",
+        "Shared views shown with share icon indicator",
+        "Personal Views section appears between Views and Queues sections",
+        "Queues section contains My Clients and General Queues subsections",
+        "Section collapse states persist in localStorage (keys: tickets-sidebar-views-collapsed, tickets-sidebar-personal-collapsed, tickets-sidebar-queues-collapsed)",
+        "View counts (badges) display correctly on each view",
+        "Active view highlighted appropriately",
+        "'Manage Views' gear icon button appears in Views section header (visible to admins only)",
+        "Clicking gear icon navigates to /settings/views",
+        "Non-admins do NOT see the gear icon",
+        "Empty sections handled: Personal Views with (0) badge or hidden, Queues shows 'No queues available' message",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-001 & US-TUX-002 - See 'Views Sidebar (New Hierarchy)' in UI Specifications"
+    },
+    {
+      "id": "US-510a",
+      "title": "Views Management page with System Views section",
+      "description": "As an admin, I want a Views Management page showing system views that I can configure",
+      "acceptanceCriteria": [
+        "Create /settings/views route and page",
+        "Add 'Views Management' item to Settings sidebar navigation with LayoutGrid icon",
+        "Page shows 'System Views' section at top with description: 'These views are available to all users. Changes affect everyone.'",
+        "System Views table shows: drag handle, name, description, 'Modified' badge if customized, Edit button, Reset button (if modified)",
+        "System views include: All Tickets, My Tickets, Unassigned, New, Pending",
+        "Non-admins cannot access this page (redirect to settings home or show forbidden)",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-002a - See 'Views Management Page' in UI Specifications"
+    },
+    {
+      "id": "US-510b",
+      "title": "System View edit dialog",
+      "description": "As an admin, I want to edit system view configuration through a dialog with tabs for filters, columns, sort, and grouping",
+      "acceptanceCriteria": [
+        "Edit button opens dialog/sheet with tabs: Filters, Columns, Sort, Grouping",
+        "Edit dialog shows warning banner: 'Changes to this system view will affect all users.'",
+        "Filters tab uses same filter builder component as view creation",
+        "Columns tab allows drag-to-reorder and show/hide toggles",
+        "Save button applies changes and shows success toast",
+        "Reset to Default button shows confirmation dialog: 'Reset this view to original settings? This will affect all users.'",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-002b - See 'View Edit Dialog/Sheet' in UI Specifications"
+    },
+    {
+      "id": "US-510c",
+      "title": "Shared Views section with CRUD and reordering",
+      "description": "As an admin, I want to create, edit, duplicate, delete, and reorder shared views",
+      "acceptanceCriteria": [
+        "'Shared Views' section below System Views with 'Create Shared View' button",
+        "Shared Views table shows: drag handle, name, Shared With, Created By, Created Date, Edit button, action menu (Duplicate, Delete)",
+        "Create Shared View opens full view editor with Sharing tab",
+        "Sharing tab options: Everyone (radio), Specific Teams (multi-select), Specific Users (multi-select)",
+        "Delete shows confirmation: 'Delete this view? Users who have it favorited will lose access.'",
+        "Duplicate creates copy with '(Copy)' suffix and opens in edit mode",
+        "Drag-and-drop reordering within each section (System Views, Shared Views)",
+        "Reorder saves automatically on drop with toast: 'View order updated'",
+        "New order reflects immediately in sidebar for all users",
+        "Empty state for Shared Views: 'No shared views yet. Create a shared view to make filtered views available to your team members.'",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-002c - See 'Views Management Page' in UI Specifications"
+    },
+    {
+      "id": "US-511a",
+      "title": "Multi-select hover checkboxes and select mode",
+      "description": "As a user, I want to select multiple tickets using hover checkboxes that appear on hover",
+      "acceptanceCriteria": [
+        "Checkboxes hidden by default, appear on hover",
+        "Hover area for checkbox is generous (entire left portion of row)",
+        "First checkbox click enters select mode with visual feedback (subtle animation/transition)",
+        "In select mode, all checkboxes visible (not just hovered row)",
+        "Single click toggles selection in select mode",
+        "Shift+click selects range (inclusive, works in both directions)",
+        "Header checkbox appears with animation when entering select mode",
+        "Select all checkbox in header (when in select mode)",
+        "Select all respects current filters (selects visible tickets only)",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-003a - See 'Multi-Select States (List View)' in UI Specifications"
+    },
+    {
+      "id": "US-511b",
+      "title": "Bulk actions bar and selection clearing",
+      "description": "As a user, I want a bulk actions bar when tickets are selected with proper clearing behaviors",
+      "acceptanceCriteria": [
+        "Bulk actions bar slides up smoothly from bottom when entering select mode",
+        "Selection count shown in bulk actions bar: 'X tickets selected'",
+        "'Clear selection' button in bulk actions bar clears selection",
+        "Escape key clears selection and exits select mode",
+        "Clicking outside ticket list clears selection (boundaries: clicking in header, sidebar, or preview pane clears selection; clicking in filter bar does NOT clear selection)",
+        "Changing view clears selection",
+        "Loading states during bulk operations: show loading spinner on affected rows, bulk actions bar shows 'Processing...' state with spinner, loading state clears when operation completes",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-003b - See 'Multi-Select States (List View)' in UI Specifications"
+    },
+    {
+      "id": "US-512",
+      "title": "Multi-select in preview view (Outlook-style)",
+      "description": "As a user, I want to select multiple tickets in preview mode using keyboard modifiers so that I can work with tickets like I do with emails in Outlook",
+      "acceptanceCriteria": [
+        "Single click selects one ticket (existing behavior)",
+        "Cmd+click (Mac) / Ctrl+click (Windows) toggles selection",
+        "Shift+click selects range from last clicked to current",
+        "Multiple selection shows count in UI",
+        "Preview pane shows 'X tickets selected' message (not individual ticket)",
+        "Bulk actions available for multi-selection",
+        "Escape clears selection",
+        "Clicking without modifier selects only that ticket (clears others)",
+        "Visual indicator on selected cards (highlight/border)",
+        "Works with keyboard navigation (arrow keys + shift for range)",
+        "Loading states during bulk operations: show loading spinner on affected cards, bulk actions bar shows 'Processing...' state with spinner, loading state clears when operation completes",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-004 - See 'Multi-Select States (List View)' in UI Specifications"
+    },
+    {
+      "id": "US-513a",
+      "title": "Archive ticket backend (schema and mutations)",
+      "description": "As a developer, I need archive functionality in the backend to support ticket archiving",
+      "acceptanceCriteria": [
+        "Add isArchived, archivedAt, archivedBy fields to tickets schema if not present",
+        "Add index on tenantId and isArchived",
+        "Create archive mutation that sets isArchived=true, archivedAt=now, archivedBy=currentUserId",
+        "Create bulkArchive mutation for multiple tickets",
+        "Create restore mutation that clears archive fields",
+        "Create bulkRestore mutation for multiple tickets",
+        "Update listTickets query to support includeArchived and archivedOnly filter parameters",
+        "Archive does NOT change ticket status",
+        "Archive does NOT send any notification/email",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-011 - See 'Data Model Updates' section"
+    },
+    {
+      "id": "US-513b",
+      "title": "Archive ticket UI (hover action, undo, bulk)",
+      "description": "As a user, I want to quickly archive tickets with one click and have undo capability",
+      "acceptanceCriteria": [
+        "Archive icon appears on hover (both list and preview card views)",
+        "Archive icon is clearly recognizable (archive box icon)",
+        "Single-click archives immediately (no confirmation dialog)",
+        "Archived ticket removed from current view (if view excludes archived)",
+        "Toast notification with Undo option",
+        "Undo restores ticket to previous state",
+        "Undo button disappears after 5 seconds, toast remains visible but undo action disabled after timeout",
+        "Bulk archive available from bulk actions bar",
+        "Bulk archive shows confirmation: 'Archive X tickets?'",
+        "Keyboard shortcut: 'E' to archive selected ticket(s)",
+        "Error handling: permission check happens before archive attempt, error message is user-friendly, bulk archive shows which tickets failed",
+        "Network errors show different message: 'Failed to archive ticket. Please try again.' with retry button",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-005 - See 'Archive Hover Action' in UI Specifications"
+    },
+    {
+      "id": "US-514",
+      "title": "View and restore archived tickets",
+      "description": "As a user, I want to view and restore archived tickets so that I can recover tickets I archived by mistake",
+      "acceptanceCriteria": [
+        "'Show archived' toggle in filter panel",
+        "Archived tickets visually distinct (dimmed, badge, or icon)",
+        "Archive date shown in ticket detail",
+        "'Restore' action available on archived tickets",
+        "Restore removes archived status",
+        "Restore shows toast: 'Ticket restored'",
+        "Bulk restore available for multiple archived tickets",
+        "Bulk restore shows confirmation: 'Restore X archived tickets?' with list of tickets being restored",
+        "Single restore requires no confirmation (like single archive)",
+        "Archived tickets excluded from default views (configurable per view)",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-006 - See 'Data Model Updates' section"
+    },
+    {
+      "id": "US-515",
+      "title": "Fixed submit button in preview mode",
+      "description": "As a user, I want to see the submit button in a fixed position in preview mode so that it's always visible and accessible like in full-screen mode",
+      "acceptanceCriteria": [
+        "Left panel: ticket list (scrollable container)",
+        "Right panel: ticket detail (scrollable container)",
+        "Right panel structure: Header (sticky), Conversation (scrollable), Reply editor (sticky bottom), Submit button (fixed bottom-right)",
+        "Submit button overlays reply editor (doesn't push it up)",
+        "Submit button fixed at bottom-right of preview pane viewport (not document)",
+        "Button position matches full-screen ticket view",
+        "Button stays visible when scrolling conversation",
+        "Reply editor has full available height (not shrunk by button)",
+        "Button clearly separated from reply content (visual boundary)",
+        "When conversation is short, submit button appears at natural position above editor",
+        "When conversation is long, submit button stays visible at bottom while scrolling",
+        "Button shows loading state when submitting",
+        "Button disabled when reply is empty and no status change",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-007 - See 'Submit Split Button' in UI Specifications"
+    },
+    {
+      "id": "US-516",
+      "title": "One-click status submit with split button",
+      "description": "As a user, I want to submit a reply with a different status in one click so that I don't have to select status and then click submit separately",
+      "acceptanceCriteria": [
+        "Submit button is a split button (main button + dropdown arrow)",
+        "Main button submits with current/default status",
+        "Dropdown shows all valid status options",
+        "Each dropdown option is an ACTION (submits immediately)",
+        "Dropdown options show status color indicator: Open (Blue/primary), Pending (Yellow/amber), On Hold (Orange), Solved (Green)",
+        "Colors match existing status color scheme",
+        "No second click required after selecting status",
+        "Loading state shows on clicked option while submitting",
+        "Success closes dropdown and shows toast",
+        "Error keeps dropdown open with error message",
+        "Keyboard: Enter submits default, arrow keys navigate options",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-008 - See 'Submit Split Button' in UI Specifications"
+    },
+    {
+      "id": "US-517a",
+      "title": "Hierarchical assignment dropdown structure",
+      "description": "As a user, I want to see users organized under their teams in the assignment dropdown",
+      "acceptanceCriteria": [
+        "Assignment dropdown shows hierarchical tree",
+        "Teams shown with expand/collapse chevron",
+        "Teams show member count: 'Payroll Team (3)'",
+        "Users shown with avatar and name under their team",
+        "Users can belong to multiple teams (shown under each)",
+        "'No Team' section at bottom for users without team membership",
+        "Clicking team assigns ticket to team (not a specific user)",
+        "Clicking user assigns ticket to that user",
+        "Current assignee shown with checkmark",
+        "'Unassign' option at top (if currently assigned)",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-009a - See 'Hierarchical Assignment' in UI Specifications"
+    },
+    {
+      "id": "US-517b",
+      "title": "Hierarchical assignment search and keyboard navigation",
+      "description": "As a user, I want to search and navigate the assignment dropdown using keyboard",
+      "acceptanceCriteria": [
+        "Search filters both team names and user names",
+        "Search match highlights in results",
+        "Keyboard navigation: Arrow Up/Down navigates between items, Arrow Right expands collapsed team, Arrow Left collapses expanded team, Enter selects highlighted item (assigns), Escape closes dropdown without assigning, Tab moves focus to search input",
+        "Visual highlight shows currently focused item",
+        "Team expansion state: Teams always start collapsed, If team is currently assigned, that team starts expanded, Expansion state does NOT persist across sessions",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-009b - See 'Hierarchical Assignment' in UI Specifications"
+    },
+    {
+      "id": "US-518a",
+      "title": "Attach message dialog search and results",
+      "description": "As a user, I want a search-based attach message dialog pre-populated with requester correspondence",
+      "acceptanceCriteria": [
+        "Dialog opens to search interface (no 'Current Ticket' tab)",
+        "Search pre-populated with requester's email: 'from:{email} OR to:{email}'",
+        "Pre-populated search shows: 'Messages with {requester name/email}'",
+        "Search debounced by 300ms",
+        "Search triggers after 2+ characters OR immediately on Enter",
+        "Clear button (X) appears when search has text",
+        "Results load immediately on dialog open",
+        "Loading states: Search shows skeleton loaders or spinner while loading, Search input shows loading indicator during query",
+        "Results show: subject, sender, date, snippet",
+        "Results show ticket context: 'From ticket: {subject}'",
+        "Pagination or infinite scroll for many results",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-010a - See 'Attach Message Dialog (Search Only)' in UI Specifications"
+    },
+    {
+      "id": "US-518b",
+      "title": "Attach message selection, filters, and empty state",
+      "description": "As a user, I want to select multiple messages to attach with filtering options",
+      "acceptanceCriteria": [
+        "Advanced filters available: date range, direction, client",
+        "Multi-select with checkboxes (max 10)",
+        "Selection count shown: 'X messages selected (max 10)'",
+        "Clear search button to start fresh search",
+        "Empty state: Shows icon (search/mail icon), Shows message: 'No messages found matching your search', Shows suggestion: 'Try adjusting your filters or search terms', Has 'Clear search' button to start fresh",
+        "Attach button disabled if nothing selected",
+        "Attached messages show in reply draft with remove option",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "CHANGE-044: US-TUX-010b - See 'Attach Message Dialog (Search Only)' in UI Specifications"
+    },
+    {
+      "id": "US-265",
+      "title": "Create external REST API routes for time entries and billing",
+      "description": "As an external developer, I want to access time entries, invoices, and payments via REST API.",
+      "acceptanceCriteria": [
+        "Create app/api/v1/time-entries/route.ts with GET, POST handlers",
+        "Create app/api/v1/time-entries/[id]/route.ts with GET, PATCH, DELETE handlers",
+        "Create app/api/v1/invoices/route.ts with GET, POST handlers",
+        "Create app/api/v1/invoices/[id]/route.ts with GET, PATCH, DELETE handlers",
+        "Create app/api/v1/invoices/[id]/send/route.ts with POST handler",
+        "Create app/api/v1/payments/route.ts with GET, POST handlers",
+        "Create app/api/v1/payments/[id]/route.ts with GET handler",
+        "Create app/api/v1/payments/[id]/void/route.ts with POST handler",
+        "Time entries GET query params: user_id, work_id, client_id, date_from, date_to, billable, billed_status, page, page_size",
+        "Invoices GET query params: client_id, status, date_from, date_to, page, page_size",
+        "All routes validate API key and check time:read/write or billing:read/write scopes",
+        "All routes call existing Convex queries/mutations",
+        "All routes log usage",
+        "Typecheck passes"
+      ],
+      "priority": 265,
+      "passes": true,
+      "notes": "PRD-013: API Endpoints - Time Entries and Billing REST API"
+    },
+    {
+      "id": "US-266",
+      "title": "Implement webhook dispatch system",
+      "description": "As a developer, I need webhooks to be dispatched when events occur in the system.",
+      "acceptanceCriteria": [
+        "Create convex/webhooks.ts with internal dispatch function",
+        "Dispatch function: looks up active webhook endpoints for tenant that subscribe to the event, creates pending webhook delivery records, schedules delivery via Convex scheduler",
+        "Create deliverWebhook scheduled function: makes HTTP POST to endpoint URL, includes JSON payload with id, type, created timestamp, data object",
+        "Include X-Webhook-Signature header with HMAC-SHA256 signature: sha256=hmac(secret, timestamp.payload)",
+        "Include X-Webhook-Timestamp header with Unix timestamp",
+        "On success (2xx): update delivery status to 'success', record httpStatus and responseTimeMs, reset consecutiveFailures to 0",
+        "On failure: update delivery status to 'failed', record error, increment attempts, schedule retry with exponential backoff (1m, 5m, 30m, 2h, 8h)",
+        "After 6 consecutive failures: set endpoint status to 'failing'",
+        "Add webhook dispatch calls to key mutations: work item create/update/complete, ticket create/update/close, contact create/update, time entry create, invoice create/send/paid",
+        "Typecheck passes"
+      ],
+      "priority": 266,
+      "passes": true,
+      "notes": "PRD-013: US-006, Webhook Delivery - Event dispatch system"
+    },
+    {
+      "id": "US-267",
+      "title": "Add API and Webhooks links to settings navigation and polish",
+      "description": "As a user, I want easy access to API settings from the main settings navigation with consistent styling.",
+      "acceptanceCriteria": [
+        "Add 'API' and 'Webhooks' items to settings sidebar navigation (after existing items)",
+        "API link uses Key or similar icon, Webhooks link uses Webhook or Radio icon",
+        "Active state styling matches other settings nav items",
+        "Both pages use consistent card styling with other settings pages",
+        "Scope bundles shown in create dialog: 'Read Only', 'Full Access', 'Accounting Integration', 'Support Integration', 'Project Management Integration'",
+        "Event checkboxes grouped by category with collapsible sections: Work (work.created, work.updated, etc.), Tickets, Contacts, Time & Billing, Recurring Work",
+        "Revoked keys section: optionally show revoked keys at bottom with 'Show revoked keys' toggle, grayed out styling",
+        "Disabled/failing endpoints section: visual distinction with warning badge",
+        "Page headers match settings page pattern",
+        "Loading and empty states consistent with rest of app",
+        "Typecheck passes"
+      ],
+      "priority": 267,
+      "passes": true,
+      "notes": "PRD-013: UI Specifications - Settings navigation and polish"
+    }
+  ]
+}

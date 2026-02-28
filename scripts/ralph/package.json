@@ -1,0 +1,6 @@
+{
+  "name": "ralph-scripts",
+  "scripts": {
+    "go": "node x.js"
+  }
+}

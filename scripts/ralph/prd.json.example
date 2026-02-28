@@ -1,0 +1,54 @@
+{
+  "project": "MyApp",
+  "branchName": "ralph/task-priority",
+  "description": "Task Priority System - Add priority levels and filtering to tasks",
+  "prdContext": {
+    "PRD-042": {
+      "name": "Task Priority Feature",
+      "overview": "Enables users to prioritize tasks and filter by priority level for better task management.",
+      "background": "Users currently have no way to distinguish urgent tasks from routine ones. Adding priority levels helps teams focus on what matters most and ensures critical work gets done first.",
+      "goals": [
+        "Priority Visibility: Show task priority at a glance with visual indicators",
+        "Workflow Efficiency: Enable quick priority changes without opening task details",
+        "Filtering: Allow users to focus on high-priority items"
+      ],
+      "coreConcepts": {
+        "Priority": "A level (high, medium, low) indicating task urgency. Defaults to medium."
+      }
+    }
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add priority schema and backend operations",
+      "description": "As a developer, I need priority tracking in the database and API.",
+      "acceptanceCriteria": [
+        "Add priority field to tasks table: 'high' | 'medium' | 'low' (default 'medium')",
+        "Add index on priority field for filtering performance",
+        "Create updateTaskPriority mutation that validates priority values",
+        "Update listTasks query to accept optional priority filter parameter",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "PRD-042: Schema + backend combined since they're tightly coupled"
+    },
+    {
+      "id": "US-002",
+      "title": "Add priority UI to task list",
+      "description": "As a user, I want to see and change task priority in the list view.",
+      "acceptanceCriteria": [
+        "Each task row shows colored priority badge (red=high, yellow=medium, gray=low)",
+        "Each row has priority dropdown that saves immediately via updateTaskPriority",
+        "Add filter dropdown to page header: All | High | Medium | Low",
+        "Filter updates the task list via listTasks query",
+        "Filter persists in URL params",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "PRD-042: All priority UI in one story - badge, selector, and filter are related"
+    }
+  ]
+}

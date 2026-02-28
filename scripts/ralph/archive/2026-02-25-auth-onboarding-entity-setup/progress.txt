@@ -1,0 +1,241 @@
+# Ralph Progress Log
+Started: Tue Feb 24 23:14:08 WAT 2026
+---
+
+## 2026-02-24 - US-001
+- Overhauled convex/schema.ts: expanded users table, removed profiles table, added entities/categories/userPreferences/connectedAccounts tables with all required indexes
+- Updated convex/mutations.ts: replaced upsertProfile with updateUser (user-centric, no separate profiles table)
+- Updated convex/queries.ts: removed getMyProfile, kept getMyUser and other queries intact
+- Updated packages/shared/src/types.ts: new EntityType, CategoryType, ConnectedAccountStatus, UncategorisedAlertFrequency types + new interfaces for all tables
+- Updated packages/shared/src/schemas.ts: new Zod schemas for entity, category, userPreferences, connectedAccount; updated userType to 'freelancer'|'sme'
+- Fixed packages/shared/tsconfig.json: added "noEmit": false to resolve conflict with composite:true + inherited noEmit:true from root
+- Fixed apps/web/src/components/ConvexClientProvider.tsx: switched to ConvexProviderWithClerk (convex/react-clerk) — old custom fetch approach not valid in Convex 1.x
+- Fixed apps/web/src/pages/Settings.tsx: updated to use getMyUser + updateUser instead of removed getMyProfile/upsertProfile
+- Added apps/web/src/vite-env.d.ts: vite/client reference for ImportMeta.env types
+- **Learnings for future iterations:**
+  - Convex 1.x Clerk integration uses ConvexProviderWithClerk from 'convex/react-clerk', NOT custom fetch in ConvexReactClientOptions
+  - packages/shared tsconfig must set "noEmit": false when composite:true is used (conflicts with root noEmit:true)
+  - Vite projects need a vite-env.d.ts with /// <reference types="vite/client" /> for import.meta.env types
+  - When removing a table, must update all queries/mutations that reference it
+  - Always add vite-env.d.ts when tsconfig doesn't include vite types
+---
+
+## 2026-02-24 - US-002
+- Created convex/webhooks.ts: POST /clerk-webhook HTTP action using svix Webhook to verify signatures
+- Created convex/userMutations.ts: createUserFromClerk, updateUserFromClerk, deleteUserFromClerk mutations
+  - createUserFromClerk is idempotent (skips if user already exists)
+  - deleteUserFromClerk cascades: entities → connectedAccounts → userPreferences → categories → transactions → documents → user
+- Updated convex/http.ts: registered /clerk-webhook POST route
+- Updated convex/auth.ts: getOrCreateCurrentUser no longer auto-creates users; relies on webhook-created records
+- Updated convex/_generated/api.d.ts: added userMutations and webhooks modules
+- Installed svix ^1.86.0 at root (used in Convex HTTP actions)
+- **Learnings for future iterations:**
+  - Convex _generated/api.d.ts must be manually updated when adding new convex modules (Convex CLI regenerates it on `convex dev`, but for CI/typecheck we update it directly)
+  - Convex HTTP actions can import third-party packages (svix works fine in Convex runtime)
+  - CLERK_WEBHOOK_SECRET must be set as a Convex environment variable (in Convex dashboard or via `convex env set`)
+  - Webhook handler should be in a separate file (webhooks.ts) imported by http.ts, not defined inline
+  - `anyApi` in api.js handles runtime calls dynamically; only api.d.ts needs updating for TypeScript
+---
+
+## 2026-02-24 - US-003
+- Created convex/userCrud.ts: getMe, getPreferences queries; updateProfile, updateNin (validates 11-digit NIN), completeOnboarding, uploadAvatar, createDefaultPreferences (idempotent), updatePreferences mutations; deleteAccount action (Convex data cascade via userMutations.deleteUserFromClerk + Clerk API DELETE)
+- Created convex/entityCrud.ts: list (excludes soft-deleted), get (with ownership check) queries; create (auto-sets default for first entity), update, setDefault (clears others first), remove (soft-delete via deletedAt) mutations
+- Created convex/files.ts: generateUploadUrl mutation wrapping ctx.storage.generateUploadUrl()
+- Updated convex/_generated/api.d.ts: registered entityCrud, files, userCrud modules
+- **Learnings for future iterations:**
+  - Convex actions use ctx.auth.getUserIdentity() directly (no getCurrentUser helper — that uses QueryCtx); ctx.db is not available in ActionCtx
+  - Soft-delete pattern: set deletedAt timestamp; all queries/mutations filter out entities where deletedAt is set
+  - Entity `remove` mutation can't be named `delete` (reserved JS keyword) — use `remove` instead
+  - Convex storage upload flow: client calls generateUploadUrl → uploads file → passes storageId back to a mutation
+  - deleteAccount must be an action (not mutation) because it needs to call external HTTP (Clerk API)
+  - CLERK_SECRET_KEY env var accessed via process.env in Convex actions
+---
+
+## 2026-02-24 - US-004
+- Created convex/categories.ts: `seed` mutation (idempotent — skips existing by name+type) seeding 18 system categories; `listAll` query returning system + user-created categories
+- Created convex/dashboard.ts: `getSummary` query stub returning empty/placeholder summary for an entity (verifies entity ownership, returns zeroed aggregates)
+- Updated convex/_generated/api.d.ts: registered categories and dashboard modules
+- **Learnings for future iterations:**
+  - Unused imports (e.g. `v` from 'convex/values') cause TS6133 errors — remove if not used in the file
+  - Idempotent seed pattern: query by index + filter before inserting; skip if found
+  - System categories have no userId (undefined); user categories use `by_userId` index
+  - Dashboard stub returns zero values — will aggregate transactions in a future story
+---
+
+## 2026-02-24 - US-005
+- Installed shadcn/ui peer dependencies: clsx, tailwind-merge, class-variance-authority
+- Added Google Fonts via index.html preload: Outfit (display/headings) + DM Sans (body)
+- Added `antialiased` class to body in index.html
+- Updated tailwind.config.js: custom fontFamily (display/sans), brand color palette (primary #1A7F5E, accent #2B6CB0, success, warning, danger, neutral scale), shadcn CSS-variable colors, shadow-soft/shadow-medium, fade-in/slide-up animations, typography scale (heading-xl/lg/md, body, body-sm, label)
+- Updated src/index.css: CSS design tokens as :root variables, shadcn HSL variables, body with font-sans + antialiased, headings with font-display
+- Created src/lib/utils.ts: cn() utility (clsx + tailwind-merge)
+- Created components.json: shadcn/ui configuration for Vite project
+- Updated tsconfig.json + vite.config.ts: added `@` → `./src` path alias
+- **Learnings for future iterations:**
+  - This is a Vite/React app (NOT Next.js) — use Google Fonts via index.html link, NOT next/font/google
+  - shadcn/ui CSS variable convention: define HSL values (without hsl()) in :root, reference with `hsl(var(--token))`
+  - `antialiased` on `<body class="antialiased">` in index.html works; also applied via @apply in CSS
+  - Install shadcn deps at workspace level: `npm install --workspace=apps/web clsx tailwind-merge class-variance-authority`
+  - Path alias `@` must be added to both vite.config.ts (resolve.alias) AND tsconfig.json (paths) to work for both runtime and typechecking
+---
+
+## 2026-02-24 - US-006
+- Replaced Landing.tsx with polished Welcome screen: hero illustration, headline 'Tax compliance, made simple for Nigerians', subline, 'Get Started' CTA → /sign-up, 'I already have an account' link → /sign-in
+- Added redirect logic to Landing: authenticated + onboarding complete → /app/dashboard, authenticated + incomplete → /app/onboarding
+- Restyled SignInPage.tsx: custom branded layout (logo, heading), Clerk <SignIn> with appearance API matching design system (primary #1A7F5E, DM Sans font, custom element classes)
+- Restyled SignUpPage.tsx: same approach as SignIn; includes Terms/Privacy footer, 'Already have an account?' link
+- Updated App.tsx: replaced ProtectedRoute with AuthGate (checks onboardingComplete via getMe query); added /app/onboarding route with OnboardingPlaceholder stub; changed /sign-in and /sign-up to wildcard routes (/sign-in/*) for Clerk sub-routes (e.g. /sign-in/factor-one)
+- **Learnings for future iterations:**
+  - Convex import alias is `@convex/*` (maps to `../../convex/*`), NOT relative paths — always use `@convex/_generated/api`
+  - Clerk <SignIn routing="path"> requires wildcard routes in React Router: `/sign-in/*` not just `/sign-in`
+  - Clerk appearance API `elements.card: 'shadow-none border-0 p-0'` removes the default card wrapper so you can apply your own container
+  - `useQuery(api.userCrud.getMe)` returns `undefined` while loading, `null` if user not found, or the user object — check `=== undefined` for loading state
+  - AuthGate pattern: check `!isLoaded || (isSignedIn && me === undefined)` to avoid flash of redirect before data loads
+---
+
+## 2026-02-24 - US-007
+- Created convex/onboarding.ts: saveUserType (step 1), saveFreelancerProfile (step 2a), saveSmeProfile (step 2b) mutations
+- Updated convex/schema.ts: added `industry` and `annualTurnoverRange` optional fields to entities table
+- Updated convex/_generated/api.d.ts: registered onboarding module
+- Created apps/web/src/pages/Onboarding.tsx: full 4-step wizard skeleton with steps 1 & 2 implemented:
+  - StepIndicator: "Step X of 4" label + animated progress bar + step dots
+  - Step 1: Freelancer/SME selectable cards with highlight state, checkmark, Continue button disabled until selection
+  - Step 2 (Freelancer): firstName/lastName grid, profession dropdown, currency toggle buttons; inline validation
+  - Step 2 (SME): businessName input, businessType toggle, industry/turnoverRange dropdowns; inline validation
+  - Steps 3 & 4: stubs (to be replaced in US-008)
+  - Pre-fills form from existing user data on mount
+  - Auth guards: redirect unauthenticated → /sign-in, onboardingComplete → /app/dashboard
+- Updated apps/web/src/App.tsx: replaced OnboardingPlaceholder with real Onboarding component, removed placeholder function
+- **Learnings for future iterations:**
+  - Select elements need `appearance-none` + manual chevron or custom styling to override browser defaults in Tailwind
+  - Pre-filling form from Convex query: use useEffect with dependency on `me`, split fullName on first space
+  - Wizard state is all in component-level useState — no need for URL params or context for a 4-step linear flow
+  - Step stubs should be kept in the same file so US-008 can fill them in without file restructuring
+  - useMutation hooks should be called at component top level, not inside event handlers
+---
+
+## 2026-02-24 - US-008
+- Added `saveNinAndTin` mutation to `convex/onboarding.ts`: validates 11-digit NIN, saves `nin` and optional `firsTin` to users table
+- Replaced Step3Stub with real Step3: NTA 2025 explanatory text, security callout, NIN input with numeric filtering + 11-digit inline validation, optional FIRS TIN field
+- Replaced Step4Stub with real Step4: 4 import option cards (bank statement, connect bank, Paystack/Flutterwave, Payoneer/Wise) marked "Coming soon", plus always-active "I'll do this later" card + "Finish Setup" button
+- Updated handleStep3Continue: calls saveNinAndTin then advances to step 4
+- Updated handleFinish: calls createDefaultPreferences + completeOnboarding + toast.success("You're all set! Add transactions when you're ready.")
+- Installed `sonner` toast library; added `<Toaster richColors position="top-center" />` to App.tsx inside BrowserRouter
+- Back buttons work across Steps 3 and 4
+- **Learnings for future iterations:**
+  - sonner toast persists through React Router navigation because Toaster is mounted at the app level (above Routes)
+  - NIN numeric filtering: use `e.target.value.replace(/\D/g, '').slice(0, 11)` in onChange to enforce digits-only input
+  - Import option "coming soon" cards: use `opacity-70 cursor-not-allowed` without `disabled` attr (not a button) for visual disabled state
+  - convex/onboarding.ts already imported by api.d.ts via ApiFromModules — no api.d.ts update needed when adding new mutations to existing modules
+  - Toaster must be placed inside BrowserRouter (not outside) if it might render links
+---
+
+## 2026-02-25 - US-009
+- Created `apps/web/src/contexts/EntityContext.tsx`: EntityProvider + useEntity hook; holds activeEntityId state, initialises to user's default entity via useQuery(api.entityCrud.list), exposes setActiveEntityId
+- Rewrote `apps/web/src/components/AppShell.tsx`: full side drawer with dark (neutral-900) sidebar, mobile overlay from left + desktop persistent sidebar, user avatar/initials + name/email at top, entity selector dropdown (visible for 2+ entities), main nav (Dashboard/Transactions/Invoices/Tax Summary/Filing/Reports), secondary nav (Settings/Help & Support/Documents), SignOutButton at bottom, active items use bg-primary-light + text-primary, header with hamburger (mobile only), app title, notification bell
+- Added `slide-in-left` keyframe + animation to `apps/web/tailwind.config.js` for mobile drawer entry
+- Created placeholder pages: `Transactions.tsx`, `Invoices.tsx`, `TaxSummary.tsx`, `Filing.tsx`, `HelpSupport.tsx`, `Documents.tsx`
+- Updated `apps/web/src/App.tsx`: added all new routes (/app/transactions, /app/invoices, /app/tax-summary, /app/filing, /app/help, /app/documents), wrapped AppShell with EntityProvider inside AuthGate
+- **Learnings for future iterations:**
+  - EntityContext needs to live inside AuthGate+AppShell (not at app root) so useQuery(api.entityCrud.list) only fires when authenticated
+  - `EntityProvider` wraps `AppShell` in App.tsx — AppShell and all page children can use `useEntity()` to read/set active entity
+  - Mobile drawer uses `fixed inset-0 z-40` overlay div with backdrop + `absolute left-0 top-0 bottom-0 w-72` drawer panel
+  - Clerk `<SignOutButton>` works as a render-prop wrapper around a `<button>`; don't forget `w-full` on the inner button for full-width items in sidebar
+  - `bg-primary-light` (#E8F5F0) active item on dark sidebar creates a strong visual contrast "pill" — effective design pattern
+  - `sticky top-0 h-screen` on the desktop sidebar keeps it fixed while page content scrolls
+---
+
+## 2026-02-25 - US-010
+- Rewrote `apps/web/src/pages/Dashboard.tsx`: full dashboard shell with empty states
+  - Page header: "Dashboard" title + entity name subtext + current date
+  - Tax Position Summary card: "2026 Tax Year" badge, empty state (Receipt icon + "No transactions yet") or populated 2×2 grid
+  - Quick Stats row: 3 StatCard components (income, expenses, tax estimate) with zero placeholders
+  - Recent Transactions section: empty state (Banknote icon + "No transactions yet. Import a bank statement to get started." + "Import Now" CTA)
+  - Import CTA banner at bottom when no transactions
+  - All CTAs point to /app/transactions
+  - Uses `useEntity()` hook for activeEntityId → passes to `api.dashboard.getSummary`
+  - Uses `'skip'` pattern for query when no entity selected
+  - Consistent design: shadow-soft, rounded-xl, border-border, animate-slide-up, animate-fade-in
+- **Learnings for future iterations:**
+  - `useQuery(api.x.y, condition ? { args } : 'skip')` is the pattern for conditional Convex queries
+  - Empty state pattern: icon in primary-light rounded-2xl + headline + subtext + Link CTA
+  - `summary === undefined` = loading; `summary === null` = not found/error; `summary` with transactionCount=0 = empty
+  - `formatNaira` converts kobo (integer) to ₦ string via Intl.NumberFormat 'en-NG'
+  - StatCard components with colour variants (green/red/blue) avoid repetition for the quick stats row
+---
+
+## 2026-02-25 - US-011
+- Added `getFileUrl` query to `convex/files.ts`: accepts `storageId: v.string()`, casts to `any` to satisfy `ctx.storage.getUrl()` which expects `Id<"_storage">` (branded type, plain string at runtime)
+- Added `firsTin: v.optional(v.string())` to `updateProfile` mutation args in `convex/userCrud.ts`
+- Rewrote `apps/web/src/pages/Settings.tsx` as full profile management page:
+  - View mode: avatar (uploaded photo or initials fallback), full name, email (read-only), phone, profession, NIN (masked •••••••XXXX), FIRS TIN, primary currency
+  - Edit mode: avatar upload via file picker, all editable fields with inline validation
+  - Avatar upload flow: generateUploadUrl → POST file → save storageId via uploadAvatar
+  - NIN validation: 11 digits enforced both in input (numeric filter) and on save
+  - Success toast via sonner on save
+  - Danger zone with 'Delete Account' link to /app/settings/delete-account
+  - Null guard: handles `me === undefined` (loading) and `me === null` (not found) separately
+- **Learnings for future iterations:**
+  - `ctx.storage.getUrl()` expects `Id<"_storage">` (branded type) but storing avatarStorageId as `v.string()` in schema means you need `storageId as any` cast inside the handler
+  - After an `if (me === undefined)` early return, TypeScript still considers `me` as `null | User` — must also add `if (me === null)` guard to avoid TS18047 errors
+  - Convex `useQuery` with `'skip'`: pass `'skip'` (not `undefined`) to skip conditional queries; pass args object when condition is met
+  - Avatar file upload preview: use `URL.createObjectURL(file)` for local preview before upload; cleanup not strictly needed in this context
+  - `ProfileField` sub-component reduces repetition for view/edit field pairs — useful pattern for settings forms
+---
+
+## 2026-02-25 - US-012
+- Updated `convex/entityCrud.ts` remove mutation: added last-entity protection (throws if only 1 active entity), auto-assigns default to another entity when default is deleted, clears isDefault on soft-deleted entity
+- Created `apps/web/src/pages/TaxEntities.tsx`: full entity management page with 3 view states (list/create/detail)
+  - List: entity cards showing name, type badge, tax year, default badge; "Add Entity" button
+  - Create: full form with EntityTypeSelector (toggle buttons), name, TIN, RC Number (shown for business_name/llc), VAT registered toggle, VAT threshold exceeded toggle (shown when VAT registered)
+  - Detail: read-only fields, Edit/Set as Default/Delete actions, back navigation
+  - Edit mode: pre-filled EntityForm with type-specific validation (RC Number required for LLC)
+  - Delete: confirmation dialog ("All transactions and invoices will be preserved but no longer editable."); last-entity guard disables delete button
+  - Real-time sidebar update: entityCrud.list is a reactive Convex query, so drawer entity selector auto-reflects adds/deletes
+- Updated `apps/web/src/pages/Settings.tsx`: added Tax Entities section with Building2 icon and "Manage" link → /app/settings/entities
+- Updated `apps/web/src/App.tsx`: added `/app/settings/entities` route using TaxEntities component
+- **Learnings for future iterations:**
+  - Convex queries are reactive — sidebar entity selector updates automatically when entities change (no manual invalidation needed)
+  - Local view state (`'list' | 'create' | 'detail'`) works well for CRUD flows that don't need URL-addressable detail pages
+  - Toggle components need `role="switch"` + `aria-checked` for accessibility
+  - `DetailField` helper rendered after default export is valid TypeScript (hoisting works for function declarations)
+  - Unused imports from lucide-react cause TS6133 errors — always check unused imports before build
+---
+
+## 2026-02-25 - US-013
+- Created `apps/web/src/pages/Notifications.tsx`: preferences form with 5 controls (deadline reminders toggle + lead days 30/14/7/1, VAT reminder toggle, uncategorised alert frequency daily/weekly/off, invoice overdue days 1/3/7, push notifications toggle); auto-creates defaults on first access when prefs === null; saves via updatePreferences with sonner toast
+- Created `apps/web/src/pages/DeleteAccount.tsx`: explicit danger warning listing all deleted data, email-confirmation input (must match user's actual email), calls deleteAccount action then signOut then navigate('/'); uses useAction from convex/react
+- Updated `apps/web/src/components/AppShell.tsx`: replaced SignOutButton with LogoutConfirmDialog pattern — button shows dialog 'Are you sure you want to log out?', on confirm calls useClerk().signOut() + navigate('/'); removed unused SignOutButton import
+- Updated `apps/web/src/pages/Settings.tsx`: added Notifications card linking to /app/settings/notifications (between Profile and Tax Entities sections)
+- Updated `apps/web/src/App.tsx`: added routes /app/settings/notifications (Notifications) and /app/settings/delete-account (DeleteAccount)
+- **Learnings for future iterations:**
+  - `useAction` from 'convex/react' is the correct hook for Convex actions (parallel to useMutation for mutations)
+  - `useClerk().signOut()` is the programmatic sign-out method; replaces the `<SignOutButton>` wrapper component when you need confirmation first
+  - `useNavigate` works inside components rendered inside `<BrowserRouter>` anywhere in the tree
+  - For logout confirmation: remove `<SignOutButton>` wrapper entirely; use plain button → dialog → programmatic signOut → navigate('/')
+  - Delete account re-auth: "type your email" confirmation is a clean, universal approach (works for password and OAuth users); no Clerk re-auth API needed
+  - Preferences upsert: `updatePreferences` in convex/userCrud.ts handles both create (if no prefs row) and update; `createDefaultPreferences` is idempotent and called when prefs === null on first page load
+  - `deadlineReminderDays: 0` is the convention for "disabled" since the field is `v.optional(v.number())` and 0 is a valid number; check `> 0` for enabled state in UI
+---
+
+## 2026-02-25 - US-014
+- Created `apps/web/src/components/Skeleton.tsx`: reusable `animate-pulse` skeleton placeholder for loading states
+- Replaced spinners with skeleton layouts in 4 data-dependent pages:
+  - `Dashboard.tsx`: skeleton matching full page structure (header, tax card, stat grid, transactions)
+  - `Settings.tsx`: skeleton matching profile form (avatar, fields)
+  - `TaxEntities.tsx`: skeleton matching entity list cards
+  - `Notifications.tsx`: skeleton matching preference cards
+- Updated 7 placeholder pages with consistent empty state pattern (icon in primary-light rounded-2xl + headline + subtext + "Coming soon" badge):
+  - `Transactions.tsx`, `Invoices.tsx`, `TaxSummary.tsx`, `Filing.tsx`, `Reports.tsx`, `Documents.tsx`, `HelpSupport.tsx`
+  - HelpSupport upgraded to 3 SupportCard items instead of plain text
+- Polished `AppShell.tsx` nav: added `transition-all duration-150` + `hover:translate-x-0.5` + `group-hover:scale-110` on icons for all nav items and logout button
+- Fixed Settings nav active detection to include sub-paths (`startsWith(item.href + '/')`)
+- Toaster already configured correctly: `richColors position="top-center"` in App.tsx
+- Confirmation dialogs already follow spec: LogoutConfirmDialog (AppShell) and DeleteDialog (TaxEntities)
+- **Learnings for future iterations:**
+  - Edit tool requires the file to have been Read in the same session — always Re-read before editing if the file was read in a prior session context
+  - `Skeleton` with `animate-pulse bg-neutral-200` is the simplest effective pattern; no separate shimmer animation needed
+  - Placeholder pages should still get proper page headers + empty state pattern, not just bare "coming soon" text
+  - `transition-all` + `hover:translate-x-0.5` on nav items gives a subtle but satisfying feel; combine with `group` + `group-hover:scale-110` on icons
+  - When replacing a spinner loading block, remove the old `if (false)` remnant if you accidentally leave dead code
+---

@@ -1,0 +1,1037 @@
+# Ralph Progress Log
+Started: Wed Feb 25 10:30:23 WAT 2026
+---
+
+## Codebase Patterns
+- Convex indexes: use camelCase names (by_userId, by_entityId) — NOT snake_case (by_user_id was wrong on old schema)
+- When updating Convex schema indexes, grep all .ts files for old index names (userMutations.ts had a stale reference)
+- Stub out pages that call removed/changed mutations — avoids TS errors during schema overhaul iterations
+- npm (not pnpm) is the package manager for this project: `npm run build`
+- Build command: `npm run build` from project root (runs web build via workspace)
+
+- Convex Actions: add `"use node";` at top of file to use Node.js APIs/npm packages (mutations cannot be in "use node" files — keep them separate)
+- Cross-module internal calls from actions: use `(internal as any).moduleName.fnName` since _generated/api.d.ts isn't regenerated during dev
+- PDF parsing in Convex: install `pdf-parse` in convex/package.json; use dynamic import inside action handler for CJS compatibility
+- `makeFunctionReference` exists in convex/server but type assertions on `internal` are simpler for cross-module action→mutation calls
+- Anthropic SDK in Convex: install in convex/package.json; use `await import('@anthropic-ai/sdk' as any)` + `mod.default ?? mod` pattern for compatibility
+- `ctx.runAction` is available inside Convex actions to call other actions (useful for chaining async pipelines)
+- AI failure in import pipeline: wrap `ctx.runAction(aiCategorise...)` in try/catch so import job completes even if AI is unavailable
+
+---
+
+## 2026-02-25 - US-015
+- Rewrote `transactions` table in convex/schema.ts with full PRD-1 schema (20+ fields including entityId, direction, type expanded, amountNgn, fxRate, whtDeducted, deductiblePercent, taxYear, reviewedByUser, etc.)
+- Added `importJobs` table tracking import lifecycle (pending→processing→complete/failed)
+- Added required indexes: by_entityId_taxYear, by_entityId_date, by_entityId_type on transactions; by_entityId, by_connectedAccountId, by_userId on importJobs
+- Updated convex/mutations.ts: createTransaction (new schema), updateTransaction (new), deleteTransaction, createImportJob, updateImportJob, migrateLegacyTransactions (migration helper)
+- Updated convex/queries.ts: listTransactions (now entity-scoped with entityId required), getDashboardSummary (entity+taxYear, uses amountNgn), getTransaction, listImportJobs, getImportJob
+- Updated packages/shared/src/types.ts: expanded TransactionType, new TransactionDirection, ImportJobSource, ImportJobStatus, TransactionData (full PRD-1), ImportJobData
+- Updated packages/shared/src/schemas.ts: full transactionSchema, importJobSchema, importJobUpdateSchema with new Zod enums
+- Fixed convex/userMutations.ts: stale `by_user_id` index → `by_userId`
+- Stubbed Income.tsx and Expenses.tsx (they used old schema; full transaction UI comes in later stories)
+- **Learnings for future iterations:**
+  - Always grep for all index name references when renaming schema indexes
+  - The old transactions schema (amountKobo, transactionDate, category as string) is completely gone — future stories must use amount, date, categoryId
+  - listTransactions now requires entityId — any page using it must pass the active entity
+  - migrateLegacyTransactions mutation is available to clean up pre-schema data via the API
+  - pnpm not available — use npm
+---
+
+## 2026-02-25 - US-016
+- Created `convex/transactions.ts` with full namespace: `list` (paginated, multi-filter, sortable, category names resolved), `get`, `getUncategorised`, `manualCreate`, `update`, `remove`, `bulkCategorise`, `bulkDelete`, `initiateImport`, `batchUpsert` (with dedup)
+- Created `convex/importJobs.ts` with `get` and `list` queries
+- `list` uses offset/limit pagination (JS-level slice after collecting from best-matching index)
+- `batchUpsert` deduplicates on (entityId, date, amount, description) + externalRef; updates importJob status to complete with stats
+- `manualCreate` computes `amountNgn` from fxRate if non-NGN currency; defaults to 1:1 if fxRate not provided
+- `bulkCategorise` resolves `isDeductible` from category's `isDeductibleDefault`
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex namespace pattern: create a file named `transactions.ts`, export named functions — they become `transactions:list`, `transactions:get`, etc. on the client
+  - Convex does not support offset-based pagination natively; using JS-level slice after `.collect()` is acceptable for small-to-medium datasets
+  - For dedup in `batchUpsert`, filtering by `by_entityId_date` index first then JS filter on amount+description is efficient
+  - `delete` is a reserved word in JS — use `remove` for the delete mutation export (same pattern as `entityCrud.ts`)
+---
+
+## 2026-02-25 - US-017
+- Created `convex/importHelpers.ts`: internal mutations for importJob lifecycle management
+  (getJob query, setJobProcessing, setJobComplete, setJobFailed) and batchInsert (dedup logic)
+- Created `convex/importPipeline.ts`: `processImport` action with `"use node";`
+- CSV parser: handles standard 5-column + Nigerian bank variations (GTBank, Zenith, Access, debit/credit)
+  - Header detection: matches narration/value date/remarks/debit amount headers to identify bank format
+  - Amount parsing: strips ₦ symbol + commas, converts float to kobo (×100)
+  - Date parsing: supports DD/MM/YYYY, DD/MM/YY, YYYY-MM-DD, DD Mon YYYY
+- PDF parser: uses pdf-parse (installed in convex/package.json) for text extraction
+  - Bank detection from PDF text content (GTBank, Zenith, Access, generic fallback)
+  - GTBank PDF: regex matching rows starting with date + narration + debit/credit amounts
+  - Generic fallback: dateRe + amountRe pattern matching with CR/DR direction inference
+- Format auto-detection: magic bytes check (%PDF = 0x25504446) + source field
+- externalRef: SHA-256 hash of date|description|amount|direction (truncated 32 chars)
+- Error handling: parse errors → setJobFailed; insert errors → setJobFailed with partial stats
+- Partial parse resilience: try/catch per row — successful rows imported even if others fail
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex `"use node"` files: ONLY export `action` functions — mutations/queries can't be in the same file
+  - Internal function cross-file calls from actions: `(internal as any).module.fn` bypasses stale generated types
+  - `pdf-parse` is CJS — use `const mod = await import('pdf-parse'); const fn = mod.default ?? mod;` pattern
+  - convex/package.json deps need `npm install` run in `/convex` directory separately
+  - Amount storage convention: ALL amounts stored in smallest unit (kobo = Naira × 100) for integer math
+---
+
+## 2026-02-25 - US-018
+- Built full Transaction List UI at `/app/transactions`
+- Extended `convex/transactions.ts` list query: added `direction` filter arg (credit/debit) and returns `categoryColor`/`categoryIcon` from resolved category
+- `apps/web/src/pages/Transactions.tsx`: completely rewritten with:
+  - Page header with 'Transactions' title + count subtitle + 'Import' button
+  - Filter chips: All | Income | Expenses | Uncategorised | This Month | This Quarter | Custom Range
+  - Custom Range picker (date inputs dropdown anchored to chips bar)
+  - Debounced search bar (350ms) with clear button
+  - Sort dropdown: date desc/asc, amount desc/asc, category A–Z/Z–A
+  - Grouped by month with sticky section headers ('February 2026')
+  - Transaction rows: direction icon (green/red), category color dot, description truncated, date, category label or 'Uncategorised' in warning color, amount (+green for credit / neutral for debit), foreign currency badge + original amount
+  - Load more button (25 per page, increases limit by 25)
+  - Footer showing total count when all loaded
+  - Skeleton loading state (8 shimmer rows)
+  - Empty state with illustration + contextual message + Import Now CTA or Clear filters link
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `api.transactions.list` fails TypeScript — stale generated types. Use `(api as any).transactions.list` and cast result to a local interface
+  - Same pattern as internal action calls: `(api as any).module.fn` for any module not in the generated api.d.ts
+  - Define a local `TransactionRow` interface for typing query results when generated types are stale
+  - Filter chips for Income/Expenses use `direction` (credit/debit) not `type` — more intuitive for users
+  - Limit-based pagination (increasing limit state) works well with Convex reactive queries — no separate accumulation needed
+---
+
+## 2026-02-25 - US-019
+- Created `apps/web/src/pages/TransactionDetail.tsx`: full transaction detail/edit page at `/app/transactions/:id`
+  - Hero summary card: direction icon, description, naira amount, date, category badge, foreign currency badge
+  - View mode: all fields shown in labeled rows (date, amount, FX rate, currency, direction, type, category, source, invoice, taxYear)
+  - Tax information section: isDeductible toggle, deductiblePercent, whtDeducted, whtRate
+  - Notes section with edit textarea
+  - Edit mode: inline editable inputs for description, category (dropdown), type, isDeductible toggle, deductiblePercent, whtDeducted, notes
+  - Save/Cancel header buttons with dirty form tracking
+  - Discard Changes dialog shown when cancelling with unsaved edits
+  - 'Mark as Personal' one-tap action button (type=personal_expense, isDeductible=false)
+  - Delete Transaction button with confirmation dialog (permanent delete → navigate back to list)
+  - Success/error toasts on all actions
+  - Loading skeleton and 404 not-found state
+- Created `apps/web/src/components/ManualTransactionModal.tsx`: slide-up modal for manual transaction entry
+  - Fields: date, description, amount, currency, direction, FX rate (shown for non-NGN), computed NGN equivalent, category dropdown, type, isDeductible, deductiblePercent, whtDeducted, whtRate, notes
+  - Auto-sets isDeductible from category.isDeductibleDefault when category is selected
+  - Converts user-entered Naira amounts to kobo on submit
+  - Inline validation errors for required fields and range checks
+  - Closes on Escape key or backdrop click
+- Updated `convex/transactions.ts`: `get` query now returns `categoryColor` and `categoryIcon` alongside `categoryName`
+- Updated `apps/web/src/App.tsx`: added `/app/transactions/:id` route → `TransactionDetail`
+- Updated `apps/web/src/pages/Transactions.tsx`:
+  - Added `+` (Add) button next to Import button in header
+  - Transaction rows are now clickable (navigate to `/app/transactions/:id`)
+  - Added `ManualTransactionModal` rendered when showManualModal is true
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - For modal/overlay components: use `fixed inset-0 z-50` + backdrop div + animate-slide-up on panel — consistent with existing design
+  - Amount input convention: users enter in currency units (Naira), multiply by 100 to store in kobo for all monetary fields (amount, whtDeducted)
+  - `useParams<{ id: string }>()` returns string; pass directly as `Id<'transactions'>` cast to Convex — runtime validates the ID format
+  - For edit forms, keeping `isDirty` state and showing a discard dialog before cancelling is good UX (implemented via DiscardChangesDialog)
+  - When a category is selected in an edit form, auto-apply `isDeductibleDefault` from that category
+---
+
+## 2026-02-25 - US-020
+- Created `apps/web/src/pages/ImportTransactions.tsx`: full Import Transactions screen at `/app/import`
+  - Method tabs: Upload Statement | Connect Bank (placeholder) | Connect Fintech (placeholder) | Manual Entry
+  - Upload tab with drag-and-drop zone (web); accepts PDF and CSV files
+  - State machine: idle → uploading (progress bar) → processing (indeterminate bar + "Processing your statement…") → complete/error
+  - Upload flow: generateUploadUrl → fetch POST to Convex Storage → initiateImport mutation → processImport action (fire-and-forget) → subscribe to importJobs.get via ImportJobWatcher component
+  - Complete state: results summary card showing "X transactions imported, Y duplicates skipped" with CTA to view batch or go to transactions
+  - Error state: error message with "Try again" button (resets to idle)
+  - Duplicate explanation info box (always visible on idle; conditional on complete)
+  - ImportJobWatcher uses useQuery on importJobs.get for real-time Convex reactivity
+  - Connect Bank / Connect Fintech tabs: placeholder with "Coming soon" badge
+  - Manual Entry tab: redirects to /app/transactions
+- Updated `apps/web/src/pages/Transactions.tsx`: Import button now navigates to `/app/import` (removed toast placeholder)
+- Updated `apps/web/src/App.tsx`: added `/app/import` route → `ImportTransactions`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex Storage upload: POST to generateUploadUrl result with Content-Type header; response JSON has `storageId`
+  - `useAction` from convex/react is needed for calling Convex actions (vs `useMutation` for mutations)
+  - For real-time job status: subscribe via useQuery on importJobs.get; use a ref to avoid double-notifying on re-renders
+  - `CloudUpload` is not exported from lucide-react — use `UploadCloud` instead
+  - Fire-and-forget pattern for actions: call `.catch()` to handle errors but don't await in main flow; job watcher handles success/failure
+---
+
+## 2026-02-25 - US-021
+- Created `apps/web/src/components/CategoryPickerModal.tsx`: reusable category picker
+  - Fetches `api.categories.listAll`; searchable; grouped by Income/Business/Personal/Transfer
+  - Exports `CategoryOption` interface for consuming components
+  - Shows "Deductible" badge on categories with `isDeductibleDefault: true`
+- Created `apps/web/src/pages/Triage.tsx`: card-based triage at `/app/triage`
+  - Captures uncategorised queue once on load (prevents reactive list shifting)
+  - Progress bar (% reviewed) + "N of M" counter
+  - Actions: Change category (picker → apply + advance), Mark as Personal, Skip
+  - All-done state + empty state (0 uncategorised)
+- Updated `apps/web/src/pages/Transactions.tsx`: bulk select mode
+  - "Select" toggle in header; checkboxes on rows in bulk mode
+  - "Select all" bar selects visible page only; selected rows highlighted
+  - Fixed bottom action bar (`md:left-64` for sidebar offset): Categorise + Delete
+  - Bulk Categorise: CategoryPickerModal → `bulkCategorise` mutation
+  - Bulk Delete: confirmation dialog → `bulkDelete` mutation
+- Updated `apps/web/src/App.tsx`: added `/app/triage` route
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - `api.categories.listAll` is in generated types (no `as any`); transactions still needs it
+  - CategoryPickerModal sticky group headers: `sticky top-0` inside `overflow-y-auto flex-1`
+  - Bottom bulk bar: `md:left-64` to clear desktop sidebar width
+  - Triage queue: guard with `queue === null` in useEffect to freeze list on first load
+  - `bulkCategorise` requires both `categoryId` AND `type` — pass `category.type` from picker
+---
+
+## 2026-02-25 - US-022
+- Added `create`, `update`, `remove` mutations to `convex/categories.ts`
+  - `remove` clears categoryId + sets type='uncategorised' on all affected transactions before deleting
+- Created `convex/connectedAccounts.ts`: `list` query (entity-scoped, user-filtered), `add` mutation, `disconnect` mutation
+- Created `apps/web/src/pages/Categories.tsx`: categories management at `/app/settings/categories`
+  - Groups by type: Income, Business Expenses, Personal, Transfers
+  - System categories (isSystem=true) show lock badge, no edit/delete actions
+  - Custom categories show edit/delete actions on hover
+  - Create modal: name, type selector, deductible toggle (business only), icon picker (emoji), color picker
+  - Edit modal: same form pre-populated (type locked in edit mode)
+  - Delete confirmation: warns transactions will move to uncategorised
+- Created `apps/web/src/pages/ConnectedAccounts.tsx`: accounts screen at `/app/settings/accounts`
+  - Empty state: "No accounts linked yet" + "Add Account" CTA
+  - AccountCard shows: provider icon, name, status badge, currency, last synced relative time
+  - Add Account modal: accountName, provider (statement_upload | manual), currency
+  - Disconnect confirmation dialog; preserves existing transactions
+- Updated `apps/web/src/App.tsx`: added routes for `/app/settings/categories` and `/app/settings/accounts`
+- Updated `apps/web/src/pages/Settings.tsx`: added Categories and Connected Accounts link cards
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Connected accounts module uses `(api as any).connectedAccounts.*` pattern (new module, not in generated types)
+  - For categories `remove` mutation, must clear categoryId field on transactions — use `undefined` not `null` for optional Convex fields
+  - Emoji icon + hex color picker combo works well for category customisation UX
+  - Account status badges (active/expired/error/disconnected) use distinct color schemes for quick visual scanning
+---
+
+## 2026-02-25 - US-023
+- Added AI fields to `transactions` schema: aiCategorySuggestion, aiTypeSuggestion, aiCategoryConfidence, aiReasoning, aiCategorisingJobId, aiCategorisedAt, userOverrodeAi
+- Added `categorisingJobs` table: tracks batch AI categorisation operations (entityId, userId, importJobId, status, totalTransactions/Categorised/LowConfidence/Failed, batchesTotal/Completed, confidenceThreshold, modelUsed, totalTokensUsed, estimatedCostUsd, errorMessage, startedAt, completedAt)
+- Added `aiCategorisationFeedback` table: captures user overrides for few-shot learning (entityId, userId, transactionId, aiSuggested*, userChosen*, transactionDescription/Amount/Direction)
+- Created `convex/aiCategoriseHelpers.ts`: internal mutations/queries for AI job lifecycle (createCategorisingJob, updateCategorisingJob, applyAiResults, getTransactionsByImportJob, getCategoriesList)
+- Created `convex/aiCategorise.ts` ("use node"): `categoriseBatch` internalAction — Claude Haiku API, batches ≤50 transactions, 500ms inter-batch delay, retry 3x on 429/5xx with exponential backoff, applies categories ≥0.7 confidence, stores suggestions for <0.7
+- Updated `convex/importPipeline.ts`: after batchInsert, creates categorisingJob + calls `aiCategorise.categoriseBatch` via ctx.runAction; wrapped in try/catch so AI failure never blocks import
+- Installed `@anthropic-ai/sdk` in convex/package.json
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `"use node"` Convex actions CAN call other actions via `ctx.runAction(internal.module.fn, args)`
+  - Anthropic SDK dynamic import: `const mod = await import('@anthropic-ai/sdk' as any); const Anthropic = mod.default ?? mod;`
+  - AI pipeline separated: mutations for DB ops (aiCategoriseHelpers.ts) + action for API call (aiCategorise.ts) — "use node" restriction requires this split
+  - Confidence threshold 0.7: auto-apply category if ≥0.7 AND matching category name found in DB; otherwise store suggestion only
+  - Category name lookup: case-insensitive map from category.name → category record; updates type + isDeductible from category.isDeductibleDefault
+---
+
+## 2026-02-25 - US-024
+- Added `userOverrodeAi` field to `update` mutation args in `convex/transactions.ts`
+- Added `acceptAiSuggestion` mutation: looks up category by aiCategorySuggestion name (case-insensitive), applies categoryId+type+isDeductible, sets reviewedByUser=true/userOverrodeAi=false
+- Added `recordAiFeedback` mutation: inserts aiCategorisationFeedback record with AI suggestion vs user choice for few-shot learning
+- Updated `apps/web/src/pages/Transactions.tsx`:
+  - Added AI fields to TransactionRow interface (aiCategorySuggestion, aiCategoryConfidence, aiCategorisingJobId, userOverrodeAi)
+  - In row meta line: show 🤖+confidence badge (green ≥0.9, amber 0.7–0.89) for AI-categorised unreviewed; ✓ for user-reviewed; 'AI suggests: X · Y%' for uncategorised+AI suggestion
+  - Confidence badges hidden on manually-entered or user-reviewed transactions
+- Rewrote `apps/web/src/pages/Triage.tsx`:
+  - Extended UncategorisedTx interface with AI fields (includes entityId for feedback recording)
+  - TransactionCard shows AI suggestion panel with confidence bar and ℹ reasoning icon
+  - AiReasoningSheet bottom sheet component shown when ℹ clicked
+  - "Accept: [suggestion]" primary button calls acceptAiSuggestion mutation
+  - "Override category" (renamed from "Change category") calls recordAiFeedback + update with userOverrodeAi=true
+  - "Mark as Personal" calls recordAiFeedback if AI had suggestion + sets userOverrodeAi=true
+  - processingRef used to prevent double-submit
+- Updated `apps/web/src/pages/TransactionDetail.tsx`:
+  - Added AI fields to TransactionFull interface
+  - Added acceptAiMutation and recordFeedbackMutation hooks
+  - Inserted AI Categorisation section (between Details and Tax sections): suggestion+confidence bar, ℹ View reasoning, Accept suggestion button, or reviewed status with override indicator
+  - AI reasoning bottom sheet overlay
+  - handleSave: detects override (aiCategorisingJobId set + category changing) → records feedback + sets userOverrodeAi=true
+  - handleMarkPersonal: records feedback if AI was involved
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - For AI override detection in detail/save: compare form.categoryId !== (transaction.categoryId ?? '') to detect change
+  - acceptAiSuggestion mutation does DB category name lookup server-side — avoids needing categories list on client for simple accept flow
+  - processingRef pattern (useRef boolean) prevents double-submit on async triage actions while still showing disabled state via state
+  - AI section only renders when aiCategorisingJobId is set — ensures clean hide on manual/non-AI transactions
+---
+
+## 2026-02-25 - US-025
+- `convex/transactionActions.ts`: public `autoCategorise` action — accepts entityId + optional transactionIds, verifies auth+ownership, counts uncategorised+unreviewed, creates categorisingJob, fires `aiCategorise.categoriseBatchForEntity` fire-and-forget; returns {categorisingJobId, totalTransactions}
+- `convex/categorisingJobs.ts`: public queries/mutations — `get` (ownership-checked), `getLatestForEntity`, `cancel` (marks pending/processing jobs as cancelled)
+- `apps/web/src/pages/Transactions.tsx`:
+  - `AiCategoriseConfirmDialog` + `AiProgressOverlay` components already existed
+  - `handleStartAiCategorise` calls autoCategorise action, sets activeAiJobId
+  - `handleAiComplete` shows completion toast: "Categorised X of Y transactions. Z need manual review."
+  - `handleCancelAiJob` calls categorisingJobs.cancel, shows "Categorisation cancelled" toast
+  - 'Re-categorise with AI' button visible when `activeFilter === 'uncategorised' && totalCount > 0`
+- `apps/web/src/pages/Triage.tsx`:
+  - `TriageAiConfirmDialog` + `TriageAiProgressOverlay` components already defined but not wired up
+  - Added `showAiConfirm`, `aiConfirmLoading`, `activeAiJobId` state
+  - Added `autoCategoriseAction` and `cancelJobMutation` hooks
+  - Added `handleStartAiCategorise`, `handleAiComplete` (useCallback, resets queue+index after completion), `handleCancelAiJob`
+  - 'Auto-categorise All with AI' button in header — visible when rawList has items
+  - Queue resets (setQueue(null), setIndex(0)) after AI completes so triage updates
+- Fixed unused `lowConfidence` → `_lowConfidence` in Transactions.tsx handleAiComplete
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - TriageAiProgressOverlay uses useEffect+notifiedRef to avoid double-notifying — onComplete should be wrapped in useCallback to prevent stale closure re-runs
+  - After AI bulk categorise completes in Triage, reset queue (setQueue(null)) to force reload of updated state
+  - autoCategorise action returns `{ categorisingJobId: null, totalTransactions: 0 }` when nothing to process — always check before setting activeJobId
+  - Already-reviewed exclusion is server-side in getUncategorisedForEntity (filters type='uncategorised' AND reviewedByUser != true)
+---
+
+## 2026-02-25 - US-026
+- Added `transactions.getAiStats` public query: computes accuracy rate, per-category stats, override rate, AI-categorised vs manual counts from aiCategorisationFeedback records
+- Created `convex/aiCategoriseHelpers.ts` additions:
+  - `getFewShotExamples`: fetches up to 20 recent user corrections ordered by recency for few-shot prompting
+  - `checkCircuitBreaker`: queries last 10 categorisingJobs, counts consecutive failures; opens circuit for 10 min after 3 failures within 5 min
+- Updated `convex/aiCategorise.ts`:
+  - `buildPrompt` now accepts `FewShotExample[]` and appends a personalised corrections section when available
+  - Both `categoriseBatch` and `categoriseBatchForEntity` now: check circuit breaker at start, fetch few-shot examples alongside categories and transactions, pass examples to `buildPrompt`
+  - ANTHROPIC_API_KEY missing → silent failure (job marked failed, no errors propagated to UI)
+- Created `apps/web/src/pages/AiInsights.tsx`: stat cards (AI categorised, overall accuracy, override rate, reviews done), AI vs manual breakdown bar, per-category accuracy table with colour-coded badges, empty state with CTA to Triage, CTA banner when fewer than 20 reviews done
+- Added `/app/ai-insights` route to `App.tsx`
+- Added "AI Insights" link button (Sparkles icon) to Transactions page header
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - Circuit breaker implemented via querying recent categorisingJobs — no extra schema table needed
+  - Few-shot examples live in `aiCategorisationFeedback` table (already seeded when user accepts/overrides AI in Triage)
+  - `useQuery` with `'skip'` as second arg prevents firing when `activeEntityId` is undefined — use `(api as any).module.fn` for unstubbed modules
+---
+
+## 2026-02-25 - US-027
+- Added `taxYearSummaries` table to `convex/schema.ts`: entityId, userId, taxYear, engineVersion, totalGrossIncome, totalBusinessExpenses, reliefs (nested object: rent/pension/nhis/nhf/lifeInsurance/mortgage/total), taxableIncome, bands (array of objects: rate/from/to/income/taxPayable), grossTaxPayable, whtCredits, netTaxPayable, vatPayable, citPayable, isNilReturn, computedAt; indexed by_entityId_taxYear
+- Added `taxDeclarations` table: entityId, userId, taxYear, annualRentPaid, pensionContributions, nhisContributions, nhfContributions, lifeInsurancePremiums, mortgageInterest, createdAt, updatedAt; indexed by_entityId_taxYear
+- Added `fxRates` table: date (YYYY-MM-DD string), currency (USD/GBP/EUR), cbnRate; indexed by_date_currency
+- Added `capitalDisposals` table: entityId, userId, taxYear, assetDescription, acquisitionCostNgn, disposalProceedsNgn, acquisitionDate, disposalDate, isExempt, exemptionReason, createdAt, updatedAt; indexed by_entityId_taxYear
+- Created `convex/taxDeclarations.ts`: `get` query (entityId+taxYear, auth-guarded), `createOrUpdate` mutation (upsert pattern using withIndex first())
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex supports `v.object({...})` for nested objects and `v.array(v.object({...}))` for arrays of objects in schema — no flattening needed
+  - Upsert pattern: query with withIndex().first() → if exists, ctx.db.patch; else ctx.db.insert — clean and idiomatic
+  - All monetary amounts stored in kobo (smallest unit) per project convention; even FX rates stored as NGN per 1 unit (not fractional)
+---
+
+## 2026-02-25 - US-028
+- Created `convex/taxEngine.ts`: pure PIT computation engine (NTA 2025)
+  - `TAX_ENGINE_VERSION = '1.0.0'` constant for engine versioning / historical immutability
+  - Exported types: `TaxEngineTransaction`, `TaxEngineDeclarations`, `TaxEngineInput`, `PitBandResult`, `TaxEngineReliefs`, `TaxEngineOutput`
+  - `runTaxEngine(input)`: pure function — same inputs always produce same outputs
+  - Gross income: sums all type='income' transactions' amountNgn (transfers excluded by type)
+  - Business expenses: sums amountNgn × (deductiblePercent/100) for isDeductible=true business_expense rows
+  - Assessable profit: grossIncome − expenses, clamped to 0
+  - Reliefs: rent (20% of declared, cap ₦500k), pension, NHIS, NHF, life insurance, mortgage interest (all passed through at face value)
+  - Taxable income: assessableProfit − totalReliefs, clamped to 0
+  - Six PIT bands (₦0-800k 0%, ₦800k-2.2m 15%, ₦2.2m-4.2m 18%, ₦4.2m-6.2m 21%, ₦6.2m-56.2m 23%, ₦56.2m+ 25%); all bands included in output (0-income bands have taxPayable=0)
+  - WHT credits: sums whtDeducted from all income transactions
+  - Minimum tax: applied when assessableProfit > ₦800k AND grossTaxFromBands < grossIncome × 0.5%; minimum = max(grossIncome × 0.5%, ₦200k)
+  - Net tax: max(grossTaxPayable − whtCredits, 0); isNilReturn = true when netTaxPayable === 0
+  - `computePitBands(taxableIncome)`: private helper iterating over PIT_BANDS
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Tax engine lives in `convex/taxEngine.ts` as a pure TS module — no Convex APIs imported; safe to import from any Convex query, mutation, or action
+  - All band boundary constants use `KOBO(ngn)` helper (ngn × 100) for readability
+  - Top band uses `to: Infinity` internally; serialised as `to: undefined` in `PitBandResult` to match the Convex schema `v.optional(v.number())`
+  - Minimum tax check: compare `grossTaxFromBands < Math.round(grossIncome × 0.005)` (not against the final minimum), then apply max(that value, ₦200k)
+  - `minimumTaxApplied` boolean flag in output lets callers show a UI warning when minimum tax overrides band computation
+---
+
+## 2026-02-25 - US-029
+- Extended `convex/taxEngine.ts`:
+  - Added `TaxEngineCapitalDisposal` interface and `getEngineForYear(taxYear)` version router
+  - Extended `TaxEngineInput` with `capitalDisposals`, `isVatRegistered`, `outputVatNgn`, `grossFixedAssetsNgn`
+  - Extended `TaxEngineOutput` with `cgtPayable`, `cgGains`, `citPayable`, `vatPayable`, `totalTaxPayable`, `effectiveTaxRate`, `uncategorisedCount`, `unsupportedCurrencies`
+  - Added `computeCit()`: small company exemption (turnover ≤₦100m AND grossFixedAssets ≤₦250m); otherwise 30%+4% dev levy
+  - Added `computeCgGains()`: sums non-exempt disposal gains (proceeds−cost per disposal, clamped to 0)
+  - Added `computeVat()`: inputVat from isVatInclusive business_expense transactions (× 7.5/107.5); outputVat passed as parameter
+  - CGT: individuals → gains rolled into grossIncome before PIT; LLCs → 30% flat cgtPayable separate
+  - Updated nil return detection: `isNilReturn = netTaxPayable === 0 || taxableIncome <= ₦800k`
+  - Added SUPPORTED_CURRENCIES constant; unsupportedCurrencies flagged in output
+- Updated `convex/schema.ts`:
+  - Added `isVatInclusive: v.optional(v.boolean())` to transactions table
+  - Extended `taxYearSummaries` with `assessableProfit`, `minimumTaxApplied`, `cgGains`, `cgtPayable`, `totalTaxPayable`, `effectiveTaxRate`, `uncategorisedCount` fields
+- Created `convex/tax.ts`:
+  - `getSummary` query: reactive — fetches transactions + declarations + capitalDisposals, runs engine, returns full TaxEngineOutput (auto re-runs on any data change)
+  - `refreshSummaryCache` mutation: upserts engine result to taxYearSummaries; historical records with different engineVersion are preserved (not overwritten)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - CGT for individuals is NOT a separate tax line — gains are added to grossIncome before PIT bands run; set cgtPayable=0 and cgGains separately for display
+  - CIT small company exemption: if grossFixedAssetsNgn is undefined, assume small company (conservative default prevents phantom CIT charges)
+  - Engine version router pattern: `getEngineForYear(taxYear)` returns version string; refreshSummaryCache skips if cached version !== current → historical records immutable
+  - For VAT, outputVatNgn is passed as 0 until invoice module is built — engine is ready to receive real invoice data later
+  - `isVatInclusive` on transactions allows input VAT reclaimability calculation without separate VAT tracking fields
+  - `(t as any).isVatInclusive` needed when reading new schema fields that aren't in Convex's generated types yet
+---
+
+## 2026-02-25 - US-030
+- Added `getIncomeBreakdown` query to `convex/tax.ts`: fetches income transactions for entity+taxYear, resolves category names, groups into 4 buckets (freelanceClient, foreign, investment, rental) by currency and category name pattern matching
+- Rewrote `apps/web/src/pages/TaxSummary.tsx` (was a stub) with full NTA 2025 Tax Summary UI:
+  - Tax year selector dropdown (defaults to current year - 1 = current filing period)
+  - Tax Liability Card: primary-light bg (nil return = emerald), large mono-font liability amount (danger if >₦0, success if ₦0), effective rate, days-to-deadline badge (color-coded: green >30d, amber 7-30d, red <7d)
+  - Nil return callout banner (filing still required note)
+  - Minimum tax applied warning banner
+  - Income Breakdown section (expandable): freelance/client, foreign (FX tooltip), investment, rental, total gross; uncategorised warning with triage link
+  - Deductions section (expandable): business expenses, rent relief (20% sublabel when >0), pension, NHIS/NHF, life insurance, mortgage; total deductions; taxable income highlighted card; 'Edit reliefs' link
+  - Tax Band Breakdown (expandable): horizontal stacked bar (bands with income, color-coded by rate); full 6-band table (rate badge, range, income in band, tax; zero bands shown at reduced opacity); gross PIT summary
+  - Credits & Net Payable (expandable): gross tax, WHT credits (negative, tooltip), net PIT payable
+  - SME section (LLC only): CIT (small company exemption banner if citPayable=0, else breakdown); CGT (if applicable); VAT (output/input/net or not-registered message)
+  - Total footer card: total tax payable, effective rate, 'Edit reliefs' link, 'Computed at HH:MM' timestamp
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `ReceiptText` does NOT exist in lucide-react — use `Receipt` instead
+  - Optional chaining comparisons (`a?.b > 0`) fail TypeScript strict — use `(a?.b ?? 0) > 0`
+  - `summary?.reliefs?.rent` is typed as `number | undefined` even when summary is defined — always use `?? 0` fallback in comparisons
+  - For income breakdown: use category name regex patterns (invest/dividend/interest for investment, rent/rental/property for rental, non-NGN currency for foreign, rest = freelance)
+  - `(api as any).tax.getSummary` pattern needed since tax module is not in generated api.d.ts
+  - Stacked bar: use `summary.bands.indexOf(band)` to get the color index matching the full 6-band array order
+---
+
+## 2026-02-25 - US-031
+- Created `apps/web/src/pages/Declarations.tsx`: Tax Declarations form at `/app/declarations`
+  - Fields: annual rent paid (required), pension contributions, NHIS, NHF, life insurance premiums, mortgage interest
+  - Empty state: 'Enter your relief amounts to reduce your taxable income' shown when no data and no values entered
+  - Live preview panel: computes rent relief (20%, cap ₦500k) + all others at face value; shows only non-zero rows
+  - Form pre-populates from `taxDeclarations.get` query; saves via `taxDeclarations.createOrUpdate` mutation
+  - Tax year selector (defaults to previous year); loads/saves per year
+  - Save button shows spinner → checkmark → 'Saved' state; cancel navigates back to Tax Summary
+  - Info card explaining each relief type
+- Updated `apps/web/src/App.tsx`: added `/app/declarations` route
+- Updated `apps/web/src/pages/TaxSummary.tsx`:
+  - `DeadlineWidget`: countdown 'X days to March 31 filing deadline' with color transitions (>30d = success, 15-30d = warning, <15d = danger); expandable penalty reference (late filing ₦100k + ₦50k/month, late payment 10% + MPR)
+  - FX rates warning banner: shown when `incomeBreakdown.foreign > 0` — informs nearest available date was used
+  - DTA prompt: shown for foreign income — notes DTA may reduce double taxation
+  - Fixed deadline color threshold from >7 → ≥15 for warning (per spec 15-30 days)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `(api as any).taxDeclarations.get` pattern works for modules not in generated types (same as other new modules)
+  - `useEffect` dependency on `[declData, taxYear]` for form pre-population can double-set; guard with `declData !== undefined` check
+  - `isLoading = !initialised && activeEntityId` — truthiness handles undefined vs null activeEntityId gracefully
+  - `koboToNgn` returning '' for 0 values creates clean empty input fields on first load
+---
+
+## 2026-02-25 - US-033
+- Created `convex/clients.ts`: list (entity-scoped, alphabetical), get, create, update, remove, search (by name prefix, returns ≤10)
+  - whtRate validated to be 0, 5, or 10 in create/update
+  - delete does NOT cascade to invoices (denormalised data on invoices is preserved)
+  - search uses by_entityId_name index with JS prefix filter
+- Created `convex/invoices.ts`: get (with joined items), list (paginated with summary totals), create, update
+  - `create`: generates sequential INV-{YEAR}-{NNNN} numbers atomically (derives max seq from existing invoice numbers in same entity+year — safe because Convex mutations are ACID/serial)
+  - `create`: computes subtotal = Σ(qty×unitPrice), whtAmount = subtotal×whtRate/100, vatAmount = subtotal×7.5% (only if entity.vatRegistered AND vatThresholdExceeded), totalDue = subtotal−whtAmount+vatAmount
+  - `create`: denormalises clientName/clientEmail from client record at creation time
+  - `update`: draft-only guard; if lineItems provided, deletes all existing invoiceItems then re-inserts + recalculates totals
+  - `list`: always fetches all entity invoices for accurate summary totals (outstanding=sent+overdue sum, paidThisYear=paid with paidAt in current year); applies status filter for pagination only
+  - `amountNgn` computed as totalDue × fxRate (defaults to 1 if not provided)
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Atomic sequential number generation in Convex: query existing records, find max, increment — safe because mutations are ACID (no concurrent execution)
+  - `invoices` table has no plain `by_entityId` index — use `by_userId` + JS filter when you need all entity invoices across all statuses
+  - For list queries that need both paginated results AND global aggregates, fetch all first then slice — avoids double queries
+  - whtAmount/vatAmount should be stored as `undefined` (not 0) when not applicable — use conditional insertion
+---
+
+## 2026-02-25 - US-032
+- Added `clients` table to convex/schema.ts: entityId, userId, name, email, address, currency, whtRate; indexes by_entityId, by_userId, by_entityId_name
+- Added `invoices` table: entityId, userId, clientId, clientName (denormalised), clientEmail (denormalised), invoiceNumber, status (draft/sent/paid/overdue/cancelled), issueDate, dueDate, currency, subtotal, whtAmount, vatAmount, totalDue, amountNgn, paidAt, notes, isRecurring, recurringInterval, nextIssueDate, pdfStorageId; indexes by_entityId_status, by_entityId_dueDate, by_userId, by_entityId_invoiceNumber, by_entityId_isRecurring
+- Added `invoiceItems` table: invoiceId, description, quantity, unitPrice, total; index by_invoiceId
+- Added InvoiceStatus, RecurringInterval, ClientData, InvoiceData, InvoiceItemData types to packages/shared/src/types.ts
+- Build passed (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex compound indexes with optional boolean fields (isRecurring) work fine — index by_entityId_isRecurring is valid
+  - invoiceId field in invoiceItems references v.id('invoices') — ensures referential consistency in queries
+  - Denormalised clientName/clientEmail on invoices follows the DenormalisedClient pattern from PRD-4 overview
+---
+
+## 2026-02-25 - US-034
+- Added `whtRate: v.optional(v.number())` to invoices table in `convex/schema.ts` (needed for invoice-to-transaction bridge)
+- Updated `convex/invoices.ts`:
+  - `create`: now stores `whtRate` on invoice record alongside whtAmount
+  - `update`: now updates `whtRate` in patch when provided
+  - Added `markPaid` mutation: validates invoice is sent/overdue (not draft/paid/cancelled); requires amountNgn for non-NGN invoices; looks up 'Freelance/Client Income' category by type+name; atomically creates income transaction (amount=totalDue, whtDeducted=whtAmount, whtRate, categoryId, invoiceId, direction='credit', type='income', reviewedByUser=true) then sets invoice status='paid' and paidAt; throws if already paid (idempotency)
+  - Added `cancel` mutation: draft/sent only → status='cancelled'; no transactions created or removed
+  - Added `remove` mutation: draft only → deletes all invoiceItems then hard-deletes invoice
+  - Added `_getInvoiceWithItems` internalQuery: fetches invoice + items + entityName (for PDF)
+  - Added `_setPdfAndSent` internalMutation: sets pdfStorageId + status='sent' (called by send action)
+  - Added `_setPdf` internalMutation: sets pdfStorageId only (called by generatePdf action)
+- Created `convex/invoiceActions.ts` ("use node" action file):
+  - `generatePdf` action: calls _getInvoiceWithItems → POSTs to NestJS PDF service → stores PDF in Convex Storage via ctx.storage.store(Blob) → calls _setPdf; returns storageId
+  - `send` action: same flow + sends email via Resend API with PDF attachment → calls _setPdfAndSent (sets status='sent'); re-send on 'sent' invoice regenerates PDF and re-emails (status stays 'sent')
+  - Environment variables: NESTJS_PDF_SERVICE_URL, RESEND_API_KEY, FROM_EMAIL
+  - `buildPdfPayload`: converts kobo amounts to naira major units for PDF display
+  - `sendInvoiceEmail`: graceful skip if RESEND_API_KEY not set (logs warning)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Invoice whtRate must be stored on the invoice record (not just derived from whtAmount) for the bridge to accurately pass it to the transaction
+  - `ctx.storage.store(blob: Blob)` works in "use node" Convex actions — wrap Buffer in `new Blob([buffer], { type: 'application/pdf' })`
+  - For send actions that need both read + write, use internalQuery for data fetch and internalMutation for DB writes — keeps "use node" action file clean
+  - markPaid: draft invoices cannot be marked paid (must be sent/overdue first) — enforces proper lifecycle
+  - amountNgn for FX invoices must be caller-provided at markPaid time since exchange rate at payment != rate at invoice time
+---
+
+## 2026-02-25 - US-035
+- Added `_checkOverdue` internal mutation to `convex/invoices.ts`:
+  - Collects all invoices with status='sent' via table scan + filter
+  - JS-filters to those where dueDate < now
+  - Patches each to status='overdue', updatedAt=now
+- Added `_generateRecurring` internal mutation to `convex/invoices.ts`:
+  - Collects all recurring invoices (isRecurring=true) via table scan
+  - JS-filters to those where nextIssueDate !== undefined AND <= now
+  - For each: fetches line items, computes new issueDate/dueDate (preserves due-date offset), generates fresh INV-{YEAR}-{NNNN} number, inserts cloned invoice as 'draft', clones all line items, advances template nextIssueDate by recurringInterval (monthly=+1mo, quarterly=+3mo)
+  - Added `advanceByInterval` helper function
+- Created `convex/crons.ts`:
+  - `generateRecurringInvoices`: daily at 06:00 UTC (07:00 WAT) → `internal.invoices._generateRecurring`
+  - `checkOverdueInvoices`: daily at 08:00 UTC (09:00 WAT) → `internal.invoices._checkOverdue`
+  - Uses `(internal as any).invoices.*` pattern since generated types may be stale
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Convex crons.ts: export `cronJobs()` default; use `crons.daily(name, { hourUTC, minuteUTC }, funcRef)` pattern
+  - WAT is UTC+1: 07:00 WAT = 06:00 UTC, 09:00 WAT = 08:00 UTC
+  - Convex crons can schedule internalMutation refs directly (no "use node" needed for DB-only crons)
+  - For table-wide scans in crons (no user scoping), use `.query('table').filter(...)` with JS-level secondary filter — safe for small datasets
+  - `(internal as any).moduleName.functionName` pattern works in crons.ts for stale generated types
+  - Don't use `q.lte` with optional fields in Convex filters — collect then JS-filter is safer for nullable/undefined fields
+---
+
+## 2026-02-25 - US-036
+- Extended `convex/invoices.ts` list query to return `statusCounts` object `{ all, draft, sent, paid, overdue, cancelled }` — computed over ALL entity invoices (regardless of active status filter)
+- Rewrote `apps/web/src/pages/Invoices.tsx` with full invoice list UI:
+  - Page header: 'Invoices' title + total count subtitle + '+New Invoice' button (navigates to `/app/invoices/new`)
+  - Summary bar: two cards — 'Total Outstanding' (amber) and 'Total Paid (Year)' (emerald) with formatted kobo→naira values
+  - Filter tabs: All | Draft | Sent | Paid | Overdue — each with count badge; active tab uses `bg-primary text-white`, inactive uses neutral hover
+  - Overdue alert banner: shown when overdue count > 0 and 'Overdue' tab is not active; clicking navigates to overdue tab
+  - Invoice rows: client name (with line-through on cancelled) + invoice number, issued/due dates, amount (currency-aware display), status badge (Draft grey, Sent blue, Paid emerald, Overdue red, Cancelled strikethrough)
+  - Tapping a row navigates to `/app/invoices/:id`
+  - Infinite scroll: limit state starts at 25; 'Load more invoices' link increases by 25
+  - Footer count shown when all invoices loaded and list is non-empty
+  - Empty state: different messages for filtered vs no invoices; 'Create Invoice' CTA or 'Show all invoices' link
+  - Loading skeleton: 6 shimmer rows while data loads
+  - Data scoped to active entity via `useEntity()` context; query skipped if no entity
+- Build: `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `(api as any).invoices.list` pattern used since invoices module not in generated api.d.ts
+  - Adding `statusCounts` to the list query is cleaner than running 5 separate count queries
+  - Curly apostrophes in JSX string literals cause TS parse errors — use double-quoted strings for text with apostrophes
+  - `w-4.5` is not a valid Tailwind class — use `w-4` or `w-[18px]` for 18px icon sizing
+  - `api` import needed explicitly even when using `(api as any)` pattern
+---
+
+## 2026-02-25 - US-037
+- Created `apps/web/src/pages/InvoiceForm.tsx`: full create/edit invoice UI
+  - §1 Invoice Details: auto-generated invoice number (readonly), currency selector (NGN/USD/GBP/EUR), issue date, due date
+  - §2 Client: search autocomplete using `clients.search` query (debounced via Convex reactivity); selecting a client auto-populates email, address, currency, whtRate; typing a new name shows "new client" hint and auto-creates client record on save; X/clear button; ✓ indicator for existing client selected
+  - §3 Line Items: responsive table (desktop: grid with header row; mobile: stacked with side-by-side qty/price); add/remove rows (min 1 row); per-row validation; amounts displayed in Naira with currency symbol prefix
+  - §4 Totals: live-computed from lineItems (Naira arithmetic); WHT segmented control (0% | 5% | 10%) with description; VAT (7.5%) shown only if entity.vatRegistered && entity.vatThresholdExceeded; Total Due prominent with primary color
+  - §5 Notes: textarea for payment terms, bank details, etc.
+  - §6 Recurring: toggle (role=switch) with monthly/quarterly interval selector and next issue date picker; shown only in non-readonly state
+  - Sticky footer: Save Draft | Preview | Send Invoice (md:left-64 sidebar offset); buttons show spinner during async operations
+  - Edit mode: pre-populated from `invoices.get` query; non-draft invoices show amber warning banner + all fields disabled
+  - Dirty form warning: `useBlocker(isDirty)` from react-router-dom shows ConfirmDialog on in-app navigation; `window.beforeunload` for browser nav
+  - Amount convention: users enter Naira, multiply by 100 (kobo) for Convex mutations; kobo÷100 when pre-populating edit form
+  - Auto-create client: `clients.create` called in `ensureClientId()` before invoice save if no clientId; non-fatal (invoice saves with clientName only if creation fails)
+  - Send flow: validates clientEmail → saveInvoice() → invoiceActions.send action → toast + navigate
+- Updated `apps/web/src/App.tsx`: added routes `/app/invoices/new` and `/app/invoices/:id/edit`
+- Updated `apps/web/src/pages/Invoices.tsx`: row click now navigates to `/app/invoices/:id/edit` (edit form handles non-draft read-only display)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useBlocker(isDirty)` (boolean form) works cleanly in react-router-dom v6.21 — call `blocker.proceed()` or `blocker.reset()` from ConfirmDialog
+  - For edit pre-population, use `initialised.current` ref to prevent re-running the effect on every re-render of the query
+  - `useAction` from convex/react for calling Convex actions (not useMutation) — required for "use node" action files like invoiceActions.ts
+  - Client autocomplete: `useQuery` with skip-if-empty pattern (`clientSearch.trim().length > 0 ? { ... } : 'skip'`) gives immediate results without debounce
+  - For form amounts: always display/accept in major currency units (Naira), multiply ×100 on submit, divide ÷100 on load
+  - `SectionCard` wrapper component keeps section layout consistent across the form
+---
+
+## 2026-02-25 - US-038
+- Modified `convex/invoices.ts` `get` query: now calls `ctx.storage.getUrl(invoice.pdfStorageId)` to return `pdfUrl` alongside invoice data; also returns `entityName` from entity record
+- Created `apps/web/src/pages/InvoicePreview.tsx`: full invoice preview page at `/app/invoices/:id`
+  - Header: primary-coloured banner with entity name (Building2 icon) and invoice number
+  - Client section: bill-to name/email, issue date, due date, currency (for non-NGN)
+  - Line items table: description, quantity, unit price, total (all formatted in invoice currency)
+  - Totals: subtotal, WHT deduction (with rate label), VAT addition, total due, NGN equivalent for foreign currency
+  - Payment details section: paidAt date shown for paid invoices; notes shown below
+  - Footer: "Generated by TaxEase Nigeria" branding
+  - Status badge in page header (draft/sent/paid/overdue/cancelled)
+  - Actions bar: Edit (draft only), Download PDF, Share/Copy Link, Send to Client, Mark as Paid (sent/overdue only), Cancel Invoice (draft/sent only)
+  - Download PDF: uses cached pdfUrl if available; otherwise calls `generatePdf` action first
+  - Share: uses `navigator.share` on mobile (checked via `typeof navigator.share === 'function'`); clipboard fallback on web
+  - MarkPaidDialog: confirmation + optional NGN amount input for foreign-currency invoices
+  - CancelDialog: confirmation with clear warning about irreversibility
+- Created `apps/web/src/pages/Clients.tsx`: client directory at `/app/clients`
+  - Alphabetical list via convex/clients.list query (already sorted server-side)
+  - Live search filter on name and email (client-side, no debounce needed at this scale)
+  - ClientCard: avatar initials, name, email, currency badge, WHT rate badge; edit/delete actions (show on hover on desktop)
+  - ClientFormModal: name (required), email, address, currency dropdown (NGN default), WHT rate selector (0/5/10%); shared for both create and edit
+  - DeleteConfirmDialog: warns that existing invoices are unaffected (denormalised client data)
+  - Empty state with illustration and "Add First Client" CTA
+  - Footer count showing total in directory
+- Updated `apps/web/src/pages/Invoices.tsx`: `handleRowClick` now navigates to `/app/invoices/:id` (preview) instead of `/app/invoices/:id/edit`
+- Updated `apps/web/src/App.tsx`: added routes `invoices/:id` → InvoicePreview and `clients` → Clients
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `ctx.storage.getUrl(storageId)` is available in Convex queries (not just actions) — returns a signed URL string or null
+  - `navigator.share` TypeScript issue: check with `typeof navigator.share === 'function'` rather than truthiness to avoid TS2774 "always defined" error
+  - Invoice `get` query returning both `pdfUrl` and `entityName` avoids extra queries on the client side
+  - Row click in list → navigate to preview, NOT edit — edit remains accessible from preview's actions bar
+---
+
+## 2026-02-25 - US-039
+- Rewrote `convex/dashboard.ts` with 3 fully reactive aggregation queries:
+  - `getSummary`: tax position + income/expenses YTD + WHT credits + uncategorised count + invoice activity + hasTransactions/hasInvoices
+    - Indexed reads only: by_entityId_taxYear (transactions), by_entityId_taxYear (taxYearSummaries), by_entityId_status (invoices)
+    - Tax position: reads cached taxYearSummaries first; if none, runs inline NTA 2025 PIT band estimate
+    - Invoice stats: outstanding (sent+overdue), overdue count, sent this month (by issueDate in current calendar month)
+    - hasInvoices: checked via by_userId index on invoices (cross-entity per user)
+  - `getRecentTransactions`: by_entityId_date index desc, take(5), resolves category name/color/icon per transaction with in-memory cache
+  - `getDeadlines`: computes March 31 filing deadline countdown with severity (>30d=safe, 15-30d=warning, <15d=danger); returns self-assessment + optional VAT return + overdue invoice reminders
+- Updated `apps/web/src/pages/Dashboard.tsx`: migrated from old stub field names (totalIncomeKobo, transactionCount, etc.) to new schema fields (incomeYtdKobo, hasTransactions, taxPosition.estimatedLiabilityKobo)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Dashboard queries degrade gracefully: no invoices → invoice stats all-zero; no cached taxYearSummaries → inline live estimate from transaction data
+  - `take(5)` on Convex index-ordered queries is efficient — no collect() needed for recent items
+  - In-memory category cache (Map) in getRecentTransactions avoids N+1 lookups — Convex queries are already batched but the cache prevents redundant per-doc reads
+  - Unused variable in Convex query handler (e.g. `const now`) triggers TS6133 error — remove or use it
+---
+
+## 2026-02-25 - US-041
+- Updated `apps/web/src/pages/Dashboard.tsx` with US-041 middle section:
+  - Uncategorised Banner: updated text to '{N} transaction(s) need(s) categorisation' with amber 'Review Now' button+chevron (was plain link text before)
+  - Added `currency` field to local `RecentTx` interface; `RecentTransactionRow` now shows currency code below NGN amount for non-NGN transactions
+  - "View all" link updated to "View All Transactions →" with ChevronRight icon
+  - Added `InvoiceActivityCard` component:
+    - When `hasInvoices=false`: shows empty state illustration + 'No invoices yet' + 'Create Invoice' CTA
+    - When invoices exist: 3-row stat layout (Sent this month count, Outstanding ₦ amount, Overdue count in danger if >0) + 'Go to Invoices' link
+    - Placed after Recent Transactions in the page layout
+  - Added loading skeleton for invoice activity card (3 shimmer rows)
+  - Added `Send` to lucide-react imports
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `RecentTx` local interface in Dashboard.tsx did NOT include `currency` from the Convex query — always check local interface vs query return type
+  - For FX display in compact rows, show currency code as small mono text below the NGN amount (not inline) to avoid horizontal crowding
+  - `InvoiceStats.hasInvoices` is available on both the top-level `DashboardSummary` and inside `invoiceStats` — use `summary?.hasInvoices` for clarity
+  - Singular/plural for 'need/needs': `uncategorisedCount === 1 ? 'transaction needs' : 'transactions need'`
+---
+
+## 2026-02-25 - US-040
+- Rewrote `apps/web/src/pages/Dashboard.tsx` with full US-040 spec:
+  - `TaxPositionCard`: primary-light bg, large mono liability figure (danger if >₦0, success if ₦0), effective rate%, tax year label, days-to-deadline badge (severity-coloured), tappable → /app/tax
+  - `DonutArc` SVG component (48×48px): rotated -90deg, background track + progress arc proportional to liability/income; danger colour for positive tax, success for zero
+  - Nil return display: '₦0 — Nil Return' with success colour + 'Filing still required by March 31' note
+  - `QuickStatsRow`: horizontal scrollable flex row with 4 chips (Total Income → /app/transactions?direction=credit, Business Expenses → /app/transactions?direction=debit, WHT Credits → /app/tax, Invoices Outstanding with count subvalue → /app/invoices); min-w-[180px] each with -translate-y-0.5 hover lift
+  - `DeadlineWidget`: visible only when daysRemaining <= 60 (covers overdue); severity colour transitions success/warning/danger; "Filing deadline passed X days ago" when overdue, "X days to filing deadline" otherwise; tappable → /app/tax
+  - `RecentTransactionRow`: links to /app/transactions/:id with category icon, color dot, direction indicator, description, category name (warning if uncategorised), formatted date, mono-font amount
+  - Uncategorised banner: AlertTriangle chip shown when uncategorisedCount > 0 → /app/triage
+  - All monetary values via Intl.NumberFormat with NGN currency + mono font class
+  - `api.dashboard.getRecentTransactions` and `api.dashboard.getDeadlines` used directly (module in generated api.d.ts)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `api.dashboard.*` is available directly (no `as any`) since dashboard.ts was already in convex at previous iteration
+  - SVG donut arc: rotate(-90deg) on the SVG element starts arc at top; strokeDasharray = `${proportion * circumference} ${circumference}` for proportional arc
+  - formatNaira unused functions cause TS6133 — remove any helpers not consumed in JSX
+  - `TaxPosition.effectiveTaxRate` is the field name (NOT `effectiveRate`) — check interface definition before accessing
+  - Deadline widget visibility: `daysRemaining <= 60` covers both 60-day window AND overdue (negative values)
+---
+
+## 2026-02-25 - US-042
+- Updated `convex/dashboard.ts` `getRecentTransactions`: added `taxYear: v.optional(v.number())` arg; fetches 50 then JS-filters by taxYear + slice(0,5)
+- Rewrote `apps/web/src/pages/Dashboard.tsx` with full US-042 spec:
+  - `TaxYearSelector`: `<select>` dropdown in page header; shows last 5 years (current year down); updates `taxYear` state; all 3 queries now pass `taxYear` arg
+  - `ReminderChips`: horizontal scrollable row of chips from `deadlines.reminders`; colour-coded by severity (safe=accent/info, warning=amber, danger=red); Calendar/FileText/AlertTriangle icons by type; each chip Links to actionPath; always shown (not gated on daysRemaining)
+  - Per-section independent loading states: `TaxPositionSkeleton`, `QuickStatsSkeleton`, `DeadlineWidgetSkeleton`, `ReminderChipsSkeleton`, `RecentTransactionsSkeleton`, `InvoiceActivitySkeleton` — each section shows its own skeleton when `=== undefined`; removed monolithic early-return skeleton
+  - Per-section error states: `SectionError` component with "Something went wrong" + Retry button (calls `window.location.reload()`); shown when query settles to `null` (auth failure/entity not found); each section handles independently
+  - Full-page error: shown only when ALL queries settled to null; full-page error with Retry button
+  - Entity switching: already works via `useEntity()` context — Convex re-subscribes on entityId change; all queries temporarily return `undefined` → skeletons show automatically
+  - Tax year changes: `taxYear` state passed to getSummary + getRecentTransactions + getDeadlines; all cards update reactively
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Per-section loading: remove early `if (isLoading) return <full skeleton>` pattern — render page frame always, each section conditionally shows its own skeleton when `=== undefined`
+  - Per-section error: check `!loading && data === null` for each query independently; use a generic `SectionError` component for consistency
+  - Full-page error: `allFailed = allSettled && summaryError && deadlinesError && recentError` pattern
+  - Entity switching triggers Convex re-subscription automatically — queries briefly return `undefined` (skeleton) before resolving; no extra state needed
+  - Tax year selector: pass to ALL related queries so data stays in sync; `getRecentTransactions` needed a taxYear filter added (backend change)
+  - Retry for Convex: `window.location.reload()` is honest — live queries auto-retry network issues; null data means server-side auth/entity issue that needs fresh session
+  - ReminderChips use `type` field to pick icon (self_assessment→Calendar, vat_return→FileText, overdue_invoice→AlertTriangle)
+  - `safe` severity maps to accent/info color (blue), NOT green — per spec "info=accent"
+---
+
+## 2026-02-25 - US-043
+- Added `filingRecords` table to `convex/schema.ts`: entityId, userId, taxYear, status (draft/generated/submitted/payment_pending/payment_confirmed/tcc_obtained), selfAssessmentPdfId, paymentReceiptId, tccDocumentId, submittedAt, netTaxPayable, taxSummarySnapshot (string), generatedAt, engineVersion, isNilReturn, createdAt, updatedAt; indexes by_entityId_taxYear, by_userId, by_status
+- Added `getFilingChecklist` query to `convex/tax.ts`:
+  - Fetches user, entity, connectedAccounts, transactions (entity+taxYear), taxDeclarations, invoices
+  - 10 checklist items grouped into: Identity & Entity (NIN, entityType/TIN), Accounts (bankAccounts), Transactions (foreignIncome, incomeReviewed, categorisation, expensesVerified), Reliefs (rentDeclared), Invoices & WHT (invoicesMatched, wht)
+  - readinessPercent = complete items / 10 × 100; filing gate at ≥90%
+  - Returns { items, readinessPercent, grouped } — null if unauthenticated/entity not found
+- Created `convex/filing.ts`:
+  - `initiate` mutation: creates draft filing record for entity+taxYear; returns existing ID if record already exists (idempotent)
+  - `markGenerated` mutation: sets status='generated', records selfAssessmentPdfId, taxSummarySnapshot, netTaxPayable, engineVersion, isNilReturn, generatedAt; can reset from any status except tcc_obtained (re-generation pattern)
+  - `markSubmitted` mutation: validates status='generated'; advances to 'submitted'; nil return auto-transitions to 'payment_confirmed'
+  - `uploadPaymentReceipt` mutation: validates status='submitted'|'payment_pending'; sets paymentReceiptId, advances to 'payment_confirmed'
+  - `uploadTcc` mutation: validates status='payment_confirmed'; sets tccDocumentId, advances to 'tcc_obtained'
+  - `get` query: auth-guarded fetch of single filing record
+  - `getForEntity` query: fetches filing record by entity+taxYear
+  - `listByUser` query: filing history for current user (up to 50)
+  - Status transition enforcement: `canAdvanceTo()` helper using STATUS_ORDER array; errors thrown on invalid transitions
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `filingRecords` uses by_entityId_taxYear index — same pattern as transactions/taxDeclarations
+  - Status ordering enforced via STATUS_ORDER array + indexOf comparison — simple and readable
+  - Nil return auto-transition: check isNilReturn on the DB record in markSubmitted and jump directly to 'payment_confirmed'
+  - `markGenerated` is intentionally allowed to reset status backwards (from submitted/payment_pending back to 'generated') to support re-generation use case
+  - `void activeAccounts` suppression anti-pattern: just delete the unused variable; TS6133 is a hard error
+  - `getFilingChecklist` uses by_userId index on invoices + JS filter for entityId — invoices table lacks a plain by_entityId index
+---
+
+## 2026-02-25 - US-044
+- Rewrote `apps/web/src/pages/Filing.tsx`: full filing checklist screen
+  - Tax year selector in header (select dropdown with Calendar icon)
+  - Readiness meter: horizontal progress bar with dynamic colour (green ≥90%, amber ≥60%, red <60%) and percent label
+  - Grouped checklist using `api.tax.getFilingChecklist` response; groups rendered as cards with item count badge
+  - ChecklistRow: StatusIcon (CheckCircle2/AlertTriangle/XCircle), label, badge ('Done'/'Needs attention'/'Missing'), description on non-complete items, ChevronRight
+  - Navigation: each item key maps to a target route (nin→/settings, entityType→/settings/entities, categorisation→/triage, rentDeclared→/declarations, invoicesMatched→/invoices, etc.)
+  - 'Start Filing Review →' CTA: gated at ≥90% readiness; disabled state shows percent and descriptive label
+  - Skeleton loading state; no-entity empty state with CTA to /settings/entities
+- Created `apps/web/src/pages/FilingReview.tsx`: pre-filing review screen at /app/filing/review
+  - Uses `api.tax.getSummary` for live reactive tax computation
+  - Four review cards: Income (gross, expenses, assessable profit), Deductions & Reliefs (conditional relief rows, total, taxable income), Tax Computation Bands (BandRow per band with rate badge + tax amount), Credits & Net Payable (WHT credits, net payable, effective rate)
+  - BandRow: coloured rate badge (neutral/green/amber/orange/red) + taxable in band + tax in band; zero-income bands hidden
+  - Relief rows conditional: only shown when value > 0 (pension, NHF, NHIS, life assurance, rent, personal)
+  - Amber flagged issues callout: uncategorisedCount, unsupportedCurrencies, minimumTaxApplied, isNilReturn
+  - Blue tip card: 'You can still make amendments after generation'
+  - Sticky footer (md:left-64 for sidebar): 'Go Back to Fix Issues' shown only if flags exist; 'Generate Self-Assessment Form' primary CTA
+  - Nil return badge in header
+- Updated `apps/web/src/App.tsx`: added `/app/filing/review` route → `FilingReview`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useQuery` with `'skip'` literal: safe pattern when `activeEntityId` is null — avoids firing with invalid args
+  - `(api as any).tax.getFilingChecklist` needed since `tax` module may not be in generated api.d.ts types
+  - Sticky footer for review screens: `fixed bottom-0 left-0 right-0 md:left-64 bg-white/95 backdrop-blur border-t` — matches sidebar width on desktop
+  - Relief rows should be conditional (only render when > 0) to avoid cluttering the review with zero rows
+  - Checklist groups from backend use keys: 'Identity & Entity', 'Accounts', 'Transactions', 'Reliefs', 'Invoices & WHT'
+---
+
+## 2026-02-25 - US-045
+- Created `convex/filingHelpers.ts`: internal internalQuery/internalMutation helpers for the "use node" action
+  (getGenerationContext, initiateFilingInternal, applyGeneratedFiling, getFilingForPreview)
+- Created `convex/filingActions.ts` ("use node"): `generateSelfAssessment` action
+  - Calls `ctx.runQuery((api as any).tax.getSummary, ...)` for live tax engine output
+  - Snapshots output as JSON.stringify at generation time (immutable audit record)
+  - Builds PDF: tries NEST_PDF_URL env var first, falls back to inline minimal PDF-1.4 builder (pure Node.js, no deps)
+  - Inline PDF builder: constructs valid PDF from raw bytes; escapes ₦→"NGN", latin1 content stream, precise xref offsets
+  - Stores PDF via `ctx.storage.store(new Blob([buffer], {type:'application/pdf'}))`
+  - Calls `applyGeneratedFiling` internal mutation to mark record as 'generated' with snapshot fields
+  - Blocks regeneration if status is submitted/payment_pending/payment_confirmed/tcc_obtained
+- Updated `convex/filing.ts` `get` query: resolves `selfAssessmentPdfId` to `pdfUrl` via `ctx.storage.getUrl`
+- Updated `apps/web/src/pages/FilingReview.tsx`:
+  - Added `GenerateConfirmDialog` component (shows nil return notice or net payable amount)
+  - Added generating overlay with Loader2 spinner and "Generating your self-assessment…" message
+  - Wired `useAction((api as any).filingActions.generateSelfAssessment)` to footer button
+  - On success: `toast.success` + navigate to `/app/filing/preview/:filingId`
+- Created `apps/web/src/pages/FilingPreview.tsx`: document-style self-assessment preview
+  - Document watermark bar: FIRS header + generation timestamp
+  - Section 1: Taxpayer Details (name, email, entity, type, TIN, NIN masked, tax year, engine version)
+  - Section 2: Income Schedule (gross income, business expenses, assessable profit)
+  - Section 3: Deductions & Reliefs (pension, NHF, NHIS, life assurance, rent relief, consolidated relief)
+  - Section 4: Tax Computation (PIT bands with rate badges + tax per band, CGT/CIT/VAT if applicable)
+  - Section 5: WHT Credits & Net Payable (whtCredits, net payable, effective rate; nil return shown in green)
+  - Immutable snapshot notice with generation timestamp; "Regenerate to update" inline link
+  - Sticky footer: Re-generate button (draft/generated only), Download PDF button, "Proceed to Submit" button
+  - PDF download: fetches pdfUrl from filing record, triggers browser download with filename TaxEase_SelfAssessment_{EntityName}_{TaxYear}.pdf
+- Updated `apps/web/src/App.tsx`: added `/app/filing/preview/:filingId` route
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Inline PDF-1.4 builder: track byte offsets BEFORE adding each object buffer; must be precise for valid xref table
+  - ₦ (U+20A6) is NOT latin1 — always replace with "NGN" in PDF content streams
+  - `ctx.storage.getUrl(storageId)` works in both queries and actions; add it to public queries to avoid extra round-trips
+  - `useAction((api as any).filingActions.generateSelfAssessment)` — filingActions module uses same (api as any) pattern
+  - For PDF download from Convex Storage: use fetch(pdfUrl) + URL.createObjectURL for clean browser download trigger
+  - The `filing.get` public query is the right place to resolve pdfUrl (not a separate query) — one reactive subscription covers both record state and URL
+---
+
+## 2026-02-25 - US-046
+- Created `apps/web/src/pages/FilingSubmit.tsx`: 5-step vertical stepper submission guide
+  - Step 1: Submit via TaxPro Max — instructions, deep link to taxpromax.jtb.gov.ng, "Mark as Submitted" button with confirmation dialog
+  - Step 2: Make Payment — FIRS account details (bank, account name/number, sort code) with CopyField components; nil return shows "No payment required" message
+  - Step 3: Upload Payment Receipt — FileUploadZone component (JPG/PNG/PDF ≤10MB), Convex Storage upload flow, advances to payment_confirmed; hidden for nil returns
+  - Step 4: Obtain TCC — same upload flow for TCC document, advances to tcc_obtained; locked until payment_confirmed
+  - Step 5: Store Records — informational checklist of documents to keep + download PDF link
+  - CompletionCelebration component: shown when status=tcc_obtained with confetti-style chips, download + navigation CTAs
+  - Step states: complete (green checkmark), active (primary fill), locked (neutral hollow)
+  - Progress bar at top: shows Step X of 5
+  - Nil return: auto-advances from markSubmitted to payment_confirmed backend; UI hides Step 3, Step 2 shows no-payment message
+  - Error retry: "Try again" link resets upload phase on error
+- Created `apps/web/src/pages/FilingHistory.tsx`: filing history screen at /app/filing/history
+  - Fetches all records via `(api as any).filing.listByUser` (returns enriched records with entityName)
+  - Year selector: "All years" + individual years derived from record set
+  - FilingCard: shows taxYear, StatusBadge, nil badge, entityName, tax payable/nil note, generated/submitted dates
+  - "Continue submission →" link for in-progress filings; navigates to preview or submit screen
+  - Empty state: different messages for year-filtered vs no records; "Show all years" / "Start Filing" CTAs
+- Updated `convex/filing.ts` listByUser query: joins entity records to return entityName for each filing record
+- Updated `apps/web/src/pages/FilingPreview.tsx`: "Proceed to Submit" now navigates to `/app/filing/submit/${filing._id}`
+- Updated `apps/web/src/pages/Filing.tsx`: added "View filing history" link button (History icon)
+- Updated `apps/web/src/App.tsx`: added routes `/app/filing/submit/:filingId` and `/app/filing/history`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Reuse `api.files.generateUploadUrl` (already in generated types from PRD-0) for all Convex Storage uploads — no new mutation needed
+  - Convex Storage upload pattern: generateUploadUrl → POST file with Content-Type → response JSON has storageId
+  - Step status logic: derive from filing status (NOT step-specific state) so reactive Convex query keeps stepper in sync automatically
+  - For nil returns: markSubmitted backend auto-transitions to payment_confirmed; UI shows Step 2 note + hides Step 3
+  - `listByUser` entity join: simple `ctx.db.get(entityId)` inside Promise.all with in-memory Map cache — fast for small record sets
+  - `(api as any).filing.listByUser` pattern needed for filing module (not in generated api.d.ts)
+---
+
+## 2026-02-25 - US-047
+- Created `convex/reports.ts`: three public queries + two internal queries for CSV export
+  - `getIncome`: fetches credit transactions via `by_entityId_taxYear` (when taxYear provided) or `by_entityId_date` (date range); returns totalIncome, foreignIncome, averageMonthlyIncome, monthlyBreakdown[12], categoryBreakdown[] with percentages; entity ownership validated via getCurrentUser
+  - `getExpenses`: fetches debit transactions; returns totalExpenses, deductibleExpenses (amountNgn × deductiblePercent/100 for isDeductible=true rows), nonDeductibleExpenses, monthlyBreakdown[12], categoryBreakdown[] with isDeductible flag and percentages
+  - `getYearOnYear`: reads taxYearSummaries for current + prior year (by_entityId_taxYear); falls back to live transaction computation if no cached summary; includes monthly income + expense overlays for both years; computes percentage changes (returns null when prior=0)
+  - `_getIncomeRows` (internalQuery): full transaction rows with resolved category names; used by exportCsv action
+  - `_getExpenseRows` (internalQuery): full transaction rows with deductible amounts; used by exportCsv action
+- Created `convex/reportActions.ts` ("use node"):
+  - `exportCsv`: dispatches to income/expenses/yearOnYear CSV builders; calls internal row queries via `ctx.runQuery((internal as any).reports._getIncomeRows|_getExpenseRows)` and public `(api as any).reports.getYearOnYear`; returns `{ csvContent, filename }` (UTF-8 BOM prepended, ISO 8601 dates, RFC 4180 escaping)
+  - `exportPdf`: calls all three summary queries in parallel; converts kobo→Naira for payload; POSTs to NestJS `/pdf/report`; stores PDF via `ctx.storage.store(Blob)`; returns `{ storageId, downloadUrl }`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `internalQuery` from `'./_generated/server'` — same import as query/mutation; callable from actions via `ctx.runQuery((internal as any).module.fn, args)`
+  - For reports queries: use `by_entityId_taxYear` when taxYear provided, else use `by_entityId_date` and JS-filter for date range (safer than conditional Convex filter chaining)
+  - CSV UTF-8 BOM: prepend `'\uFEFF'` to the CSV string; client receives it and can use `new Blob([csv], { type: 'text/csv;charset=utf-8' })` for download
+  - `exportCsv` returns the CSV string directly (no Convex Storage) — fine for MVP; 1MB action return limit is not a concern for typical transaction lists
+  - `exportPdf` uses the same pattern as `invoiceActions.ts`: fetch NestJS → Buffer.from(arrayBuffer) → ctx.storage.store(blob) → ctx.storage.getUrl(storageId)
+  - Year-on-year fallback: when taxYearSummaries haven't been cached yet, sum transactions directly — keeps the query useful even before refreshSummaryCache is called
+---
+
+## 2026-02-25 - US-048
+- Rewrote `apps/web/src/pages/Reports.tsx`: full 3-tab reports UI (Income | Expenses | Year-on-Year)
+- Date range segmented control at top (This Year / Last Year / Custom); persists across tab switches; custom mode shows date pickers
+- Income tab: 3 summary cards (Total Income, Foreign Income, Avg Monthly); SVG bar chart (12 bars, primary green, click tooltip above bar with month + amount); category breakdown list with inline progress bars and percentage
+- Expenses tab: 3 summary cards (Total, Deductible, Non-Deductible); SVG doughnut chart (segments <3% grouped into 'Other', interactive centre shows total or selected segment details); category list with Deductible badges in green
+- Year-on-Year tab: 3 comparison cards with TrendingUp/Down % change chips; dual-line SVG charts for monthly income and expenses (current year = green, prior = neutral grey); prior year summary row
+- Empty states per tab: BarChart2 illustration + 'No [income/expense] data for this period' + 'Import Transactions' CTA
+- Skeleton loading states (3 card shimmer rows + chart + list items)
+- SVG charts built with pure SVG (no additional chart library dependencies needed)
+- All Convex queries use `(api as any).reports.*` pattern; queries skip when no entityId or custom range incomplete
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - SVG doughnut: handle full-circle edge case (single segment at 100%) by drawing two half-arcs — avoids degenerate arc path from identical start/end points
+  - Bar chart tooltip: clamp x to `Math.max(0, Math.min(x - halfTip, SVG_W - tipWidth - 4))` to stay in-bounds for first and last bars
+  - `(api as any).reports.getIncome` pattern — reports module not in generated api.d.ts; use `as IncomeReport | null | undefined` cast on the result
+  - For Convex conditional queries: always call `useQuery` unconditionally, pass `'skip'` when tab is inactive; prevents React hooks rule violations
+  - Doughnut <3% grouping: split categoryBreakdown into large/small arrays in useMemo, push 'Other' segment if small.length > 0
+  - ChangeChip component: `lowerIsBetter` prop inverts the good/bad color logic (green for expenses going down)
+---
+
+## 2026-02-25 - US-049
+- Updated `convex/reports.ts` `getYearOnYear`: added `hasPriorData` boolean (true when prior year transactions or summary exist), `currentEffectiveTaxRate`, `priorEffectiveTaxRate` (from taxYearSummaries.effectiveTaxRate or computed), `effectiveTaxRateChange`
+- Rewrote `apps/web/src/pages/Reports.tsx` with US-049 features:
+  - `YoyCompareCard`: two-column layout showing currentYear vs priorYear side by side; shows '—' and 'N/A' when `hasPriorData=false`
+  - `ChangeChip` updated: accepts `hasPriorData` prop; shows 'N/A' text when prior year missing
+  - `LineChart` updated: `hasPriorData` prop — omits prior year polyline and legend when false; prior year shown as dashed (#A0AEC0) vs current year solid (#1A7F5E)
+  - Info banner when `!yoyData.hasPriorData`: blue callout with Info icon
+  - 4-card YoY grid: Total Income, Total Expenses, Tax Liability, Effective Tax Rate
+  - Export FAB: `fixed bottom-6 right-4 md:hidden` circular button (mobile only)
+  - Desktop export: header button `hidden md:inline-flex` for web layout
+  - `ExportSheet`: fixed bottom sheet with backdrop, CSV + PDF options with spinner loading states
+  - `handleExport`: Promise.race with 30s timeout; downloadCsvBlob helper (Blob + URL.createObjectURL); downloadPdfUrl helper; toast.success on completion; toast.error with Retry action on failure
+  - Filenames: `taxease_{tab}_{datePart}.csv/.pdf` where datePart = year or custom range
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `hasPriorData` flag: check `priorTx.length > 0 || !!priorSummary` in backend — zero amounts could mean real zero-income year, not missing data
+  - Export Promise.race pattern: `new Promise<never>((_, reject) => setTimeout(() => reject(new Error(...)), 30_000))` — clean timeout without AbortController
+  - `toast.error(msg, { action: { label: 'Retry', onClick: () => fn() } })` — sonner supports retry actions inline
+  - Unused `useQuery` (for entities list): remove or suppress with void if not used in JSX to avoid TS6133 error
+  - `hasPriorData` passed as prop to child SVG components — avoids prop drilling through intermediate components
+---
+
+## 2026-02-25 - US-050
+- Extended `connectedAccounts` in `convex/schema.ts`: added optional `metadata` object (institutionId, institutionLogo, accountType, accountNumber, linkProvider: 'mono'|'stitch', apiKeyHash); added two new indexes: `by_providerAccountId` (webhook lookup) and `by_status` (scheduled sync)
+- Added `oauthStates` table to `convex/schema.ts`: userId, entityId, provider, stateToken, redirectUri, expiresAt; indexes `by_stateToken` and `by_expiresAt`
+- Created `convex/lib/encryption.ts`: AES-256-GCM encrypt/decrypt using Web Crypto API (`crypto.subtle`) — works in Convex V8 runtime without "use node"; 12-byte random IV; IV prepended to ciphertext in base64 output; reads ENCRYPTION_KEY env var (must be 64-char hex = 32 bytes)
+- Created `convex/accounts.ts`: `initiateOAuth` mutation — auth-guards, validates entity ownership, generates UUID v4 state token via `crypto.getRandomValues`, inserts `oauthStates` entry with `expiresAt = now + 10 min`, returns `{ stateToken, expiresAt }`
+- Created `convex/oauthStates.ts`: `validate` mutation — looks up by stateToken index, checks expiry, deletes entry (single-use), returns state data; `_cleanupExpired` internalMutation — queries by_expiresAt with lt(now) and bulk-deletes
+- Updated `convex/crons.ts`: hourly cron at minute :05 UTC calling `(internal as any).oauthStates._cleanupExpired`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Web Crypto API (`crypto.subtle`) is available in Convex V8 runtime — no "use node" needed for AES-GCM; `crypto.getRandomValues` also available globally
+  - AES-GCM ciphertext from `subtle.encrypt` already includes the 16-byte auth tag appended — no need to handle separately
+  - For UUID state tokens in Convex mutations: `crypto.getRandomValues(new Uint8Array(16))` + bit-twiddling for v4 format — no uuid package needed
+  - `by_expiresAt` index enables efficient range query: `.withIndex('by_expiresAt', q => q.lt('expiresAt', now))` for cleanup
+  - internalMutation imported from `./_generated/server` (same as mutation); callable from crons via `(internal as any).module.fn`
+  - `metadata` field on connectedAccounts uses `v.optional(v.object({...}))` — each sub-field also optional to allow partial updates
+---
+
+## 2026-02-25 - US-051
+- Created `convex/lib/providers/types.ts`: shared ProviderTokens, ProviderAccountDetails, ProviderTransaction interfaces + PROVIDER_ENV_VARS constants
+- Created `convex/lib/providers/mono.ts`: Mono Connect client (account_id model — no bearer tokens; stores account_id as accessToken; API calls use MONO_SECRET_KEY)
+- Created `convex/lib/providers/stitch.ts`: Stitch OAuth2 + GraphQL client (exchangeCode, account/transactions via GraphQL)
+- Created `convex/lib/providers/paystack.ts`: Paystack API key client (validate via /balance, /integration for business name, paginated /transaction)
+- Created `convex/lib/providers/flutterwave.ts`: Flutterwave API key client (validate via /v3/balances, paginated /v3/transactions with major→kobo conversion)
+- Created `convex/lib/providers/payoneer.ts`: Payoneer OAuth2 client (token exchange, /payees/me account details, /accounts/charges transactions)
+- Created `convex/lib/providers/wise.ts`: Wise OAuth2 client (profiles API, multi-currency balance statements, statement.json transactions)
+- Created `convex/accountsHelpers.ts`: internal mutations/queries
+  - `getUserByClerkId` internalQuery for clerkUserId → user._id lookup in actions
+  - `getConnectedAccount`, `findByProviderAccountId` (optional entityId for webhook use)
+  - `upsertConnectedAccount` internalMutation: create or update by providerAccountId+entityId
+  - `updateAccountStatus` internalMutation: status, lastSyncedAt, errorMessage
+  - `createSyncJob` internalMutation: creates bank_api importJob for sync pipeline
+- Updated `convex/oauthStates.ts`: added `_validateAndConsume` internalMutation (no auth check — for action context)
+- Created `convex/accountsActions.ts` ("use node"):
+  - `handleOAuthCallback` action: validates state, exchanges code, AES-256-GCM encrypts tokens, upserts connectedAccount, triggers syncAccount (fire-and-forget); user cancel (error=access_denied) returns { cancelled: true }
+  - `addApiKeyAccount` action: validates Paystack/Flutterwave key via getAccountDetails (throws "Invalid API key..." on 401/403), encrypts key, stores SHA-256 apiKeyHash in metadata, creates account, triggers sync
+  - `syncAccount` internalAction: decrypt token, createSyncJob, fetch 30 days of transactions, batchInsert, setJobComplete/Failed, updateAccountStatus
+- Updated `convex/webhooks.ts`:
+  - `oauthCallbackWebview`: returns HTML page with postMessage script for WebView bridge (ReactNativeWebView + opener fallback + web redirect)
+  - `bankNotification`: Mono (x-mono-webhook-secret plain), Stitch (HMAC-SHA256 via Web Crypto), Paystack (HMAC-SHA256); looks up account by providerAccountId, triggers syncAccount
+- Updated `convex/http.ts`: routes GET+POST /webhooks/oauth-callback → oauthCallbackWebview; POST /webhooks/bank-notification → bankNotification
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - Mono's auth model: code → account_id (no access token); store account_id as accessToken; use MONO_SECRET_KEY header for all API calls — NOT a standard OAuth bearer token model
+  - For `addApiKeyAccount`, need user._id from Clerk identity: add `getUserByClerkId` internalQuery to accountsHelpers, call via `(internal as any).accountsHelpers.getUserByClerkId` from "use node" action
+  - `HeadersInit` DOM type not available in Convex tsconfig — use `Record<string, string>` for fetch headers in provider modules
+  - httpAction handlers can call `ctx.runQuery/runMutation/runAction` like regular Convex functions — no additional setup needed
+  - Web Crypto API (`crypto.subtle.importKey`, `crypto.subtle.sign`) available in httpAction handlers without "use node" — use for HMAC-SHA256 verification
+  - For HMAC comparison: constant-time check prevents timing attacks — XOR each char code and check diff === 0
+  - Provider-specific API key formats: Paystack uses last 8 chars as providerAccountId slug; Flutterwave same pattern
+  - Flutterwave amounts in major units (Naira), Mono amounts already in kobo — always check provider docs for unit conventions
+  - `syncAccount` internalAction can be triggered from webhooks (httpAction → ctx.runAction), from OAuth callback (action → ctx.runAction), and from scheduled crons
+---
+
+## 2026-02-25 - US-052
+- Created `convex/lib/providers/transformer.ts`: pure function `transformProviderTransactions(txs, fxRateMap)` → CanonicalTransaction[]
+  - All providers normalise to smallest unit (kobo for NGN, cents for USD/GBP/EUR) — transformer converts to amountNgn using CBN rate
+  - FX formula: `amountNgn = amount * cbnRateNaira` (both in smallest unit: cents × Naira-per-major = kobo)
+  - `getRequiredCurrencies(txs)` helper extracts unique non-NGN currencies for batch FX lookup
+  - Safe fallback when no rate: amountNgn = amount, fxRate = 1 (user can correct)
+- Added to `convex/accountsHelpers.ts`:
+  - `listActiveAccountsWithTokens` internalQuery: status='active' + has accessToken, excludes manual/statement_upload
+  - `updateTokens` internalMutation: patches encrypted tokens after OAuth refresh
+  - `getFxRates` internalQuery: collects all fxRates rows, JS-reduces to latest date per currency (safe for small table)
+- Updated `convex/accountsActions.ts`:
+  - `refreshToken` internalAction: decrypts refresh token → OAUTH2 refresh_token grant (Stitch/Payoneer/Wise) → re-encrypts → stores; `reauthorization_required` error → sets status='error'
+  - `syncAccount` updated: proactive 5-min expiry check → calls refreshToken; getFxRates lookup for foreign currencies; uses transformer for canonical conversion with amountNgn
+  - `syncNow` public action: identity check, entity ownership check, 60-second rate limit via lastSyncedAt, delegates to syncAccount
+  - `runScheduledSync` internalAction: queries listActiveAccountsWithTokens, loops with 2s stagger, per-account try/catch for resilience
+- Updated `convex/crons.ts`: added `scheduledBankSync` every 6 hours → `runScheduledSync`
+- Updated `convex/webhooks.ts` bankNotification: added ACCOUNT_DISCONNECTED / ACCOUNT_TOKEN_EXPIRED event handling → sets status='error' directly (no sync triggered)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `by_date_currency` index has `date` as first field — cannot filter by `currency` alone; collect all + JS reduce is safe for small reference tables
+  - FX conversion from cents to kobo: `amountNgn = amount_cents * rate_naira` (NOT ÷100 then ×100 then ×rate — just multiply directly)
+  - Token refresh: Stitch/Payoneer/Wise all use standard OAuth2 refresh_token grant with Basic auth; add to REFRESH_TOKEN_CONFIGS map to support new providers
+  - `Object.assign(account, refreshedAccount)` pattern to update local variable after refresh — avoids re-querying in second assignment
+  - `crons.interval({ hours: 6 })` is valid Convex cron syntax (not just daily/hourly/weekly)
+  - Rate limiting via `lastSyncedAt`: no separate tracking table needed — comparing lastSyncedAt to Date.now() is sufficient for 60-second window
+---
+
+## 2026-02-26 - US-053
+- Fixed build error in `apps/web/src/pages/AccountDetail.tsx`: removed unused `isActive` variable
+- **ConnectedAccounts page** (`/app/settings/accounts`):
+  - Account list cards with institution logo/initials, name, StatusBadge (Active/Error/Expired/Disconnected), provider type, last synced time
+  - Sorted active-first in `convex/connectedAccounts.ts` list query
+  - Empty state: "No accounts linked yet" + "Link an Account" CTA + "Or upload a bank statement" secondary link
+  - Skeleton loading state
+- **AccountDetail page** (`/app/settings/accounts/:id`):
+  - Full info card: logo, name, status badge, account type, account number (masked), currency, last synced, API key hash (masked)
+  - Sync Now button (disabled during sync), animating spinner during sync
+  - Last Sync Result card with imported/duplicates counts or error message
+  - Sync history (last 5 jobs via `importJobs.listByAccount`)
+  - Error banner for error/expired status with Retry + Re-authenticate buttons
+  - Danger Zone card with Disconnect button → confirmation dialog (preserves transactions)
+  - Reconnect option for disconnected accounts → navigates to connect flow
+- **AddAccount page** (`/app/settings/accounts/add`):
+  - Grouped method cards: Nigerian Banks (coming soon), Payment Gateways (Paystack, Flutterwave), International (Payoneer/Wise coming soon), Manual (Upload Statement)
+  - Non-disabled cards navigate to `/app/settings/accounts/connect/:provider`
+- **ConnectApiKey page** (`/app/settings/accounts/connect/:provider`):
+  - Supports paystack + flutterwave configs (key label, prefix, help text)
+  - Masked password input with show/hide toggle
+  - AES-256-GCM security callout + read-only permission note
+  - Validates key length ≥20 chars before calling `accountsActions.addApiKeyAccount`
+  - Reconnect mode via `?reconnect=<id>` query param
+- **Onboarding Step 4**: already had real ApiKeyForm inline for Paystack/Flutterwave; bank/Payoneer/Wise as coming-soon; linked state tracks checkmarks
+- **Convex**: `connectedAccounts.ts` (get, list, add, disconnect); `importJobs.ts` (listByAccount, get, list)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useAction((api as any).accountsActions.syncNow)` — public actions in new modules still need `as any` cast
+  - DisconnectDialog with backdrop blur + `animate-slide-up` is the confirmed pattern for confirmation modals (reuse across delete/disconnect flows)
+  - AccountDetail uses `useQuery((api as any).importJobs.listByAccount, ...)` for sync history — Convex reactivity keeps it live
+  - Provider `apiKeyHash` stored in `metadata.apiKeyHash` — display last 8 chars with `···· ` prefix for security UX
+---
+
+## 2026-02-26 - US-054
+- Added `notifications` table to convex/schema.ts: userId, type (8 variants), title, body, entityId, relatedId, read, readAt; indexes by_userId_read, by_userId_creationTime
+- Added `pushTokens` table to convex/schema.ts: userId, token, platform, active, lastUsedAt; indexes by_userId_active, by_token
+- Added firebase-admin to convex/package.json dependencies
+- Created `convex/notifications.ts`:
+  - `list` query: paginated (limit, default 50), ordered by _creationTime desc, returns hasMore
+  - `getUnreadCount` query: counts unread via by_userId_read index
+  - `markRead` mutation: patches single notification with read=true, readAt=now
+  - `markAllRead` mutation: bulk patches all unread notifications, returns count
+  - `create` internalMutation: inserts notification, checks userPreferences.pushEnabled, schedules push.send via ctx.scheduler.runAfter if enabled
+- Created `convex/pushTokens.ts`:
+  - `register` mutation: upserts by token string (checks by_token index), updates userId/platform/active/lastUsedAt
+  - `_getActiveTokens` internalQuery: fetches all active tokens for a userId
+  - `_deactivateTokens` internalMutation: marks given token IDs as inactive
+- Created `convex/push.ts` ("use node"):
+  - `send` internalAction: lazy-init Firebase Admin SDK via dynamic import, fetches active tokens via pushTokens._getActiveTokens, dispatches sendEachForMulticast, deactivates tokens on NotRegistered FCM error via pushTokens._deactivateTokens
+  - Silently no-ops when FIREBASE_SERVICE_ACCOUNT env var is not set
+- `npm run build` passes
+- **Learnings for future iterations:**
+  - firebase-admin: use dynamic import with `as any` cast (same pattern as @anthropic-ai/sdk) to avoid TS2307 before package is installed in convex/
+  - Internal helper mutations/queries for "use node" actions MUST be in a separate file (by_* helpers go in pushTokens.ts not push.ts)
+  - `_getActiveTokens` and `_deactivateTokens` are internalQuery/internalMutation (not exported publicly) — prefix with `_` for clarity
+  - `ctx.scheduler.runAfter(0, internal.push.send, args)` is the pattern for fire-and-forget push from internalMutation
+  - `by_userId_creationTime` index: just `['userId']` — Convex orders by _creationTime natively on queries so `['userId']` index is sufficient for the order('desc') pattern
+---
+
+## 2026-02-26 - US-055
+- Added `by_userId_type` index `['userId', 'type']` to notifications table in convex/schema.ts for efficient deduplication queries
+- Created `convex/reminders.ts` with 4 internalMutation cron handlers:
+  - `checkFilingDeadline`: fires on FILING_MILESTONES [30,14,7,3,1] days before 31 March; filters by user's deadlineReminderDays preference (default 30); penalty message: ₦100k late filing + ₦50k/month
+  - `checkVatDeadline`: fires on VAT_MILESTONES [7,3,1] days before 21st; only for vatReminderEnabled=true users with vatRegistered entities; penalty: ₦50k
+  - `uncategorisedAlert`: daily; users with uncategorisedAlertFrequency='daily'; counts by_entityId_type index for uncategorised transactions
+  - `uncategorisedAlertWeekly`: Monday; users with uncategorisedAlertFrequency='weekly'; same logic via shared helper
+  - `isDuplicate` helper: uses by_userId_type index + _creationTime filter for today's window + entityId equality — prevents same-day repeat notifications
+  - `insertNotification` helper: inserts DB record + schedules push via ctx.scheduler.runAfter if pushEnabled
+- Updated `convex/notifications.ts`: added `cleanup` internalMutation — deletes read>90 days and unread>180 days, processes oldest 100 per run via `.order('asc').take(100)`
+- Updated `convex/crons.ts`: registered 5 new crons:
+  - checkFilingDeadline: daily 07:00 UTC (08:00 WAT)
+  - checkVatDeadline: daily 07:00 UTC (08:00 WAT)
+  - uncategorisedAlert: daily 09:00 UTC (10:00 WAT)
+  - uncategorisedAlertWeekly: weekly Monday 09:00 UTC (10:00 WAT)
+  - notificationsCleanup: weekly Sunday 01:00 UTC (02:00 WAT)
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `crons.weekly(name, { dayOfWeek: 'monday', hourUTC, minuteUTC }, fn)` is valid Convex cron syntax; dayOfWeek accepts 'sunday'–'saturday'
+  - Dedup check pattern: by_userId_type index `.eq('userId').eq('type')` + `.filter(q => q.and(q.gte('_creationTime', todayStart), q.eq('entityId', id)))` is efficient — queries only same-type notifications for the user
+  - `ctx.db.query('table').order('asc').take(N)` gives the N oldest records in the table (by _creationTime) without needing an explicit index — safe for low-frequency cleanup jobs
+  - WAT timing: 08:00 WAT = 07:00 UTC, 10:00 WAT = 09:00 UTC, 02:00 WAT = 01:00 UTC
+  - JS filter for `deletedAt`: use `entities.filter(e => !e.deletedAt)` instead of Convex `.filter()` to avoid issues with optional fields (per earlier pattern)
+  - For shared logic between two internalMutations with identical code: extract to a plain async function typed `(ctx: any, ...)` called from both handlers
+---
+
+## 2026-02-26 - US-056
+- Created `apps/web/src/pages/NotificationCentre.tsx`: full notification centre page at `/app/notifications`
+  - Date-grouped sections: Today, Yesterday, This Week, Earlier (grouped by _creationTime)
+  - 8 notification types with distinct icons + border/background colors (filing_deadline=amber, vat_return=blue, uncategorised_alert=yellow, invoice_overdue=red, import_result=green, sync_error=red, recurring_invoice=purple, general=neutral)
+  - Unread cards: type-colored bg + 4px left border + bold title + unread dot indicator
+  - Read cards: neutral bg-card styling
+  - Click to mark read + navigate to related route (filing, triage, invoices/:id, import, accounts/:id)
+  - Mark all as read button in header (shown only when unread exist)
+  - Empty state: Bell + CheckCircle2 illustration, "You're all caught up!" message
+  - Skeleton loading state (6 shimmer cards)
+- Updated `apps/web/src/components/AppShell.tsx`:
+  - Bell button now calls `useQuery((api as any).notifications.getUnreadCount)` reactively
+  - Red badge: absolute positioned, -top-0.5 -right-0.5, shows count up to 99+
+  - Bell button `onClick` navigates to `/app/notifications` via `useNavigate`
+- Updated `apps/web/src/App.tsx`: added `<Route path="notifications" element={<NotificationCentre />} />` under `/app`
+- Updated `apps/web/src/pages/Notifications.tsx` (settings page):
+  - Added back button (ChevronLeft) linking to `/app/settings`
+  - Push toggle: calls `Notification.requestPermission()` on first enable; handles 'denied' state with amber warning banner + "Enable in Settings" link (opens Chrome help); handles 'unsupported' gracefully; 'granted' shows confirmation text
+  - Push permission state tracked via `getBrowserPermission()` + `useState`
+- `npm run build` passes (tsc + vite)
+- **Learnings for future iterations:**
+  - `useQuery((api as any).notifications.getUnreadCount)` in AppShell — same pattern as other new modules; cast to `number | undefined` for safe rendering
+  - Bell badge: use absolute positioning with `min-w-[18px]` for dynamic count width (handles both '5' and '99+')
+  - `getDateGroup` uses pure timestamps vs Date() objects — avoid instantiating `new Date(ts)` for unused variables (triggers TS6133)
+  - Browser push permissions: `Notification.requestPermission()` is async; always check `typeof window !== 'undefined'` + `'Notification' in window` guard for SSR safety
+  - `border-l-4` with `borderLeftWidth: '4px'` inline style needed when combining Tailwind border-l classes with dynamic border-color classes
+---

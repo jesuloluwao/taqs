@@ -1,32 +1,19 @@
 import { useAuth } from '@clerk/clerk-react';
-import { ConvexProvider, ConvexReactClient } from 'convex/react';
-import { ReactNode, useState } from 'react';
+import { ConvexProviderWithClerk } from 'convex/react-clerk';
+import { ConvexReactClient } from 'convex/react';
+import { ReactNode } from 'react';
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 if (!convexUrl) {
   throw new Error('Missing VITE_CONVEX_URL');
 }
 
+const convexClient = new ConvexReactClient(convexUrl);
+
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  const { getToken } = useAuth();
-  const [convexClient] = useState(
-    () =>
-      new ConvexReactClient(convexUrl, {
-        // Pass Clerk JWT token to Convex
-        async fetch(url, options) {
-          const token = await getToken();
-          if (token) {
-            options = options || {};
-            options.headers = {
-              ...options.headers,
-              Authorization: `Bearer ${token}`,
-            };
-          }
-          return fetch(url, options);
-        },
-      })
+  return (
+    <ConvexProviderWithClerk client={convexClient} useAuth={useAuth}>
+      {children}
+    </ConvexProviderWithClerk>
   );
-
-  return <ConvexProvider client={convexClient}>{children}</ConvexProvider>;
 }
-

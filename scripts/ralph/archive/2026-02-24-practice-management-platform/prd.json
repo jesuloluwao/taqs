@@ -1,0 +1,302 @@
+{
+  "project": "TaxEase Nigeria",
+  "branchName": "ralph/auth-onboarding-entity-setup",
+  "description": "PRD-0: Foundation — Auth, Onboarding & Entity Setup for TaxEase Nigeria",
+  "sourcePrd": "tasks/prd-0-auth-onboarding-entity-setup.md",
+  "prdContext": {
+    "PRD-0": {
+      "name": "Foundation — Auth, Onboarding & Entity Setup",
+      "overview": "Establishes the foundational layer for TaxEase Nigeria — auth flow, onboarding wizard, app shell with side drawer navigation, profile management, entity management, and preferences. Without this, no other PRD can function.",
+      "background": "TaxEase Nigeria is a tax compliance app for Nigerian freelancers and SMEs. PRD-0 is the root dependency — it delivers Clerk-based authentication, a 4-step onboarding wizard (user type, info, NIN/TIN, connect accounts), multi-entity support, and the empty app shell. The existing codebase has basic Clerk auth, a users/profiles/transactions schema, and simple pages — but needs a complete overhaul to match this PRD.",
+      "goals": [
+        "Complete auth flow: email+password, Google OAuth, password reset via Clerk",
+        "4-step onboarding wizard that creates user profile and first tax entity",
+        "Multi-entity support with CRUD, switching, and soft-delete",
+        "App shell with side drawer navigation and entity selector",
+        "Profile management with NIN masking and avatar upload",
+        "User preferences for notifications and reminders",
+        "Category seed data for transaction classification",
+        "Logout and account deletion with data cleanup"
+      ],
+      "coreConcepts": {
+        "Entity": "A tax entity (individual, business_name, or llc) for which a tax return is filed. Users can have multiple entities and switch between them.",
+        "Onboarding": "4-step wizard: (1) User type, (2) Personal/business info + first entity creation, (3) NIN/TIN, (4) Connect accounts or skip. Sets onboardingComplete=true on finish.",
+        "NIN": "National Identification Number — 11 digits, serves as Tax ID under NTA 2025. Encrypted at rest.",
+        "Category": "Transaction category (income, business_expense, personal_expense, transfer). System categories are seeded; users can create custom ones later."
+      }
+    }
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Overhaul Convex schema to match PRD-0 data models",
+      "description": "As a developer, I need the database schema to support all PRD-0 features including expanded users, entities, categories, userPreferences, and connectedAccounts.",
+      "acceptanceCriteria": [
+        "Update `users` table: add phone, nin, firsTin, userType ('freelancer'|'sme'), profession, preferredCurrency, onboardingComplete (boolean), avatarStorageId fields",
+        "Remove `profiles` table (merge its fields into `users`)",
+        "Add `entities` table with fields: userId, name, type ('individual'|'business_name'|'llc'), tin, rcNumber, vatRegistered, vatThresholdExceeded, isDefault, taxYearStart",
+        "Add `categories` table with fields: name, type ('income'|'business_expense'|'personal_expense'|'transfer'), isDeductibleDefault, ntaReference, isSystem, userId, icon, color",
+        "Add `userPreferences` table with fields: userId, deadlineReminderDays, vatReminderEnabled, uncategorisedAlertFrequency, invoiceOverdueDays, pushEnabled",
+        "Add `connectedAccounts` table with fields: entityId, userId, provider, providerAccountId, accountName, currency, accessToken, refreshToken, tokenExpiresAt, lastSyncedAt, status, errorMessage",
+        "Add indexes: users.by_clerk_user_id, users.by_email; entities.by_userId; categories.by_type, categories.by_userId; userPreferences.by_userId; connectedAccounts.by_userId, connectedAccounts.by_entityId",
+        "Keep existing `transactions` and `documents` tables unchanged",
+        "Update packages/shared types and Zod schemas to match new schema",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "PRD-0: See '§2 Entities' for TypeScript interfaces and '§7 Data Models' for table/index specs"
+    },
+    {
+      "id": "US-002",
+      "title": "Clerk webhook handler and auth helpers",
+      "description": "As a developer, I need Clerk webhooks to sync user data to Convex and robust auth helpers for all backend functions.",
+      "acceptanceCriteria": [
+        "Create Clerk webhook HTTP action at POST /clerk-webhook that handles user.created, user.updated, user.deleted events",
+        "Install and use `svix` package to verify webhook signatures",
+        "On user.created: create `users` document with clerkUserId, email, fullName from Clerk payload, onboardingComplete=false",
+        "On user.updated: update corresponding `users` document fields (email, fullName)",
+        "On user.deleted: delete user and all associated data (entities, preferences, connected accounts)",
+        "Update convex/auth.ts: getCurrentUser should query by Clerk identity subject, getOrCreateCurrentUser should use webhook-created user (not auto-create)",
+        "Register webhook endpoint in convex/http.ts",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "PRD-0: See '§6.1 Auth' for webhook spec. Clerk webhook must be registered in Clerk dashboard pointing to Convex HTTP endpoint."
+    },
+    {
+      "id": "US-003",
+      "title": "User, entity, and preferences backend CRUD operations",
+      "description": "As a developer, I need all backend mutations and queries for user profile, entities, preferences, and file uploads so the frontend can manage these resources.",
+      "acceptanceCriteria": [
+        "Create users mutations: updateProfile (name, phone, profession, currency, avatar), updateNin (validate 11 digits, store), completeOnboarding (set onboardingComplete=true), uploadAvatar (accept storageId)",
+        "Create users queries: getMe (current user profile), getPreferences (userPreferences for current user)",
+        "Create users mutations: updatePreferences (all preference fields), createDefaultPreferences (called during onboarding)",
+        "Create entities mutations: create, update, setDefault (clear isDefault on others first), delete (soft-delete/archive)",
+        "Create entities queries: list (all for current user, exclude archived), get (by ID with ownership check)",
+        "Create files mutation: generateUploadUrl (return Convex Storage upload URL)",
+        "All mutations validate ownership (user can only modify their own data)",
+        "Create users.deleteAccount action: delete all user data in Convex + call Clerk Backend API to delete Clerk user",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "PRD-0: See '§6.2 Users', '§6.3 Entities', '§6.6 Files' for function specs"
+    },
+    {
+      "id": "US-004",
+      "title": "Categories seed data and dashboard query stubs",
+      "description": "As a developer, I need system categories seeded and dashboard query stubs so the app has classification data and the dashboard can render empty states.",
+      "acceptanceCriteria": [
+        "Create categories.seed mutation that inserts all system categories with isSystem=true",
+        "Seed income categories: Freelance/Client Income, Foreign Income, Investment Returns, Rental Income",
+        "Seed business expense categories (deductible): Internet & Data, Electricity & Fuel, Software Subscriptions, Equipment Purchase, Professional Development, Workspace/Rent, Transport (Business), Marketing & Advertising, Bank Charges",
+        "Seed personal expense categories: Personal — Groceries, Personal — Entertainment",
+        "Seed transfer categories: Transfer (Own Account), Loan Disbursement, Refund/Reimbursement",
+        "Create categories.listAll query returning system + user-created categories",
+        "Create dashboard.getSummary query stub that returns empty/placeholder summary for an entity",
+        "Seed mutation is idempotent (safe to run multiple times without duplicates)",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "PRD-0: See '§7.2 Categories Seed Data' for full category list and '§6.7 Dashboard' for stub queries"
+    },
+    {
+      "id": "US-005",
+      "title": "Design system foundation with custom theme",
+      "description": "As a user, I need a distinctive, polished interface that reflects the TaxEase brand rather than stock defaults.",
+      "acceptanceCriteria": [
+        "Install shadcn/ui and configure with custom theme (not defaults)",
+        "Configure custom Google Fonts in the app: display font (e.g., Outfit or Sora) for headings, body font (e.g., DM Sans or Plus Jakarta Sans) for text",
+        "Create custom color palette in globals.css matching PRD design tokens: primary #1A7F5E, primary-light #E8F5F0, accent #2B6CB0, success #38A169, warning #D69E2E, danger #E53E3E",
+        "Define neutral palette: neutral-900 #1A202C, neutral-500 #718096, neutral-100 #F7FAFC, white #FFFFFF",
+        "Add custom shadows (shadow-soft, shadow-medium) and animations (fade-in, slide-up) to tailwind.config",
+        "Configure typography scale: heading-xl 28px Bold, heading-lg 22px SemiBold, heading-md 18px SemiBold, body 15px Regular, body-sm 13px Regular, label 12px Medium",
+        "Body element has antialiased class applied",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "PRD-0: See '§4.1 Design Tokens' and '§4.2 Typography' for exact values. DESIGN: Visual foundation for all UI work."
+    },
+    {
+      "id": "US-006",
+      "title": "Welcome screen and styled auth pages",
+      "description": "As a first-time visitor, I want a compelling welcome screen and polished sign-up/sign-in pages so I understand the app's value and can register easily.",
+      "acceptanceCriteria": [
+        "Replace Landing.tsx with Welcome screen: hero illustration area, headline 'Tax compliance, made simple for Nigerians', subline 'Track income, file returns, and stay penalty-free — all in one place.'",
+        "Primary CTA 'Get Started' navigates to /sign-up, secondary link 'I already have an account' navigates to /sign-in",
+        "Style sign-up page: single-column form with TaxEase logo, full name, email, password with show/hide toggle, confirm password, 'Sign up with Google' button, Terms/Privacy links footer",
+        "Style sign-in page: email, password with show/hide toggle, 'Forgot password?' link, 'Log in with Google' button",
+        "Add routing logic: authenticated + onboarding complete → /app/dashboard, authenticated + onboarding incomplete → /app/onboarding, unauthenticated → / (welcome)",
+        "Password reset flow using Clerk's built-in reset (Forgot password → enter email → reset link → new password)",
+        "Duplicate email on sign-up shows 'Account already exists. Log in instead.' with link",
+        "All pages use new design system colors and typography",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "PRD-0: US-001/US-002/US-003/US-005/US-007 — See '§4.3 Screen Layouts' for Welcome, Sign Up, Log In layouts"
+    },
+    {
+      "id": "US-007",
+      "title": "Onboarding wizard — Steps 1 and 2",
+      "description": "As a new user, I want to select my user type and enter my personal/business details so the app tailors my experience and creates my first tax entity.",
+      "acceptanceCriteria": [
+        "Create /app/onboarding route protected by auth, accessible only when onboardingComplete=false",
+        "Step indicator showing 'Step X of 4' with progress bar across all onboarding steps",
+        "Step 1: Two selectable cards — Freelancer ('I earn income from clients, gigs, or self-employment') and SME ('I operate a registered business or company')",
+        "Step 1: Selection highlights card, enables 'Continue' button; selection saved to users.userType",
+        "Step 2 (Freelancer): First name, Last name (pre-filled from sign-up), Primary profession dropdown, Primary income currency (NGN/USD/GBP/EUR)",
+        "Step 2 (SME): Business name, Business type (Registered Business Name / LLC), Industry dropdown, Annual turnover range dropdown",
+        "Step 2 saves data to users table and creates first entity: Freelancer → individual entity with user's name; SME → business_name or llc entity with business name",
+        "First entity marked isDefault=true with taxYearStart=1 (January)",
+        "Back button on Step 2 returns to Step 1; Back disabled on Step 1",
+        "Form validation with inline error messages",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "PRD-0: US-008/US-009 — See '§4.3 Screen Layouts' for Onboarding layout with step indicator"
+    },
+    {
+      "id": "US-008",
+      "title": "Onboarding wizard — Steps 3 and 4, complete onboarding",
+      "description": "As a new user, I want to enter my NIN/TIN and optionally connect accounts, then land on a ready-to-use dashboard.",
+      "acceptanceCriteria": [
+        "Step 3: Explanatory text about NIN under NTA 2025, NIN input (11 digits), optional FIRS TIN field",
+        "Step 3: Info callout 'Your NIN is stored securely and never shared without your consent'",
+        "Step 3: NIN validated as exactly 11 numeric digits with inline error on invalid input",
+        "Step 3: NIN stored in users.nin, FIRS TIN stored in users.firsTin",
+        "Step 4: List of import option cards — Upload bank statement, Connect bank account, Connect Paystack/Flutterwave, Connect Payoneer/Wise, 'I'll do this later'",
+        "Step 4: All options are placeholders for PRD-0; 'I'll do this later' always available and enables 'Finish Setup'",
+        "Tapping 'Finish Setup' calls completeOnboarding mutation (sets onboardingComplete=true) and creates default userPreferences",
+        "User navigates to /app/dashboard with success toast 'You're all set! Add transactions when you're ready.'",
+        "Back buttons work correctly across Steps 3 and 4",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "PRD-0: US-010/US-011 — See '§4.3 Screen Layouts' for Onboarding layout. Step 4 connections are deferred to PRD-1/PRD-8."
+    },
+    {
+      "id": "US-009",
+      "title": "App shell with side drawer navigation and entity selector",
+      "description": "As a logged-in user, I want a side drawer to navigate between app sections and switch entities so I can access all features efficiently.",
+      "acceptanceCriteria": [
+        "Redesign AppShell with proper side drawer: mobile = overlay from left, web = persistent collapsible sidebar",
+        "Drawer top: user avatar (or initials), full name, email",
+        "Entity selector dropdown visible when user has 2+ entities; hidden for single-entity users",
+        "Selecting a different entity updates global entity context and refreshes current screen data",
+        "Nav items: Dashboard, Transactions, Invoices, Tax Summary, Filing, Reports (Invoices/Tax Summary/Filing/Reports as placeholder routes)",
+        "Divider section: Settings, Help & Support, Documents",
+        "Bottom: Log Out button",
+        "Active nav item highlighted with primary-light (#E8F5F0) background",
+        "Tapping nav item navigates and closes drawer on mobile",
+        "Header has hamburger icon (mobile), app title, notification bell icon",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "PRD-0: US-013 — See '§4.3 Screen Layouts' for Side Drawer spec and '§4.4 Platform Behaviour' for mobile vs web drawer"
+    },
+    {
+      "id": "US-010",
+      "title": "Dashboard shell with empty states",
+      "description": "As a user who completed onboarding, I want the dashboard to show a proper layout with empty states so I know where I am and what to do next.",
+      "acceptanceCriteria": [
+        "Dashboard layout: header with title 'Dashboard', scrollable card sections",
+        "Tax Position Summary card showing '2026 Tax Year' with 'No transactions yet' placeholder",
+        "Quick Stats row with zero/placeholder values for income, expenses, tax estimate",
+        "Recent Transactions section with empty state: illustration + 'No transactions yet. Import a bank statement to get started.' + 'Import Now' CTA",
+        "CTAs navigate to placeholder routes or existing Transactions page",
+        "Dashboard uses entity context (shows data for currently selected entity)",
+        "All sections use consistent empty state pattern (illustration + headline + CTA) from design system",
+        "Header consistent with new design system",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "PRD-0: US-012 — See '§4.3 Screen Layouts' for Dashboard layout and '§4.5 Global Components' for empty state pattern"
+    },
+    {
+      "id": "US-011",
+      "title": "Profile view and edit with avatar upload",
+      "description": "As a logged-in user, I want to view and edit my profile so my information stays accurate.",
+      "acceptanceCriteria": [
+        "Profile view at Settings → Profile showing: avatar, full name, email, phone, NIN (masked as •••••••1234), FIRS TIN, primary currency",
+        "Avatar shows uploaded photo or initials fallback",
+        "'Edit' button opens edit form with all editable fields",
+        "Avatar upload: file picker uploads to Convex Storage, updates avatarStorageId",
+        "NIN edit re-validates 11 digits before saving",
+        "All fields save via updateProfile/updateNin mutations with inline validation errors",
+        "Success toast on save",
+        "Danger zone section at bottom with 'Delete Account' link (navigates to delete flow)",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "PRD-0: US-014/US-015 — See '§4.3 Screen Layouts' for Profile layout"
+    },
+    {
+      "id": "US-012",
+      "title": "Entity management — list, create, edit, delete, and switch",
+      "description": "As a user with one or more tax entities, I want to manage them from Settings so I can add new businesses, update details, and remove obsolete ones.",
+      "acceptanceCriteria": [
+        "Settings → Tax Entities shows list of entity cards (name, type, tax year, default badge)",
+        "'Add Entity' button opens create form: Name, Type (individual/business_name/llc), TIN, RC Number, VAT registered toggle, VAT threshold exceeded toggle",
+        "Tapping entity card opens detail view with all entity fields and 'Edit', 'Set as Default', 'Delete' actions",
+        "Edit form saves via entities.update mutation with type-specific validation (RC Number required for LLC)",
+        "'Set as Default' updates isDefault, clears it from other entities",
+        "Delete shows confirmation dialog: 'Delete {name}? All transactions and invoices will be preserved but no longer editable.' with soft-delete",
+        "Cannot delete last remaining entity (button disabled or error)",
+        "If deleted entity was default, another entity auto-becomes default",
+        "New entities appear in drawer entity selector; deleted entities disappear",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "PRD-0: US-016/US-017/US-018/US-019/US-019a — See '§4.3 Screen Layouts' for Tax Entities layout"
+    },
+    {
+      "id": "US-013",
+      "title": "Preferences, logout, and delete account",
+      "description": "As a user, I want to manage my notification preferences, log out securely, and delete my account if needed.",
+      "acceptanceCriteria": [
+        "Settings → Notifications shows preference form: filing deadline reminders (toggle + lead days 30/14/7/1), VAT return reminders (toggle), uncategorised alert frequency (daily/weekly/off), invoice overdue days (1/3/7), push notifications toggle",
+        "Preferences save via updatePreferences mutation with success toast",
+        "Default preferences created during onboarding (or on first access if missing)",
+        "Log Out in side drawer shows confirmation dialog 'Are you sure you want to log out?'",
+        "On confirm: Clerk.signOut() called, session cleared, navigate to Welcome screen",
+        "Delete Account (from Profile danger zone) shows confirmation dialog with explicit warning about permanent data deletion",
+        "Delete Account requires password entry (or re-authentication) to confirm",
+        "On confirm: deleteAccount action removes all user data from Convex + deletes Clerk user, navigates to Welcome",
+        "User cannot access protected routes after logout or deletion",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "PRD-0: US-020/US-021/US-022 — See '§4.5 Global Components' for confirmation dialog pattern"
+    },
+    {
+      "id": "US-014",
+      "title": "Polish pass — animations, loading states, and empty states",
+      "description": "As a user, I need micro-interactions, loading states, and consistent empty states for a polished experience.",
+      "acceptanceCriteria": [
+        "Page content uses fade-in animation on load",
+        "Navigation items have hover transforms and smooth transitions",
+        "Active states (nav, entity selector, onboarding cards) have smooth transitions",
+        "Loading states use skeleton placeholders (not spinners) for all data-dependent screens",
+        "Toast notifications properly positioned and styled: Success (green), Warning (amber), Error (red), Info (blue)",
+        "Confirmation dialogs follow pattern: title, consequence description, Cancel, Confirm (destructive actions use red)",
+        "All empty states follow consistent pattern: illustration area + headline + CTA",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "PRD-0: DESIGN — See '§4.5 Global Components' for toast, empty state, and dialog patterns. Polish pass after core functionality."
+    }
+  ]
+}
