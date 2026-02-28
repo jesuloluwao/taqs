@@ -1,4 +1,6 @@
 {
-  "framework": "vite"
+  "framework": "vite",
+  "installCommand": "npm install",
+  "buildCommand": "vite build"
 }
 
