@@ -1,9 +1,9 @@
 {
-  "framework": "vite",
+  "buildCommand": "cd apps/web && npx vite build",
+  "outputDirectory": "apps/web/dist",
   "installCommand": "npm install",
-  "buildCommand": "vite build",
+  "framework": "vite",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
-

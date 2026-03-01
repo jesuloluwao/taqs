@@ -496,6 +496,7 @@ export function categorise(
       }
     }
   }
+
   // --- Pass 2: Pattern rules on the full description ---
   for (const rule of ALL_RULES) {
     if (rule.pattern.test(desc) && rule.confidence > result.confidence) {
