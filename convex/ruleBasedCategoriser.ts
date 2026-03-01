@@ -464,7 +464,7 @@ const ALL_RULES: Rule[] = [
 
 export function categorise(
   description: string,
-  amount: number,
+  _amount: number,
   direction: 'credit' | 'debit',
 ): RuleBasedResult {
   const desc = description.trim();
