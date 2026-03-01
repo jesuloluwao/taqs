@@ -4,7 +4,6 @@ import { clerkWebhook, oauthCallbackWebview, bankNotification } from './webhooks
 
 const http = httpRouter();
 
-// Health check endpoint
 http.route({
   path: '/health',
   method: 'GET',
@@ -16,15 +15,12 @@ http.route({
   }),
 });
 
-// Clerk webhook — syncs user.created / user.updated / user.deleted events
 http.route({
   path: '/clerk-webhook',
   method: 'POST',
   handler: clerkWebhook,
 });
 
-// OAuth callback bridge — returns HTML page that forwards code+state to WebView
-// Used as redirect_uri for Mono, Stitch, Payoneer, Wise OAuth flows
 http.route({
   path: '/webhooks/oauth-callback',
   method: 'GET',
@@ -37,8 +33,6 @@ http.route({
   handler: oauthCallbackWebview,
 });
 
-// Bank and payment platform real-time notifications
-// Verifies HMAC signature and triggers account sync
 http.route({
   path: '/webhooks/bank-notification',
   method: 'POST',

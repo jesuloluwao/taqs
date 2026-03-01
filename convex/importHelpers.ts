@@ -190,11 +190,86 @@ export const batchInsert = internalMutation({
 
 const RULE_CONFIDENCE_THRESHOLD = 0.7;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyDb = any;
+
+interface CategoryRow {
+  _id: string;
+  name: string;
+  type: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  isDeductibleDefault?: boolean;
+}
+
+/**
+ * Core rule-based categorisation logic.  Loads system categories, runs the
+ * rule engine on each transaction, and patches matches with ≥0.7 confidence.
+ * Returns { total, categorised }.
+ */
+async function applyRulesToTransactions(
+  db: AnyDb,
+  transactions: Array<{ _id: string; description: string; amount: number; direction: 'credit' | 'debit' }>,
+) {
+  const allCategories: CategoryRow[] = await db
+    .query('categories')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((q: any) => q.eq(q.field('isSystem'), true))
+    .collect();
+  const categoryByName = new Map<string, CategoryRow>(
+    allCategories.map((c) => [c.name, c])
+  );
+
+  console.log(`[ruleBasedCategoriser] ${allCategories.length} system categories loaded, ${transactions.length} transactions to process`);
+
+  if (allCategories.length === 0) {
+    console.warn('[ruleBasedCategoriser] No system categories found — have you run categories:seed?');
+    return { total: transactions.length, categorised: 0 };
+  }
+
+  let categorised = 0;
+  let noMatch = 0;
+  let belowThreshold = 0;
+  let categoryMissing = 0;
+  const now = Date.now();
+
+  for (const tx of transactions) {
+    const result = categorise(tx.description, tx.amount, tx.direction);
+
+    if (!result.categoryName || result.confidence < RULE_CONFIDENCE_THRESHOLD) {
+      if (result.confidence > 0 && result.confidence < RULE_CONFIDENCE_THRESHOLD) {
+        belowThreshold++;
+      } else {
+        noMatch++;
+      }
+      continue;
+    }
+
+    const category = categoryByName.get(result.categoryName);
+    if (!category) {
+      categoryMissing++;
+      console.warn(`[ruleBasedCategoriser] Category "${result.categoryName}" not found in DB`);
+      continue;
+    }
+
+    await db.patch(tx._id, {
+      categoryId: category._id,
+      type: category.type,
+      isDeductible: category.isDeductibleDefault ?? false,
+      enrichedDescription: result.subcategory,
+      updatedAt: now,
+    });
+    categorised++;
+  }
+
+  console.log(
+    `[ruleBasedCategoriser] Done — categorised: ${categorised}, belowThreshold: ${belowThreshold}, noMatch: ${noMatch}, categoryMissing: ${categoryMissing}`
+  );
+
+  return { total: transactions.length, categorised };
+}
+
 /**
  * Apply rule-based categorisation to all uncategorised transactions from an
- * import job.  Runs synchronously in a mutation (no API calls).  High-confidence
- * matches (≥0.7) are applied directly; lower-confidence results are left for
- * AI or manual triage.
+ * import job.  Runs synchronously in a mutation (no API calls).
  */
 export const categoriseImportByRules = internalMutation({
   args: {
@@ -202,13 +277,7 @@ export const categoriseImportByRules = internalMutation({
     entityId: v.id('entities'),
   },
   handler: async (ctx, args) => {
-    const allCategories = await ctx.db
-      .query('categories')
-      .filter((q) => q.eq(q.field('isSystem'), true))
-      .collect();
-    const categoryByName = new Map(
-      allCategories.map((c) => [c.name, c])
-    );
+    console.log(`[ruleBasedCategoriser] Running for importJob=${args.importJobId}, entity=${args.entityId}`);
 
     const transactions = await ctx.db
       .query('transactions')
@@ -221,30 +290,30 @@ export const categoriseImportByRules = internalMutation({
       )
       .collect();
 
-    let categorised = 0;
-    const now = Date.now();
+    return applyRulesToTransactions(ctx.db, transactions);
+  },
+});
 
-    for (const tx of transactions) {
-      const result = categorise(tx.description, tx.amount, tx.direction);
+/**
+ * Apply rule-based categorisation to ALL uncategorised transactions for an
+ * entity (regardless of import job).  Use this to re-run rules on existing
+ * transactions that were imported before the rule engine was deployed.
+ */
+export const categoriseAllByRules = internalMutation({
+  args: {
+    entityId: v.id('entities'),
+  },
+  handler: async (ctx, args) => {
+    console.log(`[ruleBasedCategoriser] Running for ALL uncategorised, entity=${args.entityId}`);
 
-      if (
-        result.categoryName &&
-        result.confidence >= RULE_CONFIDENCE_THRESHOLD
-      ) {
-        const category = categoryByName.get(result.categoryName);
-        if (category) {
-          await ctx.db.patch(tx._id, {
-            categoryId: category._id,
-            type: category.type,
-            isDeductible: category.isDeductibleDefault ?? false,
-            enrichedDescription: result.subcategory,
-            updatedAt: now,
-          });
-          categorised++;
-        }
-      }
-    }
+    const transactions = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_type', (q) =>
+        q.eq('entityId', args.entityId).eq('type', 'uncategorised')
+      )
+      .filter((q) => q.neq(q.field('reviewedByUser'), true))
+      .collect();
 
-    return { total: transactions.length, categorised };
+    return applyRulesToTransactions(ctx.db, transactions);
   },
 });

@@ -3,6 +3,41 @@ import { internal } from './_generated/api';
 import { v } from 'convex/values';
 
 /**
+ * Run rule-based categorisation on all uncategorised+unreviewed transactions
+ * for an entity.  Zero API calls — instant, deterministic classification
+ * using Nigerian bank keyword/vendor patterns.
+ */
+export const runRuleBasedCategorise = action({
+  args: {
+    entityId: v.id('entities'),
+  },
+  handler: async (ctx, { entityId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Unauthorized');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = await ctx.runQuery((internal as any).aiCategoriseHelpers.getUserByClerkId, {
+      clerkUserId: identity.subject,
+    }) as { _id: string } | null;
+    if (!user) throw new Error('User not found');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entity = await ctx.runQuery((internal as any).aiCategoriseHelpers.getEntityForUser, {
+      entityId,
+      userId: user._id,
+    }) as { _id: string } | null;
+    if (!entity) throw new Error('Entity not found or unauthorized');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await ctx.runMutation((internal as any).importHelpers.categoriseAllByRules, {
+      entityId,
+    }) as { total: number; categorised: number };
+
+    return result;
+  },
+});
+
+/**
  * On-demand AI categorisation for uncategorised transactions.
  * Creates a categorisingJob and fires the AI batch pipeline.
  * Returns { categorisingJobId, totalTransactions } so the client can

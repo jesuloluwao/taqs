@@ -172,6 +172,19 @@ function SkeletonRow() {
   );
 }
 
+// ── Reusable click-outside hook ──────────────────────────────────────────
+function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        handler();
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [ref, handler]);
+}
+
 // ── Sort dropdown ──────────────────────────────────────────────────────────
 function SortDropdown({
   sortBy,
@@ -184,16 +197,7 @@ function SortDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  useClickOutside(ref, () => setOpen(false));
 
   const options: { by: SortBy; order: SortOrder; label: string }[] = [
     { by: 'date', order: 'desc', label: 'Date (newest first)' },
@@ -242,6 +246,205 @@ function SortDropdown({
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Direction filter dropdown ───────────────────────────────────────────────
+function DirectionDropdown({
+  value,
+  onChange,
+}: {
+  value: 'credit' | 'debit' | null;
+  onChange: (v: 'credit' | 'debit' | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useClickOutside(ref, () => setOpen(false));
+
+  const options: { value: 'credit' | 'debit' | null; label: string }[] = [
+    { value: null, label: 'All Directions' },
+    { value: 'credit', label: 'Credit (Inflow)' },
+    { value: 'debit', label: 'Debit (Outflow)' },
+  ];
+
+  const currentLabel = options.find((o) => o.value === value)?.label ?? 'Direction';
+  const isFiltered = value !== null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-body-sm transition-colors flex-shrink-0 ${
+          isFiltered
+            ? 'border-primary/40 bg-primary-light text-primary'
+            : 'border-border text-neutral-500 hover:text-neutral-900 hover:bg-muted'
+        }`}
+      >
+        <ArrowLeftRight className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">{currentLabel}</span>
+        <span className="sm:hidden">{value ? (value === 'credit' ? 'In' : 'Out') : 'Dir'}</span>
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-border rounded-xl shadow-medium py-1 w-48 animate-slide-up">
+          {options.map((opt) => {
+            const active = opt.value === value;
+            return (
+              <button
+                key={opt.value ?? 'all'}
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-body-sm flex items-center justify-between transition-colors ${
+                  active
+                    ? 'text-primary bg-primary-light'
+                    : 'text-neutral-900 hover:bg-muted'
+                }`}
+              >
+                {opt.label}
+                {active && <Check className="w-3.5 h-3.5 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Category filter dropdown ────────────────────────────────────────────────
+interface CategoryFilterOption {
+  _id: string;
+  name: string;
+  type: string;
+}
+
+function CategoryFilterDropdown({
+  value,
+  onChange,
+  categories,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  categories: CategoryFilterOption[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useClickOutside(ref, () => { setOpen(false); setSearch(''); });
+
+  useEffect(() => {
+    if (open && searchRef.current) {
+      searchRef.current.focus();
+    }
+  }, [open]);
+
+  const filtered = search
+    ? categories.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    : categories;
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, CategoryFilterOption[]> = {};
+    for (const c of filtered) {
+      const label =
+        c.type === 'income' ? 'Income' :
+        c.type === 'business_expense' ? 'Business Expenses' :
+        c.type === 'personal_expense' ? 'Personal Expenses' :
+        'Transfers';
+      if (!groups[label]) groups[label] = [];
+      groups[label].push(c);
+    }
+    return groups;
+  }, [filtered]);
+
+  const selectedName = value ? categories.find((c) => c._id === value)?.name : null;
+  const isFiltered = value !== null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-body-sm transition-colors flex-shrink-0 max-w-[180px] ${
+          isFiltered
+            ? 'border-primary/40 bg-primary-light text-primary'
+            : 'border-border text-neutral-500 hover:text-neutral-900 hover:bg-muted'
+        }`}
+      >
+        <Tag className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="truncate hidden sm:inline">{selectedName ?? 'Category'}</span>
+        <span className="sm:hidden">Cat</span>
+        {isFiltered && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onChange(null); }}
+            className="ml-0.5 p-0.5 rounded hover:bg-primary/20 transition-colors"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        )}
+        {!isFiltered && (
+          <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-border rounded-xl shadow-medium w-64 animate-slide-up">
+          <div className="p-2 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+              <input
+                ref={searchRef}
+                type="text"
+                placeholder="Search categories…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-body-sm rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto py-1">
+            <button
+              onClick={() => { onChange(null); setOpen(false); setSearch(''); }}
+              className={`w-full text-left px-3 py-2 text-body-sm flex items-center justify-between transition-colors ${
+                !value ? 'text-primary bg-primary-light' : 'text-neutral-900 hover:bg-muted'
+              }`}
+            >
+              All Categories
+              {!value && <Check className="w-3.5 h-3.5 text-primary" />}
+            </button>
+            {Object.entries(grouped).map(([groupLabel, cats]) => (
+              <div key={groupLabel}>
+                <div className="px-3 pt-2 pb-1">
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                    {groupLabel}
+                  </span>
+                </div>
+                {cats.map((cat) => {
+                  const active = cat._id === value;
+                  return (
+                    <button
+                      key={cat._id}
+                      onClick={() => { onChange(cat._id); setOpen(false); setSearch(''); }}
+                      className={`w-full text-left px-3 py-1.5 text-body-sm flex items-center justify-between transition-colors ${
+                        active
+                          ? 'text-primary bg-primary-light'
+                          : 'text-neutral-900 hover:bg-muted'
+                      }`}
+                    >
+                      <span className="truncate">{cat.name}</span>
+                      {active && <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-3 py-4 text-body-sm text-neutral-400 text-center">No categories match</p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -528,6 +731,8 @@ export default function Transactions() {
   const [searchInput, setSearchInput] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [directionFilter, setDirectionFilter] = useState<'credit' | 'debit' | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [limit, setLimit] = useState(25);
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
@@ -548,6 +753,10 @@ export default function Transactions() {
   const debouncedSearch = useDebounce(searchInput, 350);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allCategories = useQuery((api as any).categories.listAll) as CategoryFilterOption[] | undefined;
+  const categoryOptions = useMemo(() => allCategories ?? [], [allCategories]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bulkCategoriseMutation = useMutation((api as any).transactions.bulkCategorise);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bulkDeleteMutation = useMutation((api as any).transactions.bulkDelete);
@@ -556,42 +765,51 @@ export default function Transactions() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cancelJobMutation = useMutation((api as any).categorisingJobs.cancel);
 
-  // Derive query params from active filter
+  // Derive query params from active filter + dropdown filters
   const queryParams = useMemo(() => {
-    const base = {
+    const base: Record<string, unknown> = {
       sortBy,
       sortOrder,
       limit,
-      offset: 0 as const,
+      offset: 0,
       search: debouncedSearch || undefined,
     };
 
-    if (activeFilter === 'income') {
-      return { ...base, direction: 'credit' as const };
+    // Direction: dropdown filter takes precedence, then chip filter
+    if (directionFilter) {
+      base.direction = directionFilter;
+    } else if (activeFilter === 'income') {
+      base.direction = 'credit';
+    } else if (activeFilter === 'expenses') {
+      base.direction = 'debit';
     }
-    if (activeFilter === 'expenses') {
-      return { ...base, direction: 'debit' as const };
-    }
+
+    // Type filter from chip
     if (activeFilter === 'uncategorised') {
-      return { ...base, type: 'uncategorised' as const };
+      base.type = 'uncategorised';
     }
+
+    // Category filter from dropdown
+    if (categoryFilter) {
+      base.categoryId = categoryFilter;
+    }
+
+    // Date range from chips
     if (activeFilter === 'this-month') {
       const { start, end } = getThisMonthRange();
-      return { ...base, startDate: start, endDate: end };
-    }
-    if (activeFilter === 'this-quarter') {
+      base.startDate = start;
+      base.endDate = end;
+    } else if (activeFilter === 'this-quarter') {
       const { start, end } = getThisQuarterRange();
-      return { ...base, startDate: start, endDate: end };
+      base.startDate = start;
+      base.endDate = end;
+    } else if (activeFilter === 'custom' && customRange.start && customRange.end) {
+      base.startDate = new Date(customRange.start).getTime();
+      base.endDate = new Date(customRange.end + 'T23:59:59').getTime();
     }
-    if (activeFilter === 'custom' && customRange.start && customRange.end) {
-      return {
-        ...base,
-        startDate: new Date(customRange.start).getTime(),
-        endDate: new Date(customRange.end + 'T23:59:59').getTime(),
-      };
-    }
+
     return base;
-  }, [activeFilter, sortBy, sortOrder, limit, debouncedSearch, customRange]);
+  }, [activeFilter, sortBy, sortOrder, limit, debouncedSearch, customRange, directionFilter, categoryFilter]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = useQuery(
@@ -607,12 +825,12 @@ export default function Transactions() {
   // Reset limit when filters change
   const prevFilterKey = useRef('');
   useEffect(() => {
-    const key = `${activeFilter}|${sortBy}|${sortOrder}|${debouncedSearch}|${customRange.start}|${customRange.end}`;
+    const key = `${activeFilter}|${sortBy}|${sortOrder}|${debouncedSearch}|${customRange.start}|${customRange.end}|${directionFilter}|${categoryFilter}`;
     if (prevFilterKey.current !== key) {
       setLimit(25);
       prevFilterKey.current = key;
     }
-  }, [activeFilter, sortBy, sortOrder, debouncedSearch, customRange]);
+  }, [activeFilter, sortBy, sortOrder, debouncedSearch, customRange, directionFilter, categoryFilter]);
 
   // Exit bulk mode and clear selection when filter/search changes
   useEffect(() => {
@@ -887,9 +1105,9 @@ export default function Transactions() {
           )}
         </div>
 
-        {/* Search + Sort */}
+        {/* Search + Filters + Sort */}
         <div className="flex gap-2">
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
             <input
               type="search"
@@ -908,6 +1126,19 @@ export default function Transactions() {
               </button>
             )}
           </div>
+          <DirectionDropdown
+            value={directionFilter}
+            onChange={(v) => {
+              setDirectionFilter(v);
+              if (v === 'credit' && activeFilter === 'expenses') setActiveFilter('all');
+              if (v === 'debit' && activeFilter === 'income') setActiveFilter('all');
+            }}
+          />
+          <CategoryFilterDropdown
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            categories={categoryOptions}
+          />
           <SortDropdown
             sortBy={sortBy}
             sortOrder={sortOrder}
@@ -961,11 +1192,11 @@ export default function Transactions() {
             <p className="text-body-sm text-neutral-500 mb-5 max-w-xs">
               {debouncedSearch
                 ? 'No transactions match your search. Try different keywords.'
-                : activeFilter !== 'all'
-                ? 'No transactions match the selected filter.'
+                : (activeFilter !== 'all' || directionFilter || categoryFilter)
+                ? 'No transactions match the selected filters.'
                 : 'Import a bank statement to get started.'}
             </p>
-            {activeFilter === 'all' && !debouncedSearch && (
+            {activeFilter === 'all' && !debouncedSearch && !directionFilter && !categoryFilter && (
               <button
                 onClick={handleImport}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors shadow-soft"
@@ -974,11 +1205,13 @@ export default function Transactions() {
                 Import Now
               </button>
             )}
-            {(activeFilter !== 'all' || debouncedSearch) && (
+            {(activeFilter !== 'all' || debouncedSearch || directionFilter || categoryFilter) && (
               <button
                 onClick={() => {
                   setActiveFilter('all');
                   setSearchInput('');
+                  setDirectionFilter(null);
+                  setCategoryFilter(null);
                 }}
                 className="text-primary text-body-sm font-medium hover:underline"
               >

@@ -663,13 +663,16 @@ export const processImport = action({
     // surface in the triage queue where the user can opt-in to AI.
     if (totalImported > 0) {
       try {
+        console.log(`[importPipeline] Running rule-based categorisation on ${totalImported} imported transactions…`);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await ctx.runMutation((internal as any).importHelpers.categoriseImportByRules, {
+        const ruleResult = await ctx.runMutation((internal as any).importHelpers.categoriseImportByRules, {
           importJobId: jobId,
           entityId,
-        });
-      } catch {
-        // Rule-based failure is non-fatal — transactions remain uncategorised
+        }) as { total: number; categorised: number };
+        console.log(`[importPipeline] Rule-based categorisation complete — ${ruleResult.categorised}/${ruleResult.total} categorised`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[importPipeline] Rule-based categorisation failed: ${msg}`);
       }
     }
   },
