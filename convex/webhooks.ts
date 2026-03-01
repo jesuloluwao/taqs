@@ -1,5 +1,4 @@
 import { httpAction } from './_generated/server';
-import { Webhook } from 'svix';
 import { api, internal } from './_generated/api';
 
 interface ClerkEmailAddress {
@@ -28,13 +27,54 @@ function getFullName(data: ClerkUserPayload): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
+/**
+ * Verify a Svix/Clerk webhook signature using Web Crypto (no Node.js deps).
+ * The secret from Clerk starts with "whsec_" followed by base64-encoded key.
+ */
+async function verifySvixSignature(
+  secret: string,
+  svixId: string,
+  svixTimestamp: string,
+  svixSignatures: string,
+  body: string
+): Promise<boolean> {
+  const TOLERANCE_SECONDS = 5 * 60;
+  const ts = parseInt(svixTimestamp, 10);
+  if (isNaN(ts)) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - ts) > TOLERANCE_SECONDS) return false;
+
+  const rawKey = secret.startsWith('whsec_') ? secret.slice(6) : secret;
+  const keyBytes = Uint8Array.from(atob(rawKey), (c) => c.charCodeAt(0));
+
+  const encoder = new TextEncoder();
+  const toSign = encoder.encode(`${svixId}.${svixTimestamp}.${body}`);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', cryptoKey, toSign);
+  const expected = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
+
+  const candidates = svixSignatures.split(' ');
+  for (const candidate of candidates) {
+    const parts = candidate.split(',');
+    const sig = parts.length === 2 ? parts[1] : parts[0];
+    if (sig === expected) return true;
+  }
+  return false;
+}
+
 export const clerkWebhook = httpAction(async (ctx, request) => {
   const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
   if (!webhookSecret) {
     return new Response('Webhook secret not configured', { status: 500 });
   }
 
-  // Verify the webhook signature using svix
   const svixId = request.headers.get('svix-id');
   const svixTimestamp = request.headers.get('svix-timestamp');
   const svixSignature = request.headers.get('svix-signature');
@@ -45,16 +85,22 @@ export const clerkWebhook = httpAction(async (ctx, request) => {
 
   const body = await request.text();
 
+  const valid = await verifySvixSignature(
+    webhookSecret,
+    svixId,
+    svixTimestamp,
+    svixSignature,
+    body
+  );
+  if (!valid) {
+    return new Response('Invalid webhook signature', { status: 400 });
+  }
+
   let event: { type: string; data: ClerkUserPayload };
   try {
-    const wh = new Webhook(webhookSecret);
-    event = wh.verify(body, {
-      'svix-id': svixId,
-      'svix-timestamp': svixTimestamp,
-      'svix-signature': svixSignature,
-    }) as { type: string; data: ClerkUserPayload };
+    event = JSON.parse(body) as { type: string; data: ClerkUserPayload };
   } catch {
-    return new Response('Invalid webhook signature', { status: 400 });
+    return new Response('Invalid JSON body', { status: 400 });
   }
 
   const { type, data } = event;

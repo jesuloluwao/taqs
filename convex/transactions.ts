@@ -111,22 +111,25 @@ export const list = query({
       transactions = transactions.filter((t) => t.date <= args.endDate!);
     }
 
-    if (args.search) {
-      const searchLower = args.search.toLowerCase();
-      transactions = transactions.filter(
-        (t) =>
-          t.description.toLowerCase().includes(searchLower) ||
-          (t.enrichedDescription?.toLowerCase().includes(searchLower) ?? false) ||
-          (t.notes?.toLowerCase().includes(searchLower) ?? false)
-      );
-    }
-
-    // Resolve category details (batch)
+    // Resolve category details (batch) — done before search so category name is searchable
     const categoryIds = [...new Set(transactions.flatMap((t) => (t.categoryId ? [t.categoryId] : [])))];
     const categoryMap = new Map<string, { name: string; color?: string; icon?: string }>();
     for (const catId of categoryIds) {
       const cat = await ctx.db.get(catId as any);
       if (cat && 'name' in cat) categoryMap.set(catId as string, { name: (cat as any).name, color: (cat as any).color, icon: (cat as any).icon });
+    }
+
+    if (args.search) {
+      const searchLower = args.search.toLowerCase();
+      transactions = transactions.filter((t) => {
+        const catName = t.categoryId ? categoryMap.get(t.categoryId)?.name : undefined;
+        return (
+          t.description.toLowerCase().includes(searchLower) ||
+          (t.enrichedDescription?.toLowerCase().includes(searchLower) ?? false) ||
+          (t.notes?.toLowerCase().includes(searchLower) ?? false) ||
+          (catName?.toLowerCase().includes(searchLower) ?? false)
+        );
+      });
     }
 
     const enriched = transactions.map((t) => ({
