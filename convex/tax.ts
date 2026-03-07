@@ -58,6 +58,7 @@ export const getSummary = query({
 
     const transactions: TaxEngineTransaction[] = rawTransactions.map((t) => ({
       type:              t.type,
+      direction:         t.direction,
       amountNgn:         t.amountNgn,
       currency:          t.currency,
       isDeductible:      t.isDeductible,
@@ -241,6 +242,7 @@ export const refreshSummaryCache = mutation({
 
     const transactions: TaxEngineTransaction[] = rawTransactions.map((t) => ({
       type:              t.type,
+      direction:         t.direction,
       amountNgn:         t.amountNgn,
       currency:          t.currency,
       isDeductible:      t.isDeductible,
@@ -325,6 +327,7 @@ export const refreshSummaryCache = mutation({
 // ---------------------------------------------------------------------------
 
 type ChecklistItemStatus = 'complete' | 'incomplete' | 'warning';
+const WARNING_COUNTS_AS_READY_KEYS = new Set(['incomeReviewed', 'categorisation', 'expensesVerified']);
 
 interface ChecklistItem {
   key: string;
@@ -463,8 +466,10 @@ export const getFilingChecklist = query({
     items.push({
       key: 'incomeReviewed',
       label: 'Income transactions reviewed',
-      description: 'All income entries must be marked as reviewed before filing.',
-      status: allIncomeReviewed ? 'complete' : 'incomplete',
+      description: allIncomeReviewed
+        ? 'Income entries are reviewed.'
+        : 'Included for readiness, but review income entries to improve filing confidence.',
+      status: allIncomeReviewed ? 'complete' : 'warning',
       group: 'Transactions',
     });
 
@@ -473,8 +478,11 @@ export const getFilingChecklist = query({
     items.push({
       key: 'categorisation',
       label: 'All transactions categorised',
-      description: `${uncategorisedCount} transaction(s) still need a category assigned.`,
-      status: uncategorisedCount === 0 ? 'complete' : 'incomplete',
+      description:
+        uncategorisedCount === 0
+          ? 'All transactions are categorised.'
+          : `${uncategorisedCount} uncategorised transaction(s) remain. Included for readiness, but categorisation is still recommended.`,
+      status: uncategorisedCount === 0 ? 'complete' : 'warning',
       group: 'Transactions',
     });
 
@@ -485,8 +493,10 @@ export const getFilingChecklist = query({
     items.push({
       key: 'expensesVerified',
       label: 'Business expenses verified',
-      description: 'All business expense transactions must be reviewed and deductibility confirmed.',
-      status: allExpensesVerified ? 'complete' : 'incomplete',
+      description: allExpensesVerified
+        ? 'Business expenses are reviewed and deductibility is confirmed.'
+        : 'Included for readiness, but verify expense deductibility before final submission.',
+      status: allExpensesVerified ? 'complete' : 'warning',
       group: 'Transactions',
     });
 
@@ -538,8 +548,10 @@ export const getFilingChecklist = query({
     });
 
     // ---- Compute readiness ----
-    const completeCount = items.filter((i) => i.status === 'complete').length;
-    const readinessPercent = Math.round((completeCount / items.length) * 100);
+    const readyCount = items.filter(
+      (i) => i.status === 'complete' || (i.status === 'warning' && WARNING_COUNTS_AS_READY_KEYS.has(i.key))
+    ).length;
+    const readinessPercent = Math.round((readyCount / items.length) * 100);
 
     // ---- Group items ----
     const grouped: Record<string, ChecklistItem[]> = {};

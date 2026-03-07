@@ -34,6 +34,7 @@ const ITEM_ROUTES: Record<string, string> = {
 };
 
 type ChecklistItemStatus = 'complete' | 'incomplete' | 'warning';
+const WARNING_COUNTS_AS_DONE_KEYS = new Set(['incomeReviewed', 'categorisation', 'expensesVerified']);
 
 interface ChecklistItem {
   key: string;
@@ -129,7 +130,9 @@ function ChecklistGroup({ group, items, onNavigate }: {
   items: ChecklistItem[];
   onNavigate: (key: string) => void;
 }) {
-  const doneCount = items.filter((i) => i.status === 'complete').length;
+  const doneCount = items.filter(
+    (i) => i.status === 'complete' || (i.status === 'warning' && WARNING_COUNTS_AS_DONE_KEYS.has(i.key))
+  ).length;
   return (
     <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">

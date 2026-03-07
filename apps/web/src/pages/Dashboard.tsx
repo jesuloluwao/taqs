@@ -364,6 +364,67 @@ function QuickStatsSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Uncategorised Flow Card
+// ---------------------------------------------------------------------------
+
+interface UncategorisedFlowCardProps {
+  count: number;
+  inflowKobo: number;
+  outflowKobo: number;
+}
+
+function UncategorisedFlowCard({ count, inflowKobo, outflowKobo }: UncategorisedFlowCardProps) {
+  return (
+    <Link
+      to="/app/triage"
+      className="block bg-white rounded-xl border border-warning/25 shadow-soft px-5 py-4 hover:shadow-medium transition-shadow"
+    >
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <p className="text-heading-sm text-neutral-900">Uncategorised Transactions</p>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className="group relative inline-flex items-center justify-center w-5 h-5 rounded-full text-neutral-400 hover:text-neutral-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              aria-label="How uncategorised transactions affect tax estimate"
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute z-20 left-1/2 top-full mt-2 -translate-x-1/2 w-64 rounded-lg bg-neutral-900 text-white text-[11px] leading-relaxed px-2.5 py-2 shadow-medium opacity-0 scale-95 transition-all duration-150 group-hover:opacity-100 group-hover:scale-100 group-focus-visible:opacity-100 group-focus-visible:scale-100"
+              >
+                Uncategorised inflows are treated as taxable income. Uncategorised outflows are non-deductible until you review and categorise them.
+              </span>
+            </button>
+          </div>
+          <p className="text-body-sm text-neutral-500">
+            {count} transaction{count !== 1 ? 's' : ''} still awaiting review
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-warning/15 text-warning">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Review
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="rounded-lg bg-success/5 border border-success/20 px-3 py-2.5">
+          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Inflow</p>
+          <p className="font-mono text-sm font-semibold text-success">{formatNaira(inflowKobo)}</p>
+        </div>
+        <div className="rounded-lg bg-danger/5 border border-danger/20 px-3 py-2.5">
+          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Outflow</p>
+          <p className="font-mono text-sm font-semibold text-danger">{formatNaira(outflowKobo)}</p>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Deadline Countdown Widget
 // ---------------------------------------------------------------------------
 
@@ -758,8 +819,11 @@ export default function Dashboard() {
   const liabilityKobo = summary?.taxPosition.estimatedLiabilityKobo ?? 0;
   const effectiveRate = summary?.taxPosition.effectiveTaxRate ?? 0;
   const incomeKobo = summary?.incomeYtdKobo ?? 0;
-  const expensesKobo = summary?.expensesYtdKobo ?? 0;
+  const outflowKobo = summary?.expensesYtdKobo ?? 0;
+  const deductibleExpensesKobo = summary?.deductibleBusinessExpensesKobo ?? 0;
   const whtCreditsKobo = summary?.whtCreditsKobo ?? 0;
+  const uncategorisedInflowKobo = summary?.uncategorisedInflowKobo ?? 0;
+  const uncategorisedOutflowKobo = summary?.uncategorisedOutflowKobo ?? 0;
   const invoiceStats = summary?.invoiceStats;
 
   const deadlineData = deadlines?.deadlineCountdown;
@@ -831,13 +895,22 @@ export default function Dashboard() {
             <p className="text-body-sm font-semibold text-warning">
               {uncategorisedCount} {uncategorisedCount === 1 ? 'transaction needs' : 'transactions need'} categorisation
             </p>
-            <p className="text-xs text-neutral-500">Categorise now to get an accurate tax estimate</p>
+            <p className="text-xs text-neutral-500">Uncategorised inflows are taxed; uncategorised outflows stay non-deductible until reviewed</p>
           </div>
           <span className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-warning text-white text-xs font-semibold whitespace-nowrap">
             Review Now
             <ChevronRight className="w-3 h-3" />
           </span>
         </Link>
+      )}
+
+      {/* Uncategorised inflow/outflow card */}
+      {!summaryLoading && !summaryError && uncategorisedCount > 0 && (
+        <UncategorisedFlowCard
+          count={uncategorisedCount}
+          inflowKobo={uncategorisedInflowKobo}
+          outflowKobo={uncategorisedOutflowKobo}
+        />
       )}
 
       {/* Tax Position Summary card — per-section loading */}
@@ -882,12 +955,22 @@ export default function Dashboard() {
               to={`/app/transactions?direction=credit`}
             />
             <QuickStatChip
-              label="Business Expenses"
-              value={formatNaira(expensesKobo)}
+              label="Total Outflow"
+              value={formatNaira(outflowKobo)}
+              subValue="All debit transactions"
               icon={TrendingDown}
               iconBg="bg-danger/10"
               iconColor="text-danger"
               to={`/app/transactions?direction=debit`}
+            />
+            <QuickStatChip
+              label="Deductible Expenses"
+              value={formatNaira(deductibleExpensesKobo)}
+              subValue="Used in tax calculation"
+              icon={Receipt}
+              iconBg="bg-primary-light"
+              iconColor="text-primary"
+              to="/app/tax-summary"
             />
             <QuickStatChip
               label="WHT Credits"
