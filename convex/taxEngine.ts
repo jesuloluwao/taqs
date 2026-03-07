@@ -10,7 +10,7 @@
  */
 
 /** Bump this when the computation logic changes; used for historical immutability. */
-export const TAX_ENGINE_VERSION = '1.0.0';
+export const TAX_ENGINE_VERSION = '1.2.0';
 
 // ---------------------------------------------------------------------------
 // Constants (all in kobo)
@@ -57,6 +57,8 @@ export const SUPPORTED_CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'] as const;
 export interface TaxEngineTransaction {
   /** PRD-1 transaction type */
   type: 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised';
+  /** Transaction direction; used to classify uncategorised taxable flows */
+  direction?: 'credit' | 'debit';
   /** Amount converted to NGN, in kobo */
   amountNgn: number;
   /** Original transaction currency (for unsupported currency flagging) */
@@ -148,9 +150,9 @@ export interface TaxEngineReliefs {
 
 export interface TaxEngineOutput {
   engineVersion: string;
-  /** Total gross income (all type='income' transactions), in kobo */
+  /** Total gross income (income + uncategorised inflows), in kobo */
   totalGrossIncome: number;
-  /** Total deductible business expenses, in kobo */
+  /** Total deductible expenses (business expenses only), in kobo */
   totalBusinessExpenses: number;
   /** grossIncome − expenses, clamped to 0, in kobo */
   assessableProfit: number;
@@ -247,10 +249,10 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
   // Step 3: Gross income
   // For individuals: add CGT gains to gross income (gains taxed via PIT bands).
   // For LLCs: gains are taxed separately at 30% flat.
-  // Include only type='income'; transfers/personal/uncategorised excluded.
+  // Include type='income' and uncategorised credits as taxable inflow.
   // ------------------------------------------------------------------
   const incomeFromTransactions = transactions
-    .filter((t) => t.type === 'income')
+    .filter((t) => t.type === 'income' || (t.type === 'uncategorised' && t.direction === 'credit'))
     .reduce((sum, t) => sum + t.amountNgn, 0);
 
   const grossIncome =
@@ -260,7 +262,9 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
 
   // ------------------------------------------------------------------
   // Step 4: Deductible business expenses
-  // Sum amountNgn × (deductiblePercent / 100) for isDeductible=true expenses.
+  // Sum amountNgn × (deductiblePercent / 100) for
+  // business_expense entries where isDeductible=true.
+  // Uncategorised debits are intentionally non-deductible until reviewed.
   // ------------------------------------------------------------------
   const totalBusinessExpenses = transactions
     .filter((t) => t.type === 'business_expense' && t.isDeductible === true)
@@ -335,7 +339,11 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
   // Step 10: WHT credits (from income transactions)
   // ------------------------------------------------------------------
   const whtCredits = transactions
-    .filter((t) => t.type === 'income' && (t.whtDeducted ?? 0) > 0)
+    .filter(
+      (t) =>
+        (t.type === 'income' || (t.type === 'uncategorised' && t.direction === 'credit')) &&
+        (t.whtDeducted ?? 0) > 0
+    )
     .reduce((sum, t) => sum + (t.whtDeducted ?? 0), 0);
 
   // ------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -11,17 +11,18 @@ import {
   CheckCircle2,
   Tag,
   UserX,
-  SkipForward,
   ArrowUpRight,
   ArrowDownLeft,
   ArrowLeftRight,
   Globe,
   ChevronRight,
-  Check,
   Info,
   X,
   Sparkles,
   XCircle,
+  CheckSquare,
+  Square,
+  Check,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -156,11 +157,31 @@ function AiReasoningSheet({
 }
 
 // ── Transaction card ────────────────────────────────────────────────────────
-function TransactionCard({
+interface DraftAssignment {
+  categoryId: Id<'categories'>;
+  categoryName: string;
+  type: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+}
+
+function TransactionListRow({
   tx,
+  selected,
+  draftAssignment,
+  processing,
+  onToggleSelect,
+  onOpenCategoryPicker,
+  onAcceptAiSuggestion,
+  onMarkPersonal,
   onShowReasoning,
 }: {
   tx: UncategorisedTx;
+  selected: boolean;
+  draftAssignment?: DraftAssignment;
+  processing: boolean;
+  onToggleSelect: () => void;
+  onOpenCategoryPicker: () => void;
+  onAcceptAiSuggestion: () => void;
+  onMarkPersonal: () => void;
   onShowReasoning: () => void;
 }) {
   const isCredit = tx.direction === 'credit';
@@ -170,114 +191,118 @@ function TransactionCard({
   const isHighConfidence = hasAiSuggestion && tx.aiCategoryConfidence! >= 0.9;
 
   return (
-    <div className="bg-white rounded-2xl border border-border shadow-medium p-6 animate-slide-up">
-      {/* Direction icon + amount */}
-      <div className="flex items-start justify-between gap-4 mb-5">
+    <div className={`rounded-2xl border p-4 transition-colors ${
+      selected ? 'border-primary/40 bg-primary-light/30' : 'border-border bg-white'
+    }`}>
+      <div className="flex items-start gap-3">
+        <button
+          onClick={onToggleSelect}
+          className="mt-0.5 p-0.5 text-neutral-500 hover:text-primary transition-colors"
+          aria-label={selected ? 'Unselect transaction' : 'Select transaction'}
+        >
+          {selected ? <CheckSquare className="w-5 h-5 text-primary" /> : <Square className="w-5 h-5" />}
+        </button>
+
         <div
-          className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
             isCredit ? 'bg-success/10' : 'bg-danger/10'
           }`}
         >
           {isCredit ? (
-            <ArrowDownLeft className="w-6 h-6 text-success" />
+            <ArrowDownLeft className="w-5 h-5 text-success" />
           ) : (
-            <ArrowUpRight className="w-6 h-6 text-danger" />
+            <ArrowUpRight className="w-5 h-5 text-danger" />
           )}
         </div>
 
-        <div className="text-right min-w-0">
-          <p
-            className={`text-heading-xl font-display font-bold ${
-              isCredit ? 'text-success' : 'text-neutral-900'
-            }`}
-          >
-            {isCredit ? '+' : '-'}
-            {formatNaira(tx.amountNgn)}
-          </p>
-          {isForeign && (
-            <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[11px] font-medium">
-              <Globe className="w-3 h-3" />
-              {new Intl.NumberFormat('en', {
-                style: 'currency',
-                currency: tx.currency,
-                minimumFractionDigits: 0,
-              }).format(tx.amount / 100)}{' '}
-              {tx.currency}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
-      <div className="mb-4">
-        <p className="text-heading-sm font-display text-neutral-900 leading-snug mb-1">
-          {tx.description}
-        </p>
-        <p className="text-body-sm text-neutral-500">{formatDate(tx.date)}</p>
-      </div>
-
-      {/* AI Suggestion Panel */}
-      {hasAiSuggestion && (
-        <div className={`mb-4 p-3 rounded-xl border ${
-          isHighConfidence
-            ? 'bg-success/5 border-success/20'
-            : 'bg-warning/5 border-warning/20'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm">🤖</span>
-              <span className="text-body-sm text-neutral-600 font-medium">AI suggests:</span>
-              <span className="text-body-sm font-semibold text-neutral-900">
-                {tx.aiCategorySuggestion}
-              </span>
-              <span className="text-neutral-300">·</span>
-              <span className={`text-body-sm font-bold ${
-                isHighConfidence ? 'text-success' : 'text-warning'
-              }`}>
-                {confidencePct}%
-              </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-body font-medium text-neutral-900 truncate">{tx.description}</p>
+              <p className="text-body-sm text-neutral-500">{formatDate(tx.date)}</p>
             </div>
-            {tx.aiReasoning && (
-              <button
-                onClick={onShowReasoning}
-                className="p-1 rounded-md hover:bg-black/5 text-neutral-400 hover:text-neutral-700 transition-colors flex-shrink-0 ml-2"
-                title="View AI reasoning"
-              >
-                <Info className="w-4 h-4" />
-              </button>
+            <div className="text-right">
+              <p className={`text-heading-sm font-display font-bold ${isCredit ? 'text-success' : 'text-neutral-900'}`}>
+                {isCredit ? '+' : '-'}
+                {formatNaira(tx.amountNgn)}
+              </p>
+              {isForeign && (
+                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[11px] font-medium">
+                  <Globe className="w-3 h-3" />
+                  {tx.currency}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <span
+              className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
+                isCredit ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
+              }`}
+            >
+              {isCredit ? 'Credit' : 'Debit'}
+            </span>
+            <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
+              Uncategorised
+            </span>
+            {draftAssignment && (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
+                Pending: {draftAssignment.categoryName}
+              </span>
             )}
           </div>
-          {/* Confidence bar */}
-          <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${
-                isHighConfidence ? 'bg-success' : 'bg-warning'
-              }`}
-              style={{ width: `${confidencePct}%` }}
-            />
+
+          {hasAiSuggestion && (
+            <div className={`mt-3 p-2.5 rounded-lg border ${
+              isHighConfidence ? 'bg-success/5 border-success/20' : 'bg-warning/5 border-warning/20'
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-body-sm text-neutral-700">
+                  AI suggests <span className="font-semibold">{tx.aiCategorySuggestion}</span> ({confidencePct}%)
+                </div>
+                {tx.aiReasoning && (
+                  <button
+                    onClick={onShowReasoning}
+                    className="p-1 rounded-md hover:bg-black/5 text-neutral-400 hover:text-neutral-700 transition-colors"
+                    title="View AI reasoning"
+                  >
+                    <Info className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {tx.aiCategorySuggestion && (
+              <button
+                disabled={processing}
+                onClick={onAcceptAiSuggestion}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+              >
+                <Check className="w-4 h-4" />
+                Accept AI
+              </button>
+            )}
+            <button
+              disabled={processing}
+              onClick={onOpenCategoryPicker}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-neutral-700 text-body-sm font-medium hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              <Tag className="w-4 h-4" />
+              Set category
+            </button>
+            <button
+              disabled={processing}
+              onClick={onMarkPersonal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-neutral-600 text-body-sm font-medium hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              <UserX className="w-4 h-4" />
+              Mark personal
+            </button>
           </div>
         </div>
-      )}
-
-      {/* Meta row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
-            isCredit
-              ? 'bg-success/10 text-success'
-              : 'bg-danger/10 text-danger'
-          }`}
-        >
-          {isCredit ? 'Credit' : 'Debit'}
-        </span>
-        {tx.source && (
-          <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-neutral-100 text-neutral-500 capitalize">
-            {tx.source}
-          </span>
-        )}
-        <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
-          Uncategorised
-        </span>
       </div>
     </div>
   );
@@ -435,24 +460,23 @@ export default function Triage() {
   const { activeEntityId } = useEntity();
   const navigate = useNavigate();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawList = useQuery(
-    (api as any).transactions.getUncategorised,
+    api.transactions.getUncategorised,
     activeEntityId ? { entityId: activeEntityId, limit: 500 } : 'skip'
   ) as UncategorisedTx[] | undefined;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateTx = useMutation((api as any).transactions.update);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const acceptAiMutation = useMutation((api as any).transactions.acceptAiSuggestion);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recordFeedbackMutation = useMutation((api as any).transactions.recordAiFeedback);
+  const updateTx = useMutation(api.transactions.update);
+  const acceptAiMutation = useMutation(api.transactions.acceptAiSuggestion);
+  const recordFeedbackMutation = useMutation(api.transactions.recordAiFeedback);
+  const bulkCategoriseMutation = useMutation(api.transactions.bulkCategorise);
 
-  const [queue, setQueue] = useState<UncategorisedTx[] | null>(null);
-  const [total, setTotal] = useState(0);
-  const [index, setIndex] = useState(0);
+  const [initialTotal, setInitialTotal] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [draftAssignments, setDraftAssignments] = useState<Record<string, DraftAssignment>>({});
   const [showPicker, setShowPicker] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
+  const [pickerTargetIds, setPickerTargetIds] = useState<Id<'transactions'>[]>([]);
+  const [pickerDirection, setPickerDirection] = useState<'credit' | 'debit' | undefined>(undefined);
+  const [showReasoningTxId, setShowReasoningTxId] = useState<Id<'transactions'> | null>(null);
   const [processing, setProcessing] = useState(false);
 
   // AI bulk categorise state
@@ -460,126 +484,226 @@ export default function Triage() {
   const [aiConfirmLoading, setAiConfirmLoading] = useState(false);
   const [activeAiJobId, setActiveAiJobId] = useState<Id<'categorisingJobs'> | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const autoCategoriseAction = useAction((api as any).transactionActions.autoCategorise);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cancelJobMutation = useMutation((api as any).categorisingJobs.cancel);
+  const autoCategoriseAction = useAction(api.transactionActions.autoCategorise);
+  const cancelJobMutation = useMutation(api.categorisingJobs.cancel);
 
-  // Capture queue once on first load
-  useEffect(() => {
-    if (rawList !== undefined && queue === null) {
-      setQueue(rawList);
-      setTotal(rawList.length);
+  const uncategorised = useMemo(() => rawList ?? [], [rawList]);
+  const uncategorisedMap = useMemo(
+    () => new Map(uncategorised.map((tx) => [tx._id as string, tx])),
+    [uncategorised]
+  );
+
+  const selectedTransactions = useMemo(
+    () => uncategorised.filter((tx) => selectedIds.has(tx._id as string)),
+    [uncategorised, selectedIds]
+  );
+
+  const pendingCount = useMemo(() => {
+    let count = 0;
+    for (const id of Object.keys(draftAssignments)) {
+      if (uncategorisedMap.has(id)) count++;
     }
-  }, [rawList, queue]);
+    return count;
+  }, [draftAssignments, uncategorisedMap]);
 
-  const currentTx = queue?.[index];
-  const isAllDone = queue !== null && index >= queue.length;
-  const isLoading = queue === null;
+  const reviewedCount = initialTotal === null ? 0 : Math.max(initialTotal - uncategorised.length, 0);
+  const totalToReview = initialTotal ?? uncategorised.length;
+  const isLoading = rawList === undefined;
 
-  // Prevent re-renders from re-triggering reasoning sheet
-  const processingRef = useRef(false);
+  useEffect(() => {
+    if (rawList !== undefined && initialTotal === null) {
+      setInitialTotal(rawList.length);
+    }
+  }, [rawList, initialTotal]);
+
+  useEffect(() => {
+    // Keep selection and drafts in sync with current list.
+    const available = new Set(uncategorised.map((tx) => tx._id as string));
+    setSelectedIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (available.has(id)) next.add(id);
+      }
+      return next;
+    });
+    setDraftAssignments((prev) => {
+      const next: Record<string, DraftAssignment> = {};
+      for (const [id, assignment] of Object.entries(prev)) {
+        if (available.has(id)) next[id] = assignment;
+      }
+      return next;
+    });
+  }, [uncategorised]);
+
+  const clearStateForIds = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setDraftAssignments((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
+  }, []);
 
   async function handleAcceptAiSuggestion(tx: UncategorisedTx) {
-    if (processingRef.current) return;
-    processingRef.current = true;
+    if (processing) return;
     setProcessing(true);
     try {
       const result = await acceptAiMutation({ id: tx._id });
-      setIndex((i) => i + 1);
+      clearStateForIds([tx._id as string]);
       toast.success(`Accepted: ${(result as { categoryName: string }).categoryName}`);
     } catch {
       toast.error('Failed to accept AI suggestion');
     } finally {
       setProcessing(false);
-      processingRef.current = false;
     }
   }
 
-  async function applyCategory(tx: UncategorisedTx, category: CategoryOption) {
-    if (processingRef.current) return;
-    processingRef.current = true;
+  async function handleMarkPersonalMany(transactions: UncategorisedTx[]) {
+    if (transactions.length === 0 || processing) return;
     setProcessing(true);
-    const hasAiSuggestion = !!(tx.aiCategorySuggestion);
     try {
-      // If overriding AI: record feedback first
-      if (hasAiSuggestion && activeEntityId) {
-        await recordFeedbackMutation({
-          entityId: activeEntityId,
-          transactionId: tx._id,
-          aiSuggestedCategory: tx.aiCategorySuggestion,
-          aiSuggestedType: tx.aiTypeSuggestion as
-            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
-            | undefined,
-          aiConfidence: tx.aiCategoryConfidence,
-          userChosenCategory: category.name,
-          userChosenType: category.type as
-            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised',
-          transactionDescription: tx.description,
-          transactionAmount: tx.amount,
-          transactionDirection: tx.direction ?? 'debit',
-        });
-      }
+      await Promise.all(
+        transactions.map(async (tx) => {
+          const hasAiSuggestion = !!tx.aiCategorySuggestion;
+          if (hasAiSuggestion && activeEntityId) {
+            await recordFeedbackMutation({
+              entityId: activeEntityId,
+              transactionId: tx._id,
+              aiSuggestedCategory: tx.aiCategorySuggestion,
+              aiSuggestedType: tx.aiTypeSuggestion as
+                | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+                | undefined,
+              aiConfidence: tx.aiCategoryConfidence,
+              userChosenCategory: 'Personal Expense',
+              userChosenType: 'personal_expense',
+              transactionDescription: tx.description,
+              transactionAmount: tx.amount,
+              transactionDirection: tx.direction ?? 'debit',
+            });
+          }
 
-      await updateTx({
-        id: tx._id,
-        categoryId: category._id,
-        type: category.type,
-        reviewedByUser: true,
-        userOverrodeAi: hasAiSuggestion,
-      });
-      setIndex((i) => i + 1);
-      toast.success(`Categorised as "${category.name}"`);
+          await updateTx({
+            id: tx._id,
+            type: 'personal_expense',
+            isDeductible: false,
+            reviewedByUser: true,
+            userOverrodeAi: hasAiSuggestion,
+          });
+        })
+      );
+
+      clearStateForIds(transactions.map((tx) => tx._id as string));
+      toast.success(`Marked ${transactions.length} transaction${transactions.length !== 1 ? 's' : ''} as personal`);
     } catch {
-      toast.error('Failed to categorise transaction');
+      toast.error('Failed to bulk update selected transactions');
     } finally {
       setProcessing(false);
-      processingRef.current = false;
     }
   }
 
-  async function handleMarkPersonal(tx: UncategorisedTx) {
-    if (processingRef.current) return;
-    processingRef.current = true;
+  function openCategoryPickerForIds(ids: Id<'transactions'>[]) {
+    if (ids.length === 0) return;
+    const targetTxs = ids
+      .map((id) => uncategorisedMap.get(id as string))
+      .filter(Boolean) as UncategorisedTx[];
+    if (targetTxs.length === 0) return;
+
+    const firstDirection = targetTxs[0].direction;
+    const sameDirection = targetTxs.every((tx) => tx.direction === firstDirection);
+    setPickerDirection(sameDirection ? firstDirection : undefined);
+    setPickerTargetIds(ids);
+    setShowPicker(true);
+  }
+
+  function applyDraftForIds(ids: Id<'transactions'>[], category: CategoryOption) {
+    setDraftAssignments((prev) => {
+      const next = { ...prev };
+      for (const id of ids) {
+        next[id as string] = {
+          categoryId: category._id,
+          categoryName: category.name,
+          type: category.type,
+        };
+      }
+      return next;
+    });
+  }
+
+  async function handleApplyPending() {
+    if (pendingCount === 0 || processing) return;
     setProcessing(true);
-    const hasAiSuggestion = !!(tx.aiCategorySuggestion);
     try {
-      // Record feedback if AI had a suggestion
-      if (hasAiSuggestion && activeEntityId) {
-        await recordFeedbackMutation({
-          entityId: activeEntityId,
-          transactionId: tx._id,
-          aiSuggestedCategory: tx.aiCategorySuggestion,
-          aiSuggestedType: tx.aiTypeSuggestion as
-            | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
-            | undefined,
-          aiConfidence: tx.aiCategoryConfidence,
-          userChosenCategory: 'Personal Expense',
-          userChosenType: 'personal_expense',
-          transactionDescription: tx.description,
-          transactionAmount: tx.amount,
-          transactionDirection: tx.direction ?? 'debit',
-        });
+      const updatesByCategory = new Map<string, {
+        categoryId: Id<'categories'>;
+        type: DraftAssignment['type'];
+        ids: Id<'transactions'>[];
+      }>();
+      const txsForFeedback: Array<{ tx: UncategorisedTx; assignment: DraftAssignment }> = [];
+      const updatedIds: string[] = [];
+
+      for (const [id, assignment] of Object.entries(draftAssignments)) {
+        const tx = uncategorisedMap.get(id);
+        if (!tx) continue;
+        const key = `${assignment.categoryId}:${assignment.type}`;
+        const existing = updatesByCategory.get(key);
+        if (existing) {
+          existing.ids.push(tx._id);
+        } else {
+          updatesByCategory.set(key, {
+            categoryId: assignment.categoryId,
+            type: assignment.type,
+            ids: [tx._id],
+          });
+        }
+        updatedIds.push(id);
+
+        if (tx.aiCategorySuggestion && activeEntityId) {
+          txsForFeedback.push({ tx, assignment });
+        }
       }
 
-      await updateTx({
-        id: tx._id,
-        type: 'personal_expense',
-        isDeductible: false,
-        reviewedByUser: true,
-        userOverrodeAi: hasAiSuggestion,
-      });
-      setIndex((i) => i + 1);
+      await Promise.all(
+        Array.from(updatesByCategory.values()).map((group) =>
+          bulkCategoriseMutation({
+            ids: group.ids,
+            categoryId: group.categoryId,
+            type: group.type,
+          })
+        )
+      );
+
+      if (activeEntityId && txsForFeedback.length > 0) {
+        await Promise.all(
+          txsForFeedback.map(({ tx, assignment }) =>
+            recordFeedbackMutation({
+              entityId: activeEntityId,
+              transactionId: tx._id,
+              aiSuggestedCategory: tx.aiCategorySuggestion,
+              aiSuggestedType: tx.aiTypeSuggestion as
+                | 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised'
+                | undefined,
+              aiConfidence: tx.aiCategoryConfidence,
+              userChosenCategory: assignment.categoryName,
+              userChosenType: assignment.type,
+              transactionDescription: tx.description,
+              transactionAmount: tx.amount,
+              transactionDirection: tx.direction ?? 'debit',
+            })
+          )
+        );
+      }
+
+      clearStateForIds(updatedIds);
+      toast.success(`Applied ${updatedIds.length} category updates`);
     } catch {
-      toast.error('Failed to update transaction');
+      toast.error('Failed to apply pending category updates');
     } finally {
       setProcessing(false);
-      processingRef.current = false;
     }
-  }
-
-  function handleSkip() {
-    setIndex((i) => i + 1);
   }
 
   async function handleStartAiCategorise() {
@@ -606,9 +730,9 @@ export default function Triage() {
   const handleAiComplete = useCallback(
     (categorised: number, _lowConfidence: number, total: number) => {
       setActiveAiJobId(null);
-      // Reset queue so it reloads with updated categorisation state
-      setQueue(null);
-      setIndex(0);
+      setInitialTotal(null);
+      setSelectedIds(new Set());
+      setDraftAssignments({});
       const needsReview = total - categorised;
       if (categorised === 0) {
         toast.info(`AI could not confidently categorise any transactions. ${total} need manual review.`);
@@ -655,7 +779,7 @@ export default function Triage() {
         <div>
           <h1 className="text-heading-xl font-display text-neutral-900">Categorise</h1>
           <p className="text-body-sm text-neutral-500 mt-0.5">
-            Review uncategorised transactions for accurate tax calculations
+            Categorise multiple transactions at once to speed up tax review
           </p>
         </div>
         {(rawList?.length ?? 0) > 0 && !isLoading && (
@@ -690,84 +814,104 @@ export default function Triage() {
       )}
 
       {/* All done */}
-      {!isLoading && isAllDone && (
+      {!isLoading && uncategorised.length === 0 && (
         <AllDoneState onViewTransactions={() => navigate('/app/transactions')} />
       )}
 
-      {/* Triage card */}
-      {!isLoading && !isAllDone && currentTx && (
+      {/* Triage list */}
+      {!isLoading && uncategorised.length > 0 && (
         <div className="space-y-5">
           {/* Progress */}
-          <ProgressBar current={index} total={total} />
-          <p className="text-body-sm text-neutral-400 text-center">
-            {index + 1} of {total}
-          </p>
+          <ProgressBar current={reviewedCount} total={totalToReview} />
 
-          {/* Transaction card */}
-          <TransactionCard
-            tx={currentTx}
-            onShowReasoning={() => setShowReasoning(true)}
-          />
-
-          {/* Action buttons */}
-          <div className="space-y-2.5">
-            {/* Accept AI suggestion — shown when AI has a suggestion */}
-            {currentTx.aiCategorySuggestion && (
+          {/* Bulk action toolbar */}
+          <div className="bg-white rounded-2xl border border-border shadow-soft p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
               <button
-                disabled={processing}
-                onClick={() => handleAcceptAiSuggestion(currentTx)}
-                className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl bg-primary text-white font-medium text-body hover:bg-primary/90 transition-colors shadow-soft disabled:opacity-60"
+                onClick={() => {
+                  if (selectedIds.size === uncategorised.length) {
+                    setSelectedIds(new Set());
+                    return;
+                  }
+                  setSelectedIds(new Set(uncategorised.map((tx) => tx._id as string)));
+                }}
+                className="inline-flex items-center gap-2 text-body-sm font-medium text-neutral-700 hover:text-neutral-900 transition-colors"
               >
-                <Check className="w-5 h-5" />
-                Accept: {currentTx.aiCategorySuggestion}
+                {selectedIds.size === uncategorised.length ? (
+                  <CheckSquare className="w-4 h-4 text-primary" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                {selectedIds.size === uncategorised.length ? 'Unselect all' : 'Select all'}
               </button>
-            )}
+              <div className="text-right">
+                <p className="text-body-sm font-medium text-neutral-900">
+                  {selectedIds.size} selected
+                </p>
+                <p className="text-[11px] text-neutral-500">{pendingCount} pending changes</p>
+              </div>
+            </div>
 
-            {/* Change / Override category */}
-            <button
-              disabled={processing}
-              onClick={() => setShowPicker(true)}
-              className={`w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-medium text-body transition-colors disabled:opacity-60 ${
-                currentTx.aiCategorySuggestion
-                  ? 'bg-white border border-border text-neutral-700 hover:bg-muted'
-                  : 'bg-primary text-white hover:bg-primary/90 shadow-soft'
-              }`}
-            >
-              <Tag className="w-5 h-5" />
-              {currentTx.aiCategorySuggestion ? 'Override category' : 'Change category'}
-            </button>
-
-            {/* Secondary actions row */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 disabled={processing}
-                onClick={() => handleMarkPersonal(currentTx)}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl border border-border bg-white text-neutral-700 font-medium text-body-sm hover:bg-muted hover:border-neutral-300 transition-colors disabled:opacity-60"
+                onClick={() => openCategoryPickerForIds(selectedTransactions.map((tx) => tx._id))}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-neutral-700 text-body-sm font-medium hover:bg-muted transition-colors disabled:opacity-60"
+              >
+                <Tag className="w-4 h-4" />
+                Set selected category
+              </button>
+              <button
+                disabled={processing}
+                onClick={() => handleMarkPersonalMany(selectedTransactions)}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-neutral-700 text-body-sm font-medium hover:bg-muted transition-colors disabled:opacity-60"
               >
                 <UserX className="w-4 h-4" />
-                Mark as Personal
+                Mark selected personal
               </button>
-
               <button
-                disabled={processing}
-                onClick={handleSkip}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl border border-border bg-white text-neutral-500 font-medium text-body-sm hover:bg-muted hover:border-neutral-300 transition-colors disabled:opacity-60"
+                disabled={processing || pendingCount === 0}
+                onClick={handleApplyPending}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
               >
-                <SkipForward className="w-4 h-4" />
-                Skip for now
+                <Check className="w-4 h-4" />
+                Apply pending
               </button>
             </div>
           </div>
 
-          {/* Hint */}
-          <p className="text-center text-body-sm text-neutral-400">
-            Swipe through {total - index} uncategorised transactions
+          <p className="text-center text-body-sm text-neutral-500">
+            Assign categories row-by-row, then apply all updates in one batch.
           </p>
+
+          <div className="space-y-3">
+            {uncategorised.map((tx) => (
+              <TransactionListRow
+                key={tx._id}
+                tx={tx}
+                selected={selectedIds.has(tx._id as string)}
+                draftAssignment={draftAssignments[tx._id as string]}
+                processing={processing}
+                onToggleSelect={() =>
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(tx._id as string)) next.delete(tx._id as string);
+                    else next.add(tx._id as string);
+                    return next;
+                  })
+                }
+                onOpenCategoryPicker={() => openCategoryPickerForIds([tx._id])}
+                onAcceptAiSuggestion={() => handleAcceptAiSuggestion(tx)}
+                onMarkPersonal={() => handleMarkPersonalMany([tx])}
+                onShowReasoning={() => setShowReasoningTxId(tx._id)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
       {/* Empty: no uncategorised */}
-      {!isLoading && queue !== null && total === 0 && (
+      {!isLoading && rawList !== undefined && rawList.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center animate-slide-up">
           <div className="w-20 h-20 rounded-full bg-primary-light flex items-center justify-center mb-5">
             <ArrowLeftRight className="w-10 h-10 text-primary" strokeWidth={1.5} />
@@ -789,25 +933,30 @@ export default function Triage() {
       )}
 
       {/* Category picker modal */}
-      {showPicker && currentTx && (
+      {showPicker && pickerTargetIds.length > 0 && (
         <CategoryPickerModal
-          title={currentTx.aiCategorySuggestion ? 'Override Category' : 'Choose Category'}
-          direction={currentTx.direction}
+          title={pickerTargetIds.length > 1 ? 'Set Category for Selected Transactions' : 'Choose Category'}
+          direction={pickerDirection}
           onClose={() => setShowPicker(false)}
           onSelect={async (cat) => {
             setShowPicker(false);
-            await applyCategory(currentTx, cat);
+            applyDraftForIds(pickerTargetIds, cat);
+            toast.success(
+              `Queued "${cat.name}" for ${pickerTargetIds.length} transaction${pickerTargetIds.length !== 1 ? 's' : ''}`
+            );
+            setPickerTargetIds([]);
+            setPickerDirection(undefined);
           }}
         />
       )}
 
       {/* AI Reasoning bottom sheet */}
-      {showReasoning && currentTx?.aiReasoning && (
+      {showReasoningTxId && uncategorisedMap.get(showReasoningTxId as string)?.aiReasoning && (
         <AiReasoningSheet
-          reasoning={currentTx.aiReasoning}
-          suggestion={currentTx.aiCategorySuggestion}
-          confidence={currentTx.aiCategoryConfidence}
-          onClose={() => setShowReasoning(false)}
+          reasoning={uncategorisedMap.get(showReasoningTxId as string)!.aiReasoning!}
+          suggestion={uncategorisedMap.get(showReasoningTxId as string)!.aiCategorySuggestion}
+          confidence={uncategorisedMap.get(showReasoningTxId as string)!.aiCategoryConfidence}
+          onClose={() => setShowReasoningTxId(null)}
         />
       )}
 

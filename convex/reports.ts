@@ -56,6 +56,30 @@ async function resolveCategory(
   }
 }
 
+function parseDateArg(date: string | undefined, endOfDay = false): number | null {
+  if (!date) return null;
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
+  const parsed = Date.parse(`${date}${suffix}`);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function txDateMs(tx: any): number {
+  if (typeof tx?.date === 'number') return tx.date;
+  if (typeof tx?.date === 'string') {
+    const parsed = Date.parse(tx.date);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function txMonth(tx: any): number {
+  return new Date(txDateMs(tx)).getUTCMonth() + 1;
+}
+
+function txIsoDate(tx: any): string {
+  return new Date(txDateMs(tx)).toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
 // getIncome — public query
 // ---------------------------------------------------------------------------
@@ -90,8 +114,10 @@ export const getIncome = query({
         .filter((q: any) => q.eq(q.field('direction'), 'credit'))
         .collect();
       // JS-level date range filter (safe for optional bounds)
-      if (args.startDate) txList = txList.filter((t: any) => t.date >= args.startDate!);
-      if (args.endDate) txList = txList.filter((t: any) => t.date <= args.endDate!);
+      const startMs = parseDateArg(args.startDate);
+      const endMs = parseDateArg(args.endDate, true);
+      if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
+      if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
     }
 
     // ---- Totals ----
@@ -103,7 +129,7 @@ export const getIncome = query({
     // ---- Monthly breakdown (months 1-12) ----
     const monthMap = new Map<number, number>();
     for (const t of txList) {
-      const m = parseInt(t.date.slice(5, 7), 10);
+      const m = txMonth(t);
       monthMap.set(m, (monthMap.get(m) ?? 0) + (t.amountNgn ?? 0));
     }
     const monthlyBreakdown = Array.from({ length: 12 }, (_, i) => ({
@@ -192,8 +218,10 @@ export const getExpenses = query({
         )
         .filter((q: any) => q.eq(q.field('direction'), 'debit'))
         .collect();
-      if (args.startDate) txList = txList.filter((t: any) => t.date >= args.startDate!);
-      if (args.endDate) txList = txList.filter((t: any) => t.date <= args.endDate!);
+      const startMs = parseDateArg(args.startDate);
+      const endMs = parseDateArg(args.endDate, true);
+      if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
+      if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
     }
 
     // ---- Totals ----
@@ -211,7 +239,7 @@ export const getExpenses = query({
     // ---- Monthly breakdown ----
     const monthMap = new Map<number, number>();
     for (const t of txList) {
-      const m = parseInt(t.date.slice(5, 7), 10);
+      const m = txMonth(t);
       monthMap.set(m, (monthMap.get(m) ?? 0) + (t.amountNgn ?? 0));
     }
     const monthlyBreakdown = Array.from({ length: 12 }, (_, i) => ({
@@ -355,7 +383,7 @@ export const getYearOnYear = query({
     function buildMonthly(txs: any[]): Array<{ month: number; amount: number }> {
       const map = new Map<number, number>();
       for (const t of txs) {
-        const m = parseInt(t.date.slice(5, 7), 10);
+        const m = txMonth(t);
         map.set(m, (map.get(m) ?? 0) + (t.amountNgn ?? 0));
       }
       return Array.from({ length: 12 }, (_, i) => ({
@@ -459,8 +487,10 @@ export const _getIncomeRows = internalQuery({
         )
         .filter((q: any) => q.eq(q.field('direction'), 'credit'))
         .collect();
-      if (args.startDate) txList = txList.filter((t: any) => t.date >= args.startDate!);
-      if (args.endDate) txList = txList.filter((t: any) => t.date <= args.endDate!);
+      const startMs = parseDateArg(args.startDate);
+      const endMs = parseDateArg(args.endDate, true);
+      if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
+      if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
     }
 
     // Batch-resolve category names
@@ -476,7 +506,7 @@ export const _getIncomeRows = internalQuery({
     }
 
     return txList.map((t: any) => ({
-      date: t.date as string,
+      date: txIsoDate(t),
       description: t.description as string,
       category: t.categoryId
         ? (catCache.get(t.categoryId.toString()) ?? 'Unknown')
@@ -519,8 +549,10 @@ export const _getExpenseRows = internalQuery({
         )
         .filter((q: any) => q.eq(q.field('direction'), 'debit'))
         .collect();
-      if (args.startDate) txList = txList.filter((t: any) => t.date >= args.startDate!);
-      if (args.endDate) txList = txList.filter((t: any) => t.date <= args.endDate!);
+      const startMs = parseDateArg(args.startDate);
+      const endMs = parseDateArg(args.endDate, true);
+      if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
+      if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
     }
 
     // Batch-resolve category names
@@ -536,7 +568,7 @@ export const _getExpenseRows = internalQuery({
     }
 
     return txList.map((t: any) => ({
-      date: t.date as string,
+      date: txIsoDate(t),
       description: t.description as string,
       category: t.categoryId
         ? (catCache.get(t.categoryId.toString()) ?? 'Unknown')

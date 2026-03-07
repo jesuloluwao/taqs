@@ -13,6 +13,12 @@
 import { query } from './_generated/server';
 import { v } from 'convex/values';
 import { getCurrentUser } from './auth';
+import {
+  getEngineForYear,
+  runTaxEngine,
+  type TaxEngineCapitalDisposal,
+  type TaxEngineTransaction,
+} from './taxEngine';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +54,13 @@ export interface DashboardSummary {
   expensesYtdKobo: number;
   /** Aggregate WHT credits in kobo */
   whtCreditsKobo: number;
+  /** Deductible expenses used in tax computation */
+  deductibleBusinessExpensesKobo: number;
   uncategorisedCount: number;
+  /** Sum of uncategorised credit transactions in kobo */
+  uncategorisedInflowKobo: number;
+  /** Sum of uncategorised debit transactions in kobo */
+  uncategorisedOutflowKobo: number;
   taxPosition: TaxPosition;
   invoiceStats: InvoiceStats;
   hasTransactions: boolean;
@@ -149,7 +161,10 @@ export const getSummary = query({
     let incomeYtdKobo = 0;
     let expensesYtdKobo = 0;
     let whtCreditsKobo = 0;
+    let deductibleBusinessExpensesKobo = 0;
     let uncategorisedCount = 0;
+    let uncategorisedInflowKobo = 0;
+    let uncategorisedOutflowKobo = 0;
 
     for (const t of transactions) {
       if (t.direction === 'credit') {
@@ -158,7 +173,14 @@ export const getSummary = query({
       } else {
         expensesYtdKobo += t.amountNgn;
       }
-      if (t.type === 'uncategorised') uncategorisedCount++;
+      if (t.type === 'uncategorised') {
+        uncategorisedCount++;
+        if (t.direction === 'credit') {
+          uncategorisedInflowKobo += t.amountNgn;
+        } else {
+          uncategorisedOutflowKobo += t.amountNgn;
+        }
+      }
     }
 
     const hasTransactions = transactions.length > 0;
@@ -172,7 +194,9 @@ export const getSummary = query({
       .first();
 
     let taxPosition: TaxPosition;
-    if (cachedSummary) {
+    const currentEngineVersion = getEngineForYear(taxYear);
+    if (cachedSummary && cachedSummary.engineVersion === currentEngineVersion) {
+      deductibleBusinessExpensesKobo = cachedSummary.totalBusinessExpenses;
       taxPosition = {
         estimatedLiabilityKobo: cachedSummary.totalTaxPayable,
         effectiveTaxRate: cachedSummary.effectiveTaxRate,
@@ -180,47 +204,56 @@ export const getSummary = query({
         minimumTaxApplied: cachedSummary.minimumTaxApplied,
       };
     } else {
-      // Live estimate: simple PIT estimate from raw transaction data
-      // (The full engine is in convex/tax.ts; here we use a lightweight inline estimate)
-      const grossIncome = incomeYtdKobo;
-      const deductibleExpenses = transactions.reduce((sum, t) => {
-        if (t.type === 'business_expense' && t.isDeductible) {
-          const pct = (t.deductiblePercent ?? 100) / 100;
-          return sum + Math.round(t.amountNgn * pct);
-        }
-        return sum;
-      }, 0);
+      // No up-to-date cache: run the same tax engine used by Tax Summary so dashboard remains consistent.
+      const declaration = await ctx.db
+        .query('taxDeclarations')
+        .withIndex('by_entityId_taxYear', (q) =>
+          q.eq('entityId', args.entityId).eq('taxYear', taxYear)
+        )
+        .first();
 
-      const assessable = Math.max(0, grossIncome - deductibleExpenses);
-      const KOBO = (n: number) => n * 100;
+      const rawDisposals = await ctx.db
+        .query('capitalDisposals')
+        .withIndex('by_entityId_taxYear', (q) =>
+          q.eq('entityId', args.entityId).eq('taxYear', taxYear)
+        )
+        .collect();
 
-      // NTA 2025 PIT bands
-      let grossTax = 0;
-      let remaining = assessable;
-      const bands = [
-        { from: 0, to: KOBO(800_000), rate: 0 },
-        { from: KOBO(800_000), to: KOBO(2_200_000), rate: 0.15 },
-        { from: KOBO(2_200_000), to: KOBO(4_200_000), rate: 0.18 },
-        { from: KOBO(4_200_000), to: KOBO(6_200_000), rate: 0.21 },
-        { from: KOBO(6_200_000), to: KOBO(56_200_000), rate: 0.23 },
-        { from: KOBO(56_200_000), to: Infinity, rate: 0.25 },
-      ];
-      for (const band of bands) {
-        if (remaining <= 0) break;
-        const bandWidth = band.to === Infinity ? remaining : band.to - band.from;
-        const income = Math.min(remaining, bandWidth);
-        grossTax += Math.round(income * band.rate);
-        remaining -= income;
-      }
+      const engineTransactions: TaxEngineTransaction[] = transactions.map((t) => ({
+        type: t.type,
+        direction: t.direction,
+        amountNgn: t.amountNgn,
+        currency: t.currency,
+        isDeductible: t.isDeductible,
+        deductiblePercent: t.deductiblePercent,
+        whtDeducted: t.whtDeducted,
+        isVatInclusive: (t as any).isVatInclusive,
+      }));
 
-      const netTax = Math.max(0, grossTax - whtCreditsKobo);
-      const effectiveRate = grossIncome > 0 ? netTax / grossIncome : 0;
+      const engineDisposals: TaxEngineCapitalDisposal[] = rawDisposals.map((d) => ({
+        acquisitionCostNgn: d.acquisitionCostNgn,
+        disposalProceedsNgn: d.disposalProceedsNgn,
+        isExempt: d.isExempt,
+        exemptionReason: d.exemptionReason,
+      }));
+
+      const result = runTaxEngine({
+        transactions: engineTransactions,
+        declarations: declaration ?? null,
+        entityType: entity.type,
+        taxYear,
+        capitalDisposals: engineDisposals,
+        isVatRegistered: entity.vatRegistered ?? false,
+        outputVatNgn: 0,
+      });
+
+      deductibleBusinessExpensesKobo = result.totalBusinessExpenses;
 
       taxPosition = {
-        estimatedLiabilityKobo: netTax,
-        effectiveTaxRate: effectiveRate,
+        estimatedLiabilityKobo: result.totalTaxPayable,
+        effectiveTaxRate: result.effectiveTaxRate,
         isCached: false,
-        minimumTaxApplied: false,
+        minimumTaxApplied: result.minimumTaxApplied,
       };
     }
 
@@ -282,7 +315,10 @@ export const getSummary = query({
       incomeYtdKobo,
       expensesYtdKobo,
       whtCreditsKobo,
+      deductibleBusinessExpensesKobo,
       uncategorisedCount,
+      uncategorisedInflowKobo,
+      uncategorisedOutflowKobo,
       taxPosition,
       invoiceStats,
       hasTransactions,
