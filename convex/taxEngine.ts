@@ -198,7 +198,7 @@ export interface TaxEngineOutput {
   vatPayable: number;
   /** Total tax liability: netTaxPayable + cgtPayable + citPayable + vatPayable, in kobo */
   totalTaxPayable: number;
-  /** netTaxPayable / totalGrossIncome (as decimal 0–1); 0 if no income */
+  /** totalTaxPayable / totalGrossIncome (as decimal 0–1); 0 if no income */
   effectiveTaxRate: number;
   /** Number of transactions with type='uncategorised' */
   uncategorisedCount: number;
