@@ -445,7 +445,10 @@ export const refreshSummaryCache = mutation({
 // ---------------------------------------------------------------------------
 
 type ChecklistItemStatus = 'complete' | 'incomplete' | 'warning';
-const WARNING_COUNTS_AS_READY_KEYS = new Set(['incomeReviewed', 'categorisation', 'expensesVerified']);
+const WARNING_COUNTS_AS_READY_KEYS = new Set([
+  'incomeReviewed', 'categorisation', 'expensesVerified',
+  'payslipComplete', 'salaryEstimated',
+]);
 
 interface ChecklistItem {
   key: string;
@@ -492,6 +495,20 @@ export const getFilingChecklist = query({
         q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
       )
       .collect();
+
+    // Fetch employment income records for salary earner checks
+    const employmentRecords = await ctx.db
+      .query('employmentIncomeRecords')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .collect();
+
+    const confirmedRecords = employmentRecords.filter((r) => r.status === 'confirmed');
+    const pendingRecords = employmentRecords.filter((r) => r.status === 'pending');
+    const estimatedRecords = confirmedRecords.filter(
+      (r) => r.source === 'detected' && r.payeDeducted === 0
+    );
 
     // 3. Tax declarations
     const declaration = await ctx.db
@@ -664,6 +681,31 @@ export const getFilingChecklist = query({
       status: whtStatus,
       group: 'Invoices & WHT',
     });
+
+    // 11. Payslip details complete (salary earners only)
+    if (employmentRecords.length > 0) {
+      const monthsWithoutPaye = confirmedRecords.filter((r) => r.payeDeducted === 0).length;
+      items.push({
+        key: 'payslipComplete',
+        label: 'Payslip details complete',
+        description: monthsWithoutPaye > 0
+          ? `${monthsWithoutPaye} month(s) have no PAYE data. Your tax may be overstated.`
+          : 'All months have PAYE data from payslips.',
+        status: monthsWithoutPaye === 0 && pendingRecords.length === 0 ? 'complete' : 'warning',
+        group: 'Employment',
+      });
+    }
+
+    // 12. Salary figures verified (salary earners only)
+    if (estimatedRecords.length > 0) {
+      items.push({
+        key: 'salaryEstimated',
+        label: 'Salary figures verified',
+        description: `Gross salary for ${estimatedRecords.length} month(s) is based on bank credit, not payslip.`,
+        status: 'warning',
+        group: 'Employment',
+      });
+    }
 
     // ---- Compute readiness ----
     const readyCount = items.filter(
