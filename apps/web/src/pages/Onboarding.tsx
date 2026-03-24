@@ -52,7 +52,7 @@ const TURNOVER_RANGES = [
 
 const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'] as const;
 type Currency = (typeof CURRENCIES)[number];
-type UserType = 'freelancer' | 'sme';
+type UserType = 'freelancer' | 'sme' | 'salary_earner';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -164,6 +164,53 @@ function Step1({ selected, onSelect, onContinue }: Step1Props) {
               </div>
               <p className="text-body-sm text-neutral-500 mt-1">
                 I earn income from clients, gigs, or self-employment
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelect('salary_earner')}
+          className={`w-full text-left p-5 rounded-2xl border-2 transition-all duration-200 ${
+            selected === 'salary_earner'
+              ? 'border-primary bg-primary/5 shadow-medium'
+              : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50'
+          }`}
+        >
+          <div className="flex items-start gap-4">
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                selected === 'salary_earner' ? 'bg-primary' : 'bg-neutral-100'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`w-5 h-5 ${selected === 'salary_earner' ? 'text-white' : 'text-neutral-500'}`}
+              >
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                <line x1="6" y1="11" x2="18" y2="11" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <span className="font-display font-semibold text-neutral-900">Salary Earner</span>
+                {selected === 'salary_earner' && (
+                  <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Employed full-time or part-time. May also have side income.
               </p>
             </div>
           </div>
@@ -508,6 +555,329 @@ function Step2Sme({
           ) : (
             'Continue'
           )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 2c: Salary Earner Form ─────────────────────────────────────────────
+
+interface SalaryEarnerFormErrors {
+  firstName?: string;
+  lastName?: string;
+  employerName?: string;
+}
+
+interface Step2SalaryEarnerProps {
+  firstName: string;
+  lastName: string;
+  employerName: string;
+  jobTitle: string;
+  employmentType: 'full_time' | 'part_time' | 'contract';
+  currency: Currency;
+  hasOtherIncome: boolean;
+  onChange: (field: string, value: string | boolean) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  loading: boolean;
+}
+
+function Step2SalaryEarner({
+  firstName,
+  lastName,
+  employerName,
+  jobTitle,
+  employmentType,
+  currency,
+  hasOtherIncome,
+  onChange,
+  onBack,
+  onContinue,
+  loading,
+}: Step2SalaryEarnerProps) {
+  const [errors, setErrors] = useState<SalaryEarnerFormErrors>({});
+
+  function validate() {
+    const e: SalaryEarnerFormErrors = {};
+    if (!firstName.trim()) e.firstName = 'First name is required';
+    if (!lastName.trim()) e.lastName = 'Last name is required';
+    if (!employerName.trim()) e.employerName = 'Employer name is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function handleContinue() {
+    if (validate()) onContinue();
+  }
+
+  return (
+    <div className="animate-slide-up">
+      <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
+        Tell us about your employment
+      </h2>
+      <p className="text-body text-neutral-500 mb-8">
+        We'll use this to personalise your tax profile.
+      </p>
+
+      <div className="flex flex-col gap-5 mb-8">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="First name" error={errors.firstName}>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => onChange('firstName', e.target.value)}
+              placeholder="Ada"
+              className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                errors.firstName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+              }`}
+            />
+          </Field>
+          <Field label="Last name" error={errors.lastName}>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => onChange('lastName', e.target.value)}
+              placeholder="Okafor"
+              className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                errors.lastName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+              }`}
+            />
+          </Field>
+        </div>
+
+        <Field label="Employer name" error={errors.employerName}>
+          <input
+            type="text"
+            value={employerName}
+            onChange={(e) => onChange('employerName', e.target.value)}
+            placeholder="e.g. Access Bank Plc"
+            className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+              errors.employerName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+            }`}
+          />
+        </Field>
+
+        <Field label="Job title (optional)">
+          <input
+            type="text"
+            value={jobTitle}
+            onChange={(e) => onChange('jobTitle', e.target.value)}
+            placeholder="e.g. Senior Accountant"
+            className="h-11 px-3 rounded-lg border border-border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+          />
+        </Field>
+
+        <Field label="Employment type">
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { value: 'full_time', label: 'Full-time' },
+              { value: 'part_time', label: 'Part-time' },
+              { value: 'contract', label: 'Contract' },
+            ] as const).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => onChange('employmentType', t.value)}
+                className={`h-11 rounded-lg border-2 text-sm font-medium transition-all ${
+                  employmentType === t.value
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-neutral-600 hover:border-primary/40'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Primary income currency">
+          <div className="grid grid-cols-4 gap-2">
+            {CURRENCIES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => onChange('currency', c)}
+                className={`h-11 rounded-lg border-2 text-sm font-medium transition-all ${
+                  currency === c
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-neutral-600 hover:border-primary/40'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-neutral-50">
+          <div>
+            <p className="text-sm font-medium text-neutral-900">Do you also earn from other sources?</p>
+            <p className="text-xs text-neutral-500 mt-0.5">e.g. freelance work, side business, rental income</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange('hasOtherIncome', !hasOtherIncome)}
+            className={`relative w-11 h-6 rounded-full transition-colors ${
+              hasOtherIncome ? 'bg-primary' : 'bg-neutral-300'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                hasOtherIncome ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={loading}
+          className="flex-1 h-12 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans"
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Saving…
+            </span>
+          ) : (
+            'Continue'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 4b: Salary Setup Choice ────────────────────────────────────────────
+
+interface Step4SalarySetupProps {
+  onBack: () => void;
+  onChoice: (choice: 'payslip' | 'detect' | 'skip') => void;
+  loading: boolean;
+}
+
+function Step4SalarySetup({ onBack, onChoice, loading }: Step4SalarySetupProps) {
+  return (
+    <div className="animate-slide-up">
+      <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
+        Set up your salary income
+      </h2>
+      <p className="text-body text-neutral-500 mb-8">
+        How would you like to add your employment income details?
+      </p>
+
+      <div className="flex flex-col gap-4 mb-8">
+        <button
+          type="button"
+          onClick={() => onChoice('payslip')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-neutral-500"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-neutral-900">Enter payslip details now</span>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Manually enter your salary, deductions, and PAYE details
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChoice('detect')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-neutral-500"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-neutral-900">Detect from bank statements</span>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Upload a bank statement and we'll detect your salary automatically
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChoice('skip')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-primary"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 8 12 12 14 14" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-primary">Skip for now</span>
+              <p className="text-body-sm text-primary/60 mt-1">
+                You can add your salary details later from the dashboard
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
         </button>
       </div>
     </div>
@@ -955,6 +1325,13 @@ export default function Onboarding() {
   const [industry, setIndustry] = useState('');
   const [annualTurnoverRange, setAnnualTurnoverRange] = useState('');
 
+  // Salary Earner step 2 state
+  const [employerName, setEmployerName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>('full_time');
+  const [hasOtherIncome, setHasOtherIncome] = useState(false);
+  const [salarySetupChoice, setSalarySetupChoice] = useState<'payslip' | 'detect' | 'skip' | null>(null);
+
   // Step 3 state
   const [nin, setNin] = useState('');
   const [firsTin, setFirsTin] = useState('');
@@ -975,6 +1352,7 @@ export default function Onboarding() {
   const saveUserType = useMutation(api.onboarding.saveUserType);
   const saveFreelancerProfile = useMutation(api.onboarding.saveFreelancerProfile);
   const saveSmeProfile = useMutation(api.onboarding.saveSmeProfile);
+  const saveSalaryProfile = useMutation(api.onboarding.saveSalaryProfile);
   const saveNinAndTin = useMutation(api.onboarding.saveNinAndTin);
   const completeOnboarding = useMutation(api.userCrud.completeOnboarding);
   const createDefaultPreferences = useMutation(api.userCrud.createDefaultPreferences);
@@ -1036,6 +1414,50 @@ export default function Onboarding() {
     }
   }
 
+  async function handleStep2SalaryEarnerContinue() {
+    setLoading(true);
+    try {
+      await saveSalaryProfile({
+        firstName,
+        lastName,
+        preferredCurrency: currency,
+        employerName,
+        jobTitle: jobTitle || undefined,
+        employmentType,
+        hasOtherIncome,
+      });
+      setStep(3);
+    } catch (err) {
+      console.error('Failed to save salary profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSalarySetupChoice(choice: 'payslip' | 'detect' | 'skip') {
+    setSalarySetupChoice(choice);
+    if (choice === 'payslip') {
+      setLoading(true);
+      try {
+        await seedCategories();
+        await createDefaultPreferences();
+        await completeOnboarding();
+        toast.success("You're all set! Let's enter your payslip details.");
+        window.location.href = '/app/payslip-entry';
+      } catch (err) {
+        console.error('Failed to complete onboarding:', err);
+      } finally {
+        setLoading(false);
+      }
+    } else if (choice === 'skip') {
+      await handleFinish();
+    }
+    // 'detect' — for now, also finish onboarding (bank statement upload available later)
+    if (choice === 'detect') {
+      await handleFinish();
+    }
+  }
+
   async function handleStep3Continue() {
     setLoading(true);
     try {
@@ -1071,6 +1493,16 @@ export default function Onboarding() {
     else if (field === 'lastName') setLastName(value);
     else if (field === 'profession') setProfession(value);
     else if (field === 'currency') setCurrency(value as Currency);
+  }
+
+  function handleSalaryEarnerFieldChange(field: string, value: string | boolean) {
+    if (field === 'firstName') setFirstName(value as string);
+    else if (field === 'lastName') setLastName(value as string);
+    else if (field === 'employerName') setEmployerName(value as string);
+    else if (field === 'jobTitle') setJobTitle(value as string);
+    else if (field === 'employmentType') setEmploymentType(value as 'full_time' | 'part_time' | 'contract');
+    else if (field === 'currency') setCurrency(value as Currency);
+    else if (field === 'hasOtherIncome') setHasOtherIncome(value as boolean);
   }
 
   function handleSmeFieldChange(field: string, value: string) {
@@ -1135,6 +1567,22 @@ export default function Onboarding() {
             />
           )}
 
+          {step === 2 && userType === 'salary_earner' && (
+            <Step2SalaryEarner
+              firstName={firstName}
+              lastName={lastName}
+              employerName={employerName}
+              jobTitle={jobTitle}
+              employmentType={employmentType}
+              currency={currency}
+              hasOtherIncome={hasOtherIncome}
+              onChange={handleSalaryEarnerFieldChange}
+              onBack={() => setStep(1)}
+              onContinue={handleStep2SalaryEarnerContinue}
+              loading={loading}
+            />
+          )}
+
           {step === 3 && (
             <Step3
               nin={nin}
@@ -1146,7 +1594,15 @@ export default function Onboarding() {
             />
           )}
 
-          {step === 4 && (
+          {step === 4 && userType === 'salary_earner' && (
+            <Step4SalarySetup
+              onBack={() => setStep(3)}
+              onChoice={handleSalarySetupChoice}
+              loading={loading}
+            />
+          )}
+
+          {step === 4 && userType !== 'salary_earner' && (
             <Step4
               onBack={() => setStep(3)}
               onFinish={handleFinish}
