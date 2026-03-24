@@ -1,4 +1,5 @@
 import { internalMutation, internalQuery } from './_generated/server';
+import { internal } from './_generated/api';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 
@@ -90,5 +91,29 @@ export const createDetectedRecords = internalMutation({
         updatedAt: now,
       });
     }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Internal mutation: schedule salary detection from an action context.
+// Actions cannot use ctx.scheduler directly, so they delegate to this mutation.
+// ---------------------------------------------------------------------------
+
+export const scheduleSalaryDetection = internalMutation({
+  args: {
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Check if user is a salary earner
+    const user = await ctx.db.get(args.userId);
+    if (!user || user.userType !== 'salary_earner') return;
+
+    await ctx.scheduler.runAfter(0, internal.salaryDetection.detectSalaryTransactions, {
+      entityId: args.entityId,
+      taxYear: args.taxYear,
+      userId: args.userId,
+    });
   },
 });

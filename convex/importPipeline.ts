@@ -674,6 +674,23 @@ export const processImport = action({
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[importPipeline] Rule-based categorisation failed: ${msg}`);
       }
+
+      // ─── Salary Detection ──────────────────────────────────────────────
+      // Trigger salary detection asynchronously for salary earner users.
+      // Derive tax years from imported transactions.
+      try {
+        const taxYears = [...new Set(parsed.map((t: ParsedRow) => t.taxYear))];
+        for (const taxYear of taxYears) {
+          await ctx.runMutation(
+            internal.salaryDetectionHelpers.scheduleSalaryDetection,
+            { entityId, userId, taxYear }
+          );
+        }
+        console.log(`[importPipeline] Salary detection scheduled for ${taxYears.length} tax year(s)`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[importPipeline] Salary detection scheduling failed: ${msg}`);
+      }
     }
   },
 });
