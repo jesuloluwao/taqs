@@ -36,6 +36,7 @@ import ConnectApiKey from './pages/ConnectApiKey';
 import AiInsights from './pages/AiInsights';
 import Declarations from './pages/Declarations';
 import PayslipEntry from './pages/PayslipEntry';
+import EmploymentIncome from './pages/EmploymentIncome';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import Onboarding from './pages/Onboarding';
@@ -118,6 +119,7 @@ function App() {
           <Route path="ai-insights" element={<AiInsights />} />
           <Route path="declarations" element={<Declarations />} />
           <Route path="payslip-entry" element={<PayslipEntry />} />
+          <Route path="employment-income" element={<EmploymentIncome />} />
           <Route path="notifications" element={<NotificationCentre />} />
           <Route path="help" element={<HelpSupport />} />
           <Route path="documents" element={<Documents />} />
