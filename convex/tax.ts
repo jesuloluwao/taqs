@@ -20,6 +20,7 @@ import {
   getEngineForYear,
   TaxEngineTransaction,
   TaxEngineCapitalDisposal,
+  EmploymentIncomeRecord,
 } from './taxEngine';
 
 // ---------------------------------------------------------------------------
@@ -56,7 +57,32 @@ export const getSummary = query({
       )
       .collect();
 
-    const transactions: TaxEngineTransaction[] = rawTransactions.map((t) => ({
+    // ---- Fetch confirmed employment income records ----
+    const rawEmploymentRecords = await ctx.db
+      .query('employmentIncomeRecords')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .collect();
+
+    const confirmedEmploymentRecords = rawEmploymentRecords.filter(
+      (r) => r.status === 'confirmed'
+    );
+
+    // Build a set of transactionIds linked to confirmed records
+    const linkedTransactionIds = new Set(
+      confirmedEmploymentRecords
+        .filter((r) => r.transactionId)
+        .map((r) => r.transactionId!.toString())
+    );
+
+    // Exclude salary transactions that have a confirmed employment record linked.
+    // Unlinked salary transactions (no confirmed record) are kept as conservative fallback.
+    const filteredTransactions = rawTransactions.filter(
+      (t) => !(t.isSalaryIncome && linkedTransactionIds.has(t._id.toString()))
+    );
+
+    const transactions: TaxEngineTransaction[] = filteredTransactions.map((t) => ({
       type:              t.type,
       direction:         t.direction,
       amountNgn:         t.amountNgn,
@@ -65,6 +91,7 @@ export const getSummary = query({
       deductiblePercent: t.deductiblePercent,
       whtDeducted:       t.whtDeducted,
       isVatInclusive:    (t as any).isVatInclusive,
+      isSalaryIncome:    t.isSalaryIncome,
     }));
 
     // ---- Fetch user declarations ----
@@ -90,16 +117,49 @@ export const getSummary = query({
       exemptionReason:      d.exemptionReason,
     }));
 
+    // ---- Build employment records for engine ----
+    const employmentIncomeRecords: EmploymentIncomeRecord[] =
+      confirmedEmploymentRecords.map((r) => ({
+        grossSalary:      r.grossSalary,
+        payeDeducted:     r.payeDeducted,
+        pensionDeducted:  r.pensionDeducted,
+        nhisDeducted:     r.nhisDeducted,
+        nhfDeducted:      r.nhfDeducted,
+      }));
+
+    // ---- Relief override: payslip records take priority for pension/NHIS/NHF ----
+    let declarations = declaration ?? null;
+    if (confirmedEmploymentRecords.length > 0 && declarations) {
+      const pensionFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.pensionDeducted ?? 0), 0
+      );
+      const nhisFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.nhisDeducted ?? 0), 0
+      );
+      const nhfFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.nhfDeducted ?? 0), 0
+      );
+      // Override declarations with payslip totals (§5 of spec: prevent double-counting)
+      // Always use payslip figure when confirmed records exist, even if zero.
+      declarations = {
+        ...declarations,
+        pensionContributions: pensionFromPayslip,
+        nhisContributions:    nhisFromPayslip,
+        nhfContributions:     nhfFromPayslip,
+      };
+    }
+
     // ---- Run engine ----
     const result = runTaxEngine({
       transactions,
-      declarations:    declaration ?? null,
+      declarations,
       entityType:      entity.type,
       taxYear:         args.taxYear,
       capitalDisposals,
       isVatRegistered: entity.vatRegistered ?? false,
       outputVatNgn:    0, // invoices not yet implemented; pass 0
       // grossFixedAssetsNgn: not yet declared by user; undefined → assume exempt
+      employmentIncomeRecords,
     });
 
     return {
@@ -240,7 +300,31 @@ export const refreshSummaryCache = mutation({
       )
       .collect();
 
-    const transactions: TaxEngineTransaction[] = rawTransactions.map((t) => ({
+    // ---- Fetch confirmed employment income records ----
+    const rawEmploymentRecords = await ctx.db
+      .query('employmentIncomeRecords')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+      )
+      .collect();
+
+    const confirmedEmploymentRecords = rawEmploymentRecords.filter(
+      (r) => r.status === 'confirmed'
+    );
+
+    // Build a set of transactionIds linked to confirmed records
+    const linkedTransactionIds = new Set(
+      confirmedEmploymentRecords
+        .filter((r) => r.transactionId)
+        .map((r) => r.transactionId!.toString())
+    );
+
+    // Exclude salary transactions that have a confirmed employment record linked.
+    const filteredTransactions = rawTransactions.filter(
+      (t) => !(t.isSalaryIncome && linkedTransactionIds.has(t._id.toString()))
+    );
+
+    const transactions: TaxEngineTransaction[] = filteredTransactions.map((t) => ({
       type:              t.type,
       direction:         t.direction,
       amountNgn:         t.amountNgn,
@@ -249,6 +333,7 @@ export const refreshSummaryCache = mutation({
       deductiblePercent: t.deductiblePercent,
       whtDeducted:       t.whtDeducted,
       isVatInclusive:    (t as any).isVatInclusive,
+      isSalaryIncome:    t.isSalaryIncome,
     }));
 
     // ---- Fetch declarations ----
@@ -274,15 +359,46 @@ export const refreshSummaryCache = mutation({
       exemptionReason:     d.exemptionReason,
     }));
 
+    // ---- Build employment records for engine ----
+    const employmentIncomeRecords: EmploymentIncomeRecord[] =
+      confirmedEmploymentRecords.map((r) => ({
+        grossSalary:      r.grossSalary,
+        payeDeducted:     r.payeDeducted,
+        pensionDeducted:  r.pensionDeducted,
+        nhisDeducted:     r.nhisDeducted,
+        nhfDeducted:      r.nhfDeducted,
+      }));
+
+    // ---- Relief override: payslip records take priority for pension/NHIS/NHF ----
+    let declarations = declaration ?? null;
+    if (confirmedEmploymentRecords.length > 0 && declarations) {
+      const pensionFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.pensionDeducted ?? 0), 0
+      );
+      const nhisFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.nhisDeducted ?? 0), 0
+      );
+      const nhfFromPayslip = confirmedEmploymentRecords.reduce(
+        (sum, r) => sum + (r.nhfDeducted ?? 0), 0
+      );
+      declarations = {
+        ...declarations,
+        pensionContributions: pensionFromPayslip,
+        nhisContributions:    nhisFromPayslip,
+        nhfContributions:     nhfFromPayslip,
+      };
+    }
+
     // ---- Run engine ----
     const result = runTaxEngine({
       transactions,
-      declarations:    declaration ?? null,
+      declarations,
       entityType:      entity.type,
       taxYear:         args.taxYear,
       capitalDisposals,
       isVatRegistered: entity.vatRegistered ?? false,
       outputVatNgn:    0,
+      employmentIncomeRecords,
     });
 
     const now = Date.now();
@@ -310,6 +426,8 @@ export const refreshSummaryCache = mutation({
       effectiveTaxRate:     result.effectiveTaxRate,
       uncategorisedCount:   result.uncategorisedCount,
       isNilReturn:          result.isNilReturn,
+      payeCredits:           result.payeCredits,
+      totalEmploymentIncome: result.totalEmploymentIncome,
       computedAt:           now,
     };
 
