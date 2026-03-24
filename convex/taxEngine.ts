@@ -10,7 +10,7 @@
  */
 
 /** Bump this when the computation logic changes; used for historical immutability. */
-export const TAX_ENGINE_VERSION = '1.2.0';
+export const TAX_ENGINE_VERSION = '1.3.0';
 
 // ---------------------------------------------------------------------------
 // Constants (all in kobo)
@@ -71,6 +71,8 @@ export interface TaxEngineTransaction {
   whtDeducted?: number;
   /** Whether the amountNgn is VAT-inclusive; used to reclaim input VAT */
   isVatInclusive?: boolean;
+  /** Whether this transaction is confirmed salary income (linked to an employment record) */
+  isSalaryIncome?: boolean;
 }
 
 export interface TaxEngineDeclarations {
@@ -86,6 +88,14 @@ export interface TaxEngineDeclarations {
   lifeInsurancePremiums?: number;
   /** Mortgage interest paid, in kobo */
   mortgageInterest?: number;
+}
+
+export interface EmploymentIncomeRecord {
+  grossSalary: number;
+  payeDeducted: number;
+  pensionDeducted?: number;
+  nhisDeducted?: number;
+  nhfDeducted?: number;
 }
 
 export interface TaxEngineCapitalDisposal {
@@ -116,6 +126,10 @@ export interface TaxEngineInput {
    * If undefined, small company exemption is assumed to apply.
    */
   grossFixedAssetsNgn?: number;
+  /** Confirmed employment income records for this tax year */
+  employmentIncomeRecords?: EmploymentIncomeRecord[];
+  /** Fallback: user-entered annual PAYE total in kobo (ignored if confirmed records exist) */
+  payeCreditsManual?: number;
 }
 
 export interface PitBandResult {
@@ -192,6 +206,10 @@ export interface TaxEngineOutput {
   isNilReturn: boolean;
   /** Currencies found in transactions that are not in the supported list */
   unsupportedCurrencies: string[];
+  /** Total employment income (gross salary from confirmed records), in kobo */
+  totalEmploymentIncome: number;
+  /** Total PAYE credits (sum of payeDeducted from confirmed records), in kobo */
+  payeCredits: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,18 +265,23 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
 
   // ------------------------------------------------------------------
   // Step 3: Gross income
-  // For individuals: add CGT gains to gross income (gains taxed via PIT bands).
-  // For LLCs: gains are taxed separately at 30% flat.
-  // Include type='income' and uncategorised credits as taxable inflow.
+  // Employment income: use grossSalary from confirmed records.
+  // Non-salary transactions with isSalaryIncome=true are excluded by
+  // the caller when a confirmed record exists for that transaction.
   // ------------------------------------------------------------------
+  const employmentRecords = input.employmentIncomeRecords ?? [];
+  const totalEmploymentIncome = employmentRecords.reduce(
+    (sum, r) => sum + r.grossSalary, 0
+  );
+
   const incomeFromTransactions = transactions
     .filter((t) => t.type === 'income' || (t.type === 'uncategorised' && t.direction === 'credit'))
     .reduce((sum, t) => sum + t.amountNgn, 0);
 
   const grossIncome =
     entityType === 'individual' || entityType === 'business_name'
-      ? incomeFromTransactions + cgGains  // gains rolled into PIT for individuals
-      : incomeFromTransactions;
+      ? incomeFromTransactions + totalEmploymentIncome + cgGains
+      : incomeFromTransactions + totalEmploymentIncome;
 
   // ------------------------------------------------------------------
   // Step 4: Deductible business expenses
@@ -347,9 +370,18 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
     .reduce((sum, t) => sum + (t.whtDeducted ?? 0), 0);
 
   // ------------------------------------------------------------------
-  // Step 11: Net PIT payable after WHT offset (clamp to 0)
+  // Step 10b: PAYE credits (from employment records or manual fallback)
+  // PAYE credits offset PIT only — not CGT, CIT, or VAT.
+  // Precedence: if any confirmed records exist, ignore payeCreditsManual.
   // ------------------------------------------------------------------
-  const netTaxPayable = Math.max(0, grossTaxPayable - whtCredits);
+  const payeCredits = employmentRecords.length > 0
+    ? employmentRecords.reduce((sum, r) => sum + r.payeDeducted, 0)
+    : (input.payeCreditsManual ?? 0);
+
+  // ------------------------------------------------------------------
+  // Step 11: Net PIT payable after WHT + PAYE offset (clamp to 0)
+  // ------------------------------------------------------------------
+  const netTaxPayable = Math.max(0, grossTaxPayable - whtCredits - payeCredits);
 
   // ------------------------------------------------------------------
   // Step 12: CGT payable
@@ -383,10 +415,12 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
   const totalTaxPayable = netTaxPayable + cgtPayable + citPayable + vatPayable;
 
   // ------------------------------------------------------------------
-  // Step 16: Effective tax rate
+  // Step 16: Effective tax rate (totalTaxPayable / grossIncome)
+  // Uses total tax (PIT+CGT+CIT+VAT), not just PIT, so salary earners
+  // whose full PIT is covered by PAYE still see an accurate rate.
   // ------------------------------------------------------------------
   const effectiveTaxRate =
-    grossIncome > 0 ? Math.round((netTaxPayable / grossIncome) * 10000) / 10000 : 0;
+    grossIncome > 0 ? Math.round((totalTaxPayable / grossIncome) * 10000) / 10000 : 0;
 
   // ------------------------------------------------------------------
   // Step 17: Nil return detection (NTA 2025 §5.11)
@@ -415,6 +449,8 @@ export function runTaxEngine(input: TaxEngineInput): TaxEngineOutput {
     uncategorisedCount,
     isNilReturn,
     unsupportedCurrencies,
+    totalEmploymentIncome,
+    payeCredits,
   };
 }
 
