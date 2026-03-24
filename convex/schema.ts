@@ -11,7 +11,7 @@ export default defineSchema({
     nin: v.optional(v.string()),
     /** User's personal TIN (from NTA) */
     firsTin: v.optional(v.string()),
-    userType: v.optional(v.union(v.literal('freelancer'), v.literal('sme'))),
+    userType: v.optional(v.union(v.literal('freelancer'), v.literal('sme'), v.literal('salary_earner'))),
     profession: v.optional(v.string()),
     preferredCurrency: v.optional(
       v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR'))
@@ -185,6 +185,8 @@ export default defineSchema({
     userOverrodeAi: v.optional(v.boolean()),
     /** Whether the transaction amount is VAT-inclusive (for input VAT reclaimability) */
     isVatInclusive: v.optional(v.boolean()),
+    /** Whether this transaction is detected/confirmed salary income */
+    isSalaryIncome: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -371,6 +373,10 @@ export default defineSchema({
     uncategorisedCount: v.number(),
     /** True if no tax is owed and a nil return should be filed */
     isNilReturn: v.boolean(),
+    /** PAYE deducted by employer, in kobo (v1.3.0+) */
+    payeCredits: v.optional(v.number()),
+    /** Total employment income (gross salary from confirmed records), in kobo (v1.3.0+) */
+    totalEmploymentIncome: v.optional(v.number()),
     /** Unix timestamp (ms) when computation ran */
     computedAt: v.number(),
   })
@@ -612,4 +618,38 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index('by_entityId_taxYear', ['entityId', 'taxYear']),
+
+  /**
+   * Employment income records — one per employer per month per tax year.
+   * Links payslip data to detected salary transactions.
+   */
+  employmentIncomeRecords: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    taxYear: v.number(),
+    month: v.number(),
+    employerName: v.string(),
+    /** Gross monthly salary in kobo — authoritative for tax engine */
+    grossSalary: v.number(),
+    /** PAYE deducted by employer this month, in kobo */
+    payeDeducted: v.number(),
+    /** Pension deducted at source by employer, in kobo */
+    pensionDeducted: v.optional(v.number()),
+    /** NHIS deducted at source, in kobo */
+    nhisDeducted: v.optional(v.number()),
+    /** NHF deducted at source, in kobo */
+    nhfDeducted: v.optional(v.number()),
+    /** Net salary (gross minus all deductions) for reconciliation, in kobo */
+    netSalary: v.optional(v.number()),
+    /** Linked salary transaction (bank credit evidence) */
+    transactionId: v.optional(v.id('transactions')),
+    source: v.union(v.literal('payslip'), v.literal('detected'), v.literal('manual')),
+    status: v.union(v.literal('pending'), v.literal('confirmed'), v.literal('rejected')),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId_taxYear', ['entityId', 'taxYear'])
+    .index('by_entityId_month', ['entityId', 'month'])
+    .index('by_transactionId', ['transactionId'])
+    .index('by_userId_taxYear', ['userId', 'taxYear']),
 });
