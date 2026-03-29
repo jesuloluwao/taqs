@@ -1,6 +1,8 @@
 import { mutation, query } from './_generated/server';
 import { getOrCreateCurrentUser, getCurrentUser } from './auth';
 import { v } from 'convex/values';
+import { extractCounterparty, normalizeDescription } from './lib/counterpartyExtractor';
+import { Id } from './_generated/dataModel';
 
 const transactionTypeValidator = v.union(
   v.literal('income'),
@@ -318,6 +320,132 @@ export const getAiStats = query({
       accuracyRate,
       byCategory,
     };
+  },
+});
+
+/**
+ * Find transactions similar to a just-categorized transaction.
+ * Used by the Smart Batch Categorisation modal.
+ *
+ * Returns up to 25 uncategorised or low-confidence AI transactions
+ * matching by exact description or counterparty extraction.
+ *
+ * Performance note: collects all transactions for entity+taxYear into memory
+ * for string matching. For typical users (<2000 txns/year) this is fine.
+ * If transaction volumes grow significantly, consider adding a description
+ * index or early-exit optimization.
+ */
+export const findSimilar = query({
+  args: {
+    transactionId: v.id('transactions'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return { matches: [], sourceCounterparty: null as string | null };
+
+    // Fetch the source transaction (already updated with new category)
+    const source = await ctx.db.get(args.transactionId);
+    if (!source || source.userId !== user._id) {
+      return { matches: [], sourceCounterparty: null as string | null };
+    }
+
+    // Get all transactions for the same entity + taxYear
+    const candidates = await ctx.db
+      .query('transactions')
+      .withIndex('by_entityId_taxYear', (q) =>
+        q.eq('entityId', source.entityId).eq('taxYear', source.taxYear)
+      )
+      .collect();
+
+    const sourceNormalized = normalizeDescription(source.description);
+    const sourceCounterparty = extractCounterparty(source.description);
+
+    type SimilarTransaction = {
+      _id: Id<'transactions'>;
+      description: string;
+      amount: number;
+      amountNgn: number;
+      date: number;
+      direction: 'credit' | 'debit';
+      aiCategorySuggestion?: string;
+      aiCategoryConfidence?: number;
+      matchType: 'exact' | 'counterparty';
+    };
+
+    const results: SimilarTransaction[] = [];
+    const seenIds = new Set<string>();
+
+    for (const tx of candidates) {
+      // Early exit once we have enough matches. Note: since the index doesn't
+      // guarantee date ordering, these may not be the 25 *most recent* matches.
+      // For typical users (<2000 txns/year), eligible matches rarely exceed 25,
+      // making this a non-issue in practice. If needed, remove this early exit
+      // and rely on the sort+slice below.
+      if (results.length >= 25) break;
+
+      // Skip the source transaction itself
+      if (tx._id === source._id) continue;
+
+      // Skip already-reviewed transactions
+      if (tx.reviewedByUser === true) continue;
+
+      // Must be same direction
+      if (tx.direction !== source.direction) continue;
+
+      // Eligibility: uncategorised OR low-confidence AI
+      const isUncategorised = tx.type === 'uncategorised' && !tx.categoryId;
+      const isLowConfidenceAi =
+        tx.aiCategoryConfidence !== undefined && tx.aiCategoryConfidence < 0.7;
+      if (!isUncategorised && !isLowConfidenceAi) continue;
+
+      // Check exact description match
+      const txNormalized = normalizeDescription(tx.description);
+      if (txNormalized === sourceNormalized) {
+        if (!seenIds.has(tx._id)) {
+          seenIds.add(tx._id);
+          results.push({
+            _id: tx._id,
+            description: tx.description,
+            amount: tx.amount,
+            amountNgn: tx.amountNgn,
+            date: tx.date,
+            direction: tx.direction,
+            aiCategorySuggestion: tx.aiCategorySuggestion,
+            aiCategoryConfidence: tx.aiCategoryConfidence,
+            matchType: 'exact',
+          });
+        }
+        continue;
+      }
+
+      // Check counterparty match
+      if (sourceCounterparty) {
+        const txCounterparty = extractCounterparty(tx.description);
+        if (
+          txCounterparty &&
+          txCounterparty === sourceCounterparty // Both already uppercased by extractCounterparty
+        ) {
+          if (!seenIds.has(tx._id)) {
+            seenIds.add(tx._id);
+            results.push({
+              _id: tx._id,
+              description: tx.description,
+              amount: tx.amount,
+              amountNgn: tx.amountNgn,
+              date: tx.date,
+              direction: tx.direction,
+              aiCategorySuggestion: tx.aiCategorySuggestion,
+              aiCategoryConfidence: tx.aiCategoryConfidence,
+              matchType: 'counterparty',
+            });
+          }
+        }
+      }
+    }
+
+    // Sort by date descending
+    results.sort((a, b) => b.date - a.date);
+    return { matches: results.slice(0, 25), sourceCounterparty };
   },
 });
 
