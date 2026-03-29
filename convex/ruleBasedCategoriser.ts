@@ -9,6 +9,8 @@
 // Moniepoint, PalmPay, ALAT/Wema, First Bank, Stanbic, Sterling, etc.
 // ============================================================================
 
+import { extractCounterparty } from './lib/counterpartyExtractor';
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface RuleBasedResult {
@@ -45,16 +47,7 @@ function extractNarration(desc: string): string | undefined {
 }
 
 function extractVendorName(desc: string): string | undefined {
-  const toFrom = desc.match(/TRANSFER\s+TO\s+(.+?)\s+FROM\s+/i);
-  if (toFrom) return toFrom[1].trim();
-
-  const nipIncoming = desc.match(/^NIP:(.+?)(?:-|$)/i);
-  if (nipIncoming) return nipIncoming[1].trim();
-
-  const pos = desc.match(/(?:POS|WEB)\s*(?:\/\s*WEB)?\s*PURCHASE\s*-?\s*(.+)/i);
-  if (pos) return pos[1].trim();
-
-  return undefined;
+  return extractCounterparty(desc) ?? undefined;
 }
 
 // ─── TIER 0: META / BANK CHARGES ─────────────────────────────────────────────
