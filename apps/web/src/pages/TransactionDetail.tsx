@@ -20,6 +20,7 @@ import {
   Info,
 } from 'lucide-react';
 import { Skeleton } from '../components/Skeleton';
+import { SimilarTransactionsModal, type SimilarTransaction } from '../components/SimilarTransactionsModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface TransactionFull {
@@ -258,6 +259,24 @@ export default function TransactionDetail() {
   const [showAiReasoning, setShowAiReasoning] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
+  // Smart batch categorisation state
+  const [showSimilarModal, setShowSimilarModal] = useState(false);
+  const [similarResults, setSimilarResults] = useState<SimilarTransaction[]>([]);
+  const [similarSourceCounterparty, setSimilarSourceCounterparty] = useState<string | null>(null);
+  // Tracks the category to apply — set on save, cleared when query returns.
+  // Separate from modalCategoryInfo which persists while the modal is open.
+  const [lastAppliedCategory, setLastAppliedCategory] = useState<{
+    categoryId: Id<'categories'>;
+    categoryName: string;
+    categoryType: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  } | null>(null);
+  // Persists category info for the modal (survives lastAppliedCategory being cleared)
+  const [modalCategoryInfo, setModalCategoryInfo] = useState<{
+    categoryId: Id<'categories'>;
+    categoryName: string;
+    categoryType: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  } | null>(null);
+
   const [form, setForm] = useState<EditForm>({
     description: '',
     categoryId: '',
@@ -267,6 +286,12 @@ export default function TransactionDetail() {
     whtDeducted: '',
     notes: '',
   });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const findSimilarResult = useQuery(
+    (api as any).transactions.findSimilar,
+    transaction && lastAppliedCategory ? { transactionId: transaction._id } : 'skip'
+  ) as { matches: SimilarTransaction[]; sourceCounterparty: string | null } | undefined;
 
   // Initialise form when transaction loads
   useEffect(() => {
@@ -284,6 +309,22 @@ export default function TransactionDetail() {
       });
     }
   }, [transaction]);
+
+  useEffect(() => {
+    // Guard: don't re-trigger if modal is already showing
+    if (showSimilarModal) return;
+
+    if (findSimilarResult && findSimilarResult.matches.length > 0 && lastAppliedCategory) {
+      setSimilarResults([...findSimilarResult.matches]);
+      setSimilarSourceCounterparty(findSimilarResult.sourceCounterparty);
+      setModalCategoryInfo(lastAppliedCategory);
+      setShowSimilarModal(true);
+      setLastAppliedCategory(null); // Return query to 'skip'
+    } else if (findSimilarResult && findSimilarResult.matches.length === 0 && lastAppliedCategory) {
+      // No matches — clear the trigger silently
+      setLastAppliedCategory(null);
+    }
+  }, [findSimilarResult, lastAppliedCategory, showSimilarModal]);
 
   function enterEdit() {
     setIsDirty(false);
@@ -386,6 +427,19 @@ export default function TransactionDetail() {
       setIsEditing(false);
       setIsDirty(false);
       toast.success('Transaction updated');
+
+      // Trigger smart batch categorisation check
+      // Only when category actually changed, and not for AI suggestion acceptance
+      if (form.categoryId && form.categoryId !== (transaction.categoryId ?? '')) {
+        const chosenCat = (categories ?? []).find((c) => c._id === form.categoryId);
+        if (chosenCat) {
+          setLastAppliedCategory({
+            categoryId: chosenCat._id,
+            categoryName: chosenCat.name,
+            categoryType: chosenCat.type as 'income' | 'business_expense' | 'personal_expense' | 'transfer',
+          });
+        }
+      }
     } catch {
       toast.error('Failed to save changes');
     } finally {
@@ -942,6 +996,28 @@ export default function TransactionDetail() {
       )}
       {showDiscardDialog && (
         <DiscardChangesDialog onDiscard={discardChanges} onKeep={() => setShowDiscardDialog(false)} />
+      )}
+
+      {showSimilarModal && modalCategoryInfo && similarResults.length > 0 && transaction && (
+        <SimilarTransactionsModal
+          similarTransactions={similarResults}
+          categoryName={modalCategoryInfo.categoryName}
+          categoryId={modalCategoryInfo.categoryId}
+          categoryType={modalCategoryInfo.categoryType}
+          sourceTransactionId={transaction._id}
+          counterpartyName={similarSourceCounterparty}
+          onClose={() => {
+            setShowSimilarModal(false);
+            setSimilarResults([]);
+            setModalCategoryInfo(null);
+          }}
+          onApplied={(count) => {
+            setShowSimilarModal(false);
+            setSimilarResults([]);
+            setModalCategoryInfo(null);
+            toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`);
+          }}
+        />
       )}
 
       {/* AI Reasoning bottom sheet */}
