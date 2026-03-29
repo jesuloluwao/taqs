@@ -77,6 +77,7 @@ Takes the ID of the just-categorized transaction, returns the match list. Each r
 - `sourceTransactionId: Id<"transactions">` — the transaction the user originally categorized
 
 **Logic per selected transaction:**
+0. **Ownership guard:** Verify `transaction.userId === currentUser._id`; skip if not owned (prevents horizontal privilege escalation)
 1. Update `categoryId`, `type`, `reviewedByUser: true`
 2. Set `isDeductible` from the category's `isDeductibleDefault`
 3. **Eligibility guard:** Before updating, verify the transaction still has `reviewedByUser !== true`. If another session/tab has already reviewed it, skip silently. This prevents conflicts from concurrent categorisation.
