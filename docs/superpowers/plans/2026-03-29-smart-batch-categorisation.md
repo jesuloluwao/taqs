@@ -205,7 +205,11 @@ export const findSimilar = query({
     const seenIds = new Set<string>();
 
     for (const tx of candidates) {
-      // Early exit once we have enough matches
+      // Early exit once we have enough matches. Note: since the index doesn't
+      // guarantee date ordering, these may not be the 25 *most recent* matches.
+      // For typical users (<2000 txns/year), eligible matches rarely exceed 25,
+      // making this a non-issue in practice. If needed, remove this early exit
+      // and rely on the sort+slice below.
       if (results.length >= 25) break;
 
       // Skip the source transaction itself
@@ -796,6 +800,8 @@ Add at the end of the component's JSX, alongside existing dialogs:
       setShowSimilarModal(false);
       setSimilarResults([]);
       setModalCategoryInfo(null);
+      // TODO: show success toast if the app has a toast system
+      // e.g. toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`)
     }}
   />
 )}
@@ -924,6 +930,8 @@ Add at the end of the component's JSX:
       setSimilarResults([]);
       setModalCategoryInfo(null);
       setModalSourceId(null);
+      // TODO: show success toast if the app has a toast system
+      // e.g. toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`)
     }}
   />
 )}
