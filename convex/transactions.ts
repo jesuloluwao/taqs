@@ -629,6 +629,107 @@ export const bulkCategorise = mutation({
 });
 
 /**
+ * Apply a category to similar transactions identified by findSimilar.
+ * Records AI feedback for each transaction that had an AI suggestion.
+ * Returns count of successfully applied transactions.
+ *
+ * NOTE: AI feedback insertion is done inline rather than calling recordAiFeedback
+ * to avoid the overhead of re-authenticating per-record in a loop. The insert
+ * schema matches recordAiFeedback exactly — if aiCategorisationFeedback schema
+ * changes, update both this mutation and recordAiFeedback.
+ */
+export const applySimilarCategorisation = mutation({
+  args: {
+    transactionIds: v.array(v.id('transactions')),
+    categoryId: v.id('categories'),
+    type: transactionTypeValidator,
+    sourceTransactionId: v.id('transactions'),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const category = await ctx.db.get(args.categoryId);
+    if (!category) throw new Error('Category not found');
+
+    const isDeductible = category.isDeductibleDefault ?? false;
+
+    // Get source transaction for entityId (needed for feedback records)
+    const source = await ctx.db.get(args.sourceTransactionId);
+    if (!source || source.userId !== user._id) {
+      throw new Error('Source transaction not found or unauthorized');
+    }
+
+    // Valid transaction types for aiCategorisationFeedback schema
+    const validTypes = new Set([
+      'income', 'business_expense', 'personal_expense', 'transfer', 'uncategorised',
+    ]);
+
+    let applied = 0;
+
+    for (const id of args.transactionIds) {
+      const tx = await ctx.db.get(id);
+
+      // Ownership guard
+      if (!tx || tx.userId !== user._id) continue;
+
+      // Eligibility guard — skip if already reviewed by another session
+      if (tx.reviewedByUser === true) continue;
+
+      // Record AI feedback if transaction had an AI suggestion that differs
+      if (tx.aiCategorySuggestion) {
+        const aiMatchesApplied =
+          tx.aiCategorySuggestion.toLowerCase() === category.name.toLowerCase();
+
+        if (!aiMatchesApplied) {
+          // Validate aiTypeSuggestion before inserting (schema requires specific union)
+          const aiType = validTypes.has(tx.aiTypeSuggestion as string)
+            ? (tx.aiTypeSuggestion as 'income' | 'business_expense' | 'personal_expense' | 'transfer' | 'uncategorised')
+            : undefined;
+
+          await ctx.db.insert('aiCategorisationFeedback', {
+            entityId: source.entityId,
+            userId: user._id,
+            transactionId: tx._id,
+            aiSuggestedCategory: tx.aiCategorySuggestion,
+            aiSuggestedType: aiType,
+            aiConfidence: tx.aiCategoryConfidence,
+            userChosenCategory: category.name,
+            userChosenType: args.type,
+            transactionDescription: tx.description,
+            transactionAmount: tx.amount,
+            transactionDirection: tx.direction,
+            createdAt: Date.now(),
+          });
+        }
+
+        await ctx.db.patch(id, {
+          categoryId: args.categoryId,
+          type: args.type,
+          isDeductible,
+          reviewedByUser: true,
+          userOverrodeAi: !aiMatchesApplied,
+          updatedAt: Date.now(),
+        });
+      } else {
+        // No AI suggestion — just apply the category
+        await ctx.db.patch(id, {
+          categoryId: args.categoryId,
+          type: args.type,
+          isDeductible,
+          reviewedByUser: true,
+          updatedAt: Date.now(),
+        });
+      }
+
+      applied++;
+    }
+
+    return { applied, total: args.transactionIds.length };
+  },
+});
+
+/**
  * Bulk delete transactions (ownership check on each).
  */
 export const bulkDelete = mutation({
