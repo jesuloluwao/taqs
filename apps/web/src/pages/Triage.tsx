@@ -1048,8 +1048,7 @@ export default function Triage() {
             setSimilarResults([]);
             setModalCategoryInfo(null);
             setModalSourceId(null);
-            // TODO: show success toast if the app has a toast system
-            // e.g. toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`)
+            toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`);
           }}
         />
       )}
