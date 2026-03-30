@@ -46,6 +46,9 @@ function extractNarration(desc: string): string | undefined {
   return undefined;
 }
 
+// Delegates to shared extractCounterparty. Output is now uppercased and
+// first-word-only for POS/WEB patterns (was mixed-case full match before).
+// This is fine — the return value is only used for result.vendor metadata.
 function extractVendorName(desc: string): string | undefined {
   return extractCounterparty(desc) ?? undefined;
 }

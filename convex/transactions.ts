@@ -376,13 +376,6 @@ export const findSimilar = query({
     const seenIds = new Set<string>();
 
     for (const tx of candidates) {
-      // Early exit once we have enough matches. Note: since the index doesn't
-      // guarantee date ordering, these may not be the 25 *most recent* matches.
-      // For typical users (<2000 txns/year), eligible matches rarely exceed 25,
-      // making this a non-issue in practice. If needed, remove this early exit
-      // and rely on the sort+slice below.
-      if (results.length >= 25) break;
-
       // Skip the source transaction itself
       if (tx._id === source._id) continue;
 
@@ -642,7 +635,12 @@ export const applySimilarCategorisation = mutation({
   args: {
     transactionIds: v.array(v.id('transactions')),
     categoryId: v.id('categories'),
-    type: transactionTypeValidator,
+    type: v.union(
+      v.literal('income'),
+      v.literal('business_expense'),
+      v.literal('personal_expense'),
+      v.literal('transfer'),
+    ),
     sourceTransactionId: v.id('transactions'),
   },
   handler: async (ctx, args) => {
