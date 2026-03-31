@@ -544,7 +544,7 @@ export const processImport = action({
     const job = await ctx.runQuery((internal as any).importHelpers.getJob, { jobId });
     if (!job) throw new Error('Import job not found');
 
-    const { entityId, userId, storageId, source } = job;
+    const { entityId, userId, storageId, source, bankAccountId } = job;
     console.log(`[importPipeline] Job details — source: ${source}, storageId: ${storageId}`);
 
     if (!storageId) {
@@ -624,6 +624,7 @@ export const processImport = action({
           jobId,
           entityId,
           userId,
+          bankAccountId,
           transactions: chunk,
         });
         totalImported += result.totalImported;

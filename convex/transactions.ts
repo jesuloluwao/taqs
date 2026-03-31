@@ -838,6 +838,7 @@ export const initiateImport = mutation({
     source: importSourceValidator,
     storageId: v.optional(v.string()),
     connectedAccountId: v.optional(v.id('connectedAccounts')),
+    bankAccountId: v.optional(v.id('bankAccounts')),
   },
   handler: async (ctx, args) => {
     const user = await getOrCreateCurrentUser(ctx);
@@ -853,6 +854,7 @@ export const initiateImport = mutation({
       entityId: args.entityId,
       userId: user._id,
       connectedAccountId: args.connectedAccountId,
+      bankAccountId: args.bankAccountId,
       source: args.source,
       status: 'pending',
       storageId: args.storageId,

@@ -104,6 +104,7 @@ export const batchInsert = internalMutation({
     jobId: v.id('importJobs'),
     entityId: v.id('entities'),
     userId: v.id('users'),
+    bankAccountId: v.optional(v.id('bankAccounts')),
     transactions: v.array(
       v.object({
         date: v.number(),
@@ -162,6 +163,7 @@ export const batchInsert = internalMutation({
         entityId: args.entityId,
         userId: args.userId,
         importJobId: args.jobId,
+        bankAccountId: args.bankAccountId,
         date: tx.date,
         description: tx.description,
         amount: tx.amount,
