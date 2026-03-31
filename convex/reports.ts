@@ -584,6 +584,7 @@ export const _getIncomeRows = internalQuery({
       originalAmount: (t.amount ?? 0) as number,
       fxRate: (t.fxRate ?? 1) as number,
       whtDeducted: (t.whtDeducted ?? 0) as number,
+      bankAccountId: (t.bankAccountId ?? null) as string | null,
     }));
   },
 });
@@ -660,6 +661,7 @@ export const _getExpenseRows = internalQuery({
         ? Math.round(((t.amountNgn ?? 0) * (t.deductiblePercent ?? 100)) / 100)
         : 0,
       currency: (t.currency ?? 'NGN') as string,
+      bankAccountId: (t.bankAccountId ?? null) as string | null,
     }));
   },
 });

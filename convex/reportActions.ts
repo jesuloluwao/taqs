@@ -48,7 +48,7 @@ function koboToNaira(kobo: number): string {
 /**
  * Build income CSV.
  * Columns: Date, Description, Category, Amount (NGN), Currency,
- *          Original Amount, FX Rate, WHT Deducted (NGN)
+ *          Original Amount, FX Rate, WHT Deducted (NGN), Bank Account
  */
 function buildIncomeCSV(rows: Array<{
   date: string;
@@ -59,12 +59,13 @@ function buildIncomeCSV(rows: Array<{
   originalAmount: number;
   fxRate: number;
   whtDeducted: number;
+  bankAccountName: string;
 }>): string {
   const BOM = '\uFEFF';
   const header = [
     'Date', 'Description', 'Category',
     'Amount (NGN)', 'Currency', 'Original Amount',
-    'FX Rate', 'WHT Deducted (NGN)',
+    'FX Rate', 'WHT Deducted (NGN)', 'Bank Account',
   ].map(esc).join(',');
 
   const lines = [header];
@@ -78,6 +79,7 @@ function buildIncomeCSV(rows: Array<{
       esc(koboToNaira(r.originalAmount)),
       esc(r.fxRate),
       esc(koboToNaira(r.whtDeducted)),
+      esc(r.bankAccountName),
     ].join(','));
   }
 
@@ -87,7 +89,7 @@ function buildIncomeCSV(rows: Array<{
 /**
  * Build expenses CSV.
  * Columns: Date, Description, Category, Type, Amount (NGN),
- *          Deductible, Deductible Amount (NGN), Currency
+ *          Deductible, Deductible Amount (NGN), Currency, Bank Account
  */
 function buildExpensesCSV(rows: Array<{
   date: string;
@@ -98,11 +100,13 @@ function buildExpensesCSV(rows: Array<{
   isDeductible: boolean;
   deductibleAmountNgn: number;
   currency: string;
+  bankAccountName: string;
 }>): string {
   const BOM = '\uFEFF';
   const header = [
     'Date', 'Description', 'Category', 'Type',
     'Amount (NGN)', 'Deductible', 'Deductible Amount (NGN)', 'Currency',
+    'Bank Account',
   ].map(esc).join(',');
 
   const lines = [header];
@@ -116,6 +120,7 @@ function buildExpensesCSV(rows: Array<{
       esc(r.isDeductible ? 'Yes' : 'No'),
       esc(koboToNaira(r.deductibleAmountNgn)),
       esc(r.currency),
+      esc(r.bankAccountName),
     ].join(','));
   }
 
@@ -172,6 +177,48 @@ function buildYoyCSV(yoy: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bank account name resolution helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a map of bankAccountId → display name for all bank accounts
+ * belonging to the given entity. Returns a Map for O(1) lookups.
+ */
+async function buildBankAccountNameMap(
+  ctx: any,
+  entityId: string
+): Promise<Map<string, string>> {
+  const nameMap = new Map<string, string>();
+  try {
+    const accounts = await ctx.runQuery(
+      (api as any).bankAccounts.listAllByEntity,
+      { entityId }
+    );
+    if (Array.isArray(accounts)) {
+      for (const acct of accounts) {
+        const id = acct._id?.toString() ?? acct.id?.toString();
+        const name = acct.nickname ?? acct.accountName ?? acct.bankName ?? 'Unknown';
+        if (id) nameMap.set(id, name);
+      }
+    }
+  } catch {
+    // If bankAccounts.list is unavailable, return empty map — rows will show ''
+  }
+  return nameMap;
+}
+
+/**
+ * Resolve a single bank account ID to a display name using the pre-built map.
+ */
+function resolveBankAccountName(
+  nameMap: Map<string, string>,
+  bankAccountId: string | null
+): string {
+  if (!bankAccountId) return '';
+  return nameMap.get(bankAccountId) ?? '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // exportCsv — public action
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -186,17 +233,27 @@ export const exportCsv = action({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { entityId, tab, taxYear, startDate, endDate } = args;
+    const { entityId, tab, taxYear, startDate, endDate, bankAccountIds, includeUnlinked } = args;
 
     if (tab === 'income') {
       const rows = await ctx.runQuery(
         (internal as any).reports._getIncomeRows,
-        { entityId, taxYear, startDate, endDate }
+        { entityId, taxYear, startDate, endDate, bankAccountIds, includeUnlinked }
       );
       if (!rows) throw new Error('Unauthorised or entity not found');
-      const csvContent = buildIncomeCSV(rows);
+
+      // Build bank account name map
+      const nameMap = await buildBankAccountNameMap(ctx, entityId);
+
+      const csvRows = rows.map((r: any) => ({
+        ...r,
+        bankAccountName: resolveBankAccountName(nameMap, r.bankAccountId),
+      }));
+      const csvContent = buildIncomeCSV(csvRows);
       const filename = `income_report_${taxYear ?? 'all'}.csv`;
       return { csvContent, filename };
     }
@@ -204,18 +261,26 @@ export const exportCsv = action({
     if (tab === 'expenses') {
       const rows = await ctx.runQuery(
         (internal as any).reports._getExpenseRows,
-        { entityId, taxYear, startDate, endDate }
+        { entityId, taxYear, startDate, endDate, bankAccountIds, includeUnlinked }
       );
       if (!rows) throw new Error('Unauthorised or entity not found');
-      const csvContent = buildExpensesCSV(rows);
+
+      // Build bank account name map
+      const nameMap = await buildBankAccountNameMap(ctx, entityId);
+
+      const csvRows = rows.map((r: any) => ({
+        ...r,
+        bankAccountName: resolveBankAccountName(nameMap, r.bankAccountId),
+      }));
+      const csvContent = buildExpensesCSV(csvRows);
       const filename = `expenses_report_${taxYear ?? 'all'}.csv`;
       return { csvContent, filename };
     }
 
-    // yearOnYear
+    // yearOnYear — no per-row bank account column (aggregated monthly data)
     const yoy = await ctx.runQuery(
       (api as any).reports.getYearOnYear,
-      { entityId, currentYear: taxYear }
+      { entityId, currentYear: taxYear, bankAccountIds, includeUnlinked }
     );
     if (!yoy) throw new Error('Unauthorised or entity not found');
     const csvContent = buildYoyCSV(yoy as any);
@@ -234,20 +299,22 @@ export const exportPdf = action({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { entityId, taxYear, startDate, endDate } = args;
+    const { entityId, taxYear, startDate, endDate, bankAccountIds, includeUnlinked } = args;
 
     // Fetch all summary data (validates entity ownership via each query)
     const [income, expenses, yoy] = await Promise.all([
       ctx.runQuery((api as any).reports.getIncome, {
-        entityId, taxYear, startDate, endDate,
+        entityId, taxYear, startDate, endDate, bankAccountIds, includeUnlinked,
       }),
       ctx.runQuery((api as any).reports.getExpenses, {
-        entityId, taxYear, startDate, endDate,
+        entityId, taxYear, startDate, endDate, bankAccountIds, includeUnlinked,
       }),
       ctx.runQuery((api as any).reports.getYearOnYear, {
-        entityId, currentYear: taxYear,
+        entityId, currentYear: taxYear, bankAccountIds, includeUnlinked,
       }),
     ]);
 
