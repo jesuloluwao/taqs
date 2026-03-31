@@ -135,7 +135,13 @@ export const createOrUpdate = mutation({
     };
 
     if (match) {
-      await ctx.db.patch(match._id, fields);
+      await ctx.db.patch(match._id, {
+        ...fields,
+        // When a user submits payslip data over an auto-detected record,
+        // promote to confirmed so the tax engine picks it up.
+        source: args.source ?? 'payslip',
+        status: 'confirmed',
+      });
       return match._id;
     }
 

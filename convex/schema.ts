@@ -212,7 +212,8 @@ export default defineSchema({
     .index('by_entityId_date', ['entityId', 'date'])
     .index('by_entityId_type', ['entityId', 'type'])
     .index('by_userId', ['userId'])
-    .index('by_bankAccountId', ['bankAccountId']),
+    .index('by_bankAccountId', ['bankAccountId'])
+    .index('by_importJobId', ['importJobId']),
 
   /**
    * Tracks file import lifecycle: pending → processing → complete/failed.

@@ -166,9 +166,9 @@ function LockedReliefField({ label, koboValue, hint, relief }: LockedReliefField
             <Lock className="w-3 h-3 text-neutral-400 flex-shrink-0" />
             <span className="text-xs text-neutral-500">
               From payslip —{' '}
-              <a href="/app/employment-income" className="text-primary hover:underline">
+              <Link to="/app/employment-income" className="text-primary hover:underline">
                 edit in Employment Income
-              </a>
+              </Link>
             </span>
           </div>
         </div>

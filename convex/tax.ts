@@ -285,11 +285,10 @@ export const refreshSummaryCache = mutation({
       )
       .first();
 
-    // Allow force-refresh (always recompute for current engine version)
-    // Historical records with a different version are left intact.
+    // If the engine version has changed, delete the stale cache entry so it
+    // gets recomputed below with the latest engine logic (e.g. new PAYE fields).
     if (existing && existing.engineVersion !== currentEngineVersion) {
-      // Different version — leave the historical record alone and return its ID.
-      return existing._id;
+      await ctx.db.delete(existing._id);
     }
 
     // ---- Fetch transactions ----

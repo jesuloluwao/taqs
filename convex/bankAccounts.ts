@@ -267,12 +267,11 @@ export const assignToTransaction = mutation({
     if (transaction.importJobId) {
       const siblings = await ctx.db
         .query('transactions')
-        .withIndex('by_entityId_taxYear', (q) =>
-          q.eq('entityId', transaction.entityId),
+        .withIndex('by_importJobId', (q) =>
+          q.eq('importJobId', transaction.importJobId),
         )
         .filter((q) =>
           q.and(
-            q.eq(q.field('importJobId'), transaction.importJobId),
             q.neq(q.field('_id'), transactionId),
             q.or(
               q.eq(q.field('bankAccountId'), undefined),
@@ -326,10 +325,9 @@ export const assignToImportJob = mutation({
     // Find all transactions for this import job
     const transactions = await ctx.db
       .query('transactions')
-      .withIndex('by_entityId_taxYear', (q) =>
-        q.eq('entityId', importJob.entityId),
+      .withIndex('by_importJobId', (q) =>
+        q.eq('importJobId', importJobId),
       )
-      .filter((q) => q.eq(q.field('importJobId'), importJobId))
       .collect();
 
     const now = Date.now();
