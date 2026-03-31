@@ -90,6 +90,8 @@ export const getIncome = query({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const ownership = await validateOwnership(ctx, args.entityId);
@@ -118,6 +120,16 @@ export const getIncome = query({
       const endMs = parseDateArg(args.endDate, true);
       if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
       if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
+    }
+
+    // Bank account filtering
+    if (args.bankAccountIds?.length || args.includeUnlinked) {
+      const accountIdSet = new Set(args.bankAccountIds ?? []);
+      txList = txList.filter((tx: any) => {
+        if (tx.bankAccountId && accountIdSet.has(tx.bankAccountId)) return true;
+        if (args.includeUnlinked && !tx.bankAccountId) return true;
+        return false;
+      });
     }
 
     // ---- Totals ----
@@ -195,6 +207,8 @@ export const getExpenses = query({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const ownership = await validateOwnership(ctx, args.entityId);
@@ -222,6 +236,16 @@ export const getExpenses = query({
       const endMs = parseDateArg(args.endDate, true);
       if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
       if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
+    }
+
+    // Bank account filtering
+    if (args.bankAccountIds?.length || args.includeUnlinked) {
+      const accountIdSet = new Set(args.bankAccountIds ?? []);
+      txList = txList.filter((tx: any) => {
+        if (tx.bankAccountId && accountIdSet.has(tx.bankAccountId)) return true;
+        if (args.includeUnlinked && !tx.bankAccountId) return true;
+        return false;
+      });
     }
 
     // ---- Totals ----
@@ -323,6 +347,8 @@ export const getYearOnYear = query({
     entityId: v.id('entities'),
     /** Default: previous calendar year (current FIRS filing year) */
     currentYear: v.optional(v.number()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const ownership = await validateOwnership(ctx, args.entityId);
@@ -380,6 +406,22 @@ export const getYearOnYear = query({
           .collect(),
       ]);
 
+    // Bank account filtering
+    function filterByBankAccount(txs: any[]) {
+      if (!args.bankAccountIds?.length && !args.includeUnlinked) return txs;
+      const accountIdSet = new Set(args.bankAccountIds ?? []);
+      return txs.filter((tx: any) => {
+        if (tx.bankAccountId && accountIdSet.has(tx.bankAccountId)) return true;
+        if (args.includeUnlinked && !tx.bankAccountId) return true;
+        return false;
+      });
+    }
+
+    const filteredCurrentIncomeTx = filterByBankAccount(currentIncomeTx);
+    const filteredPriorIncomeTx = filterByBankAccount(priorIncomeTx);
+    const filteredCurrentExpenseTx = filterByBankAccount(currentExpenseTx);
+    const filteredPriorExpenseTx = filterByBankAccount(priorExpenseTx);
+
     function buildMonthly(txs: any[]): Array<{ month: number; amount: number }> {
       const map = new Map<number, number>();
       for (const t of txs) {
@@ -392,26 +434,34 @@ export const getYearOnYear = query({
       }));
     }
 
-    const currentMonthlyIncome = buildMonthly(currentIncomeTx);
-    const priorMonthlyIncome = buildMonthly(priorIncomeTx);
-    const currentMonthlyExpenses = buildMonthly(currentExpenseTx);
-    const priorMonthlyExpenses = buildMonthly(priorExpenseTx);
+    const currentMonthlyIncome = buildMonthly(filteredCurrentIncomeTx);
+    const priorMonthlyIncome = buildMonthly(filteredPriorIncomeTx);
+    const currentMonthlyExpenses = buildMonthly(filteredCurrentExpenseTx);
+    const priorMonthlyExpenses = buildMonthly(filteredPriorExpenseTx);
 
-    // Prefer cached summaries; fall back to transaction computation
-    const currentIncome =
-      currentSummary?.totalGrossIncome ??
-      currentIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
-    const priorIncome =
-      priorSummary?.totalGrossIncome ??
-      priorIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
-    const currentExpenses =
-      currentSummary?.totalBusinessExpenses ??
-      currentExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
-    const priorExpenses =
-      priorSummary?.totalBusinessExpenses ??
-      priorExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
-    const currentTaxPayable = currentSummary?.netTaxPayable ?? 0;
-    const priorTaxPayable = priorSummary?.netTaxPayable ?? 0;
+    // When bank account filters are active, compute totals from filtered transactions
+    // (taxYearSummaries cache has no per-account granularity)
+    const isFiltered = !!(args.bankAccountIds?.length || args.includeUnlinked);
+
+    const currentIncome = isFiltered
+      ? filteredCurrentIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0)
+      : currentSummary?.totalGrossIncome ??
+        currentIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
+    const priorIncome = isFiltered
+      ? filteredPriorIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0)
+      : priorSummary?.totalGrossIncome ??
+        priorIncomeTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
+    const currentExpenses = isFiltered
+      ? filteredCurrentExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0)
+      : currentSummary?.totalBusinessExpenses ??
+        currentExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
+    const priorExpenses = isFiltered
+      ? filteredPriorExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0)
+      : priorSummary?.totalBusinessExpenses ??
+        priorExpenseTx.reduce((s: number, t: any) => s + (t.amountNgn ?? 0), 0);
+    // Can't compute per-account tax; set to 0 when filtered
+    const currentTaxPayable = isFiltered ? 0 : (currentSummary?.netTaxPayable ?? 0);
+    const priorTaxPayable = isFiltered ? 0 : (priorSummary?.netTaxPayable ?? 0);
 
     function pctChange(curr: number, prior: number): number | null {
       if (prior === 0) return null;
@@ -419,20 +469,26 @@ export const getYearOnYear = query({
     }
 
     // Effective tax rate = netTaxPayable / totalGrossIncome (as percentage)
-    const currentEffectiveTaxRate = currentSummary?.effectiveTaxRate != null
-      ? Math.round(currentSummary.effectiveTaxRate * 10000) / 100
-      : currentIncome > 0
-        ? Math.round((currentTaxPayable / currentIncome) * 10000) / 100
-        : 0;
-    const priorEffectiveTaxRate = priorSummary?.effectiveTaxRate != null
-      ? Math.round(priorSummary.effectiveTaxRate * 10000) / 100
-      : priorIncome > 0
-        ? Math.round((priorTaxPayable / priorIncome) * 10000) / 100
-        : 0;
+    // When filtered, tax is 0 so effective rate is 0
+    const currentEffectiveTaxRate = isFiltered
+      ? 0
+      : currentSummary?.effectiveTaxRate != null
+        ? Math.round(currentSummary.effectiveTaxRate * 10000) / 100
+        : currentIncome > 0
+          ? Math.round((currentTaxPayable / currentIncome) * 10000) / 100
+          : 0;
+    const priorEffectiveTaxRate = isFiltered
+      ? 0
+      : priorSummary?.effectiveTaxRate != null
+        ? Math.round(priorSummary.effectiveTaxRate * 10000) / 100
+        : priorIncome > 0
+          ? Math.round((priorTaxPayable / priorIncome) * 10000) / 100
+          : 0;
 
     // Determine if there's any prior year data
-    const hasPriorData =
-      priorIncomeTx.length > 0 || priorExpenseTx.length > 0 || !!priorSummary;
+    const hasPriorData = isFiltered
+      ? filteredPriorIncomeTx.length > 0 || filteredPriorExpenseTx.length > 0
+      : priorIncomeTx.length > 0 || priorExpenseTx.length > 0 || !!priorSummary;
 
     return {
       currentYear,
@@ -468,6 +524,8 @@ export const _getIncomeRows = internalQuery({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     let txList: any[];
@@ -491,6 +549,16 @@ export const _getIncomeRows = internalQuery({
       const endMs = parseDateArg(args.endDate, true);
       if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
       if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
+    }
+
+    // Bank account filtering
+    if (args.bankAccountIds?.length || args.includeUnlinked) {
+      const accountIdSet = new Set(args.bankAccountIds ?? []);
+      txList = txList.filter((tx: any) => {
+        if (tx.bankAccountId && accountIdSet.has(tx.bankAccountId)) return true;
+        if (args.includeUnlinked && !tx.bankAccountId) return true;
+        return false;
+      });
     }
 
     // Batch-resolve category names
@@ -530,6 +598,8 @@ export const _getExpenseRows = internalQuery({
     taxYear: v.optional(v.number()),
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
+    bankAccountIds: v.optional(v.array(v.id('bankAccounts'))),
+    includeUnlinked: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     let txList: any[];
@@ -553,6 +623,16 @@ export const _getExpenseRows = internalQuery({
       const endMs = parseDateArg(args.endDate, true);
       if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
       if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
+    }
+
+    // Bank account filtering
+    if (args.bankAccountIds?.length || args.includeUnlinked) {
+      const accountIdSet = new Set(args.bankAccountIds ?? []);
+      txList = txList.filter((tx: any) => {
+        if (tx.bankAccountId && accountIdSet.has(tx.bankAccountId)) return true;
+        if (args.includeUnlinked && !tx.bankAccountId) return true;
+        return false;
+      });
     }
 
     // Batch-resolve category names
@@ -581,5 +661,124 @@ export const _getExpenseRows = internalQuery({
         : 0,
       currency: (t.currency ?? 'NGN') as string,
     }));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getByAccount — public query (By Account tab)
+// ---------------------------------------------------------------------------
+
+export const getByAccount = query({
+  args: {
+    entityId: v.id('entities'),
+    taxYear: v.optional(v.number()),
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const ownership = await validateOwnership(ctx, args.entityId);
+    if (!ownership) return null;
+
+    // ---- Fetch all transactions for the period ----
+    let txList: any[];
+    if (args.taxYear !== undefined) {
+      txList = await ctx.db
+        .query('transactions')
+        .withIndex('by_entityId_taxYear', (q: any) =>
+          q.eq('entityId', args.entityId).eq('taxYear', args.taxYear)
+        )
+        .collect();
+    } else {
+      txList = await ctx.db
+        .query('transactions')
+        .withIndex('by_entityId_date', (q: any) =>
+          q.eq('entityId', args.entityId)
+        )
+        .collect();
+      const startMs = parseDateArg(args.startDate);
+      const endMs = parseDateArg(args.endDate, true);
+      if (startMs !== null) txList = txList.filter((t: any) => txDateMs(t) >= startMs);
+      if (endMs !== null) txList = txList.filter((t: any) => txDateMs(t) <= endMs);
+    }
+
+    // ---- Group by bankAccountId ----
+    const groups = new Map<
+      string,
+      { income: number; expenses: number; count: number }
+    >();
+    const UNLINKED_KEY = '__unlinked__';
+
+    for (const t of txList) {
+      const key = t.bankAccountId?.toString() ?? UNLINKED_KEY;
+      let group = groups.get(key);
+      if (!group) {
+        group = { income: 0, expenses: 0, count: 0 };
+        groups.set(key, group);
+      }
+      const amount = t.amountNgn ?? 0;
+      if (t.direction === 'credit') {
+        group.income += amount;
+      } else {
+        group.expenses += amount;
+      }
+      group.count += 1;
+    }
+
+    // ---- Fetch bank account names ----
+    const accountIds = Array.from(groups.keys()).filter((k) => k !== UNLINKED_KEY);
+    const accountNameMap = new Map<string, string>();
+    for (const id of accountIds) {
+      try {
+        const account = await ctx.db.get(id as any);
+        if (account) {
+          const name = (account as any).accountName ?? (account as any).bankName ?? 'Unknown';
+          accountNameMap.set(id, name as string);
+        } else {
+          accountNameMap.set(id, 'Deleted Account');
+        }
+      } catch {
+        accountNameMap.set(id, 'Unknown');
+      }
+    }
+
+    // ---- Build result array ----
+    const results: Array<{
+      bankAccountId: string | null;
+      accountName: string;
+      income: number;
+      expenses: number;
+      net: number;
+      transactionCount: number;
+    }> = [];
+
+    for (const [key, data] of groups.entries()) {
+      if (key === UNLINKED_KEY) continue;
+      results.push({
+        bankAccountId: key,
+        accountName: accountNameMap.get(key) ?? 'Unknown',
+        income: data.income,
+        expenses: data.expenses,
+        net: data.income - data.expenses,
+        transactionCount: data.count,
+      });
+    }
+
+    // Sort named accounts alphabetically
+    results.sort((a, b) => a.accountName.localeCompare(b.accountName));
+
+    // Append unlinked last
+    const unlinkedGroup = groups.get(UNLINKED_KEY);
+    if (unlinkedGroup) {
+      results.push({
+        bankAccountId: null,
+        accountName: 'Unlinked',
+        income: unlinkedGroup.income,
+        expenses: unlinkedGroup.expenses,
+        net: unlinkedGroup.income - unlinkedGroup.expenses,
+        transactionCount: unlinkedGroup.count,
+      });
+    }
+
+    return results;
   },
 });
