@@ -718,9 +718,9 @@ export const getByAccount = query({
         groups.set(key, group);
       }
       const amount = t.amountNgn ?? 0;
-      if (t.direction === 'credit') {
+      if (t.type === 'income') {
         group.income += amount;
-      } else {
+      } else if (t.type === 'business_expense' || t.type === 'personal_expense') {
         group.expenses += amount;
       }
       group.count += 1;
@@ -733,7 +733,7 @@ export const getByAccount = query({
       try {
         const account = await ctx.db.get(id as any);
         if (account) {
-          const name = (account as any).accountName ?? (account as any).bankName ?? 'Unknown';
+          const name = (account as any).nickname ?? (account as any).accountName ?? (account as any).bankName ?? 'Unknown';
           accountNameMap.set(id, name as string);
         } else {
           accountNameMap.set(id, 'Deleted Account');
