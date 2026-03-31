@@ -1,0 +1,163 @@
+<h2>Similar Transactions Modal</h2>
+<p class="subtitle">Appears after user manually categorizes a transaction. Shows up to 25 similar uncategorised/low-confidence matches.</p>
+
+<div class="section">
+  <h3>Modal Flow</h3>
+  <p>User categorizes "POS PURCHASE - SHOPRITE LEKKI" as <strong>Personal — Groceries</strong> → modal slides up:</p>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Similar Transactions Found</div>
+  <div class="mockup-body" style="background: #1a1a2e; color: #e0e0e0; padding: 0; font-family: system-ui, -apple-system, sans-serif;">
+
+    <!-- Modal Header -->
+    <div style="padding: 20px 24px 12px; border-bottom: 1px solid #2a2a4a;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="margin: 0; color: #fff; font-size: 18px;">Apply to Similar Transactions?</h3>
+        <span style="color: #888; cursor: pointer; font-size: 20px;">&times;</span>
+      </div>
+      <p style="margin: 0 0 12px; color: #aaa; font-size: 14px;">
+        We found <strong style="color: #4ade80;">7 similar transactions</strong> that match
+        <span style="background: #2a2a4a; padding: 2px 8px; border-radius: 4px; color: #4ade80;">SHOPRITE</span>.
+        Apply <span style="background: #1e3a2f; color: #4ade80; padding: 2px 8px; border-radius: 4px;">Personal — Groceries</span> to selected?
+      </p>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <label style="font-size: 13px; color: #aaa; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <span style="width: 16px; height: 16px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px;">✓</span>
+          Select All (7)
+        </label>
+        <span style="color: #555;">|</span>
+        <span style="font-size: 13px; color: #888;">5 selected</span>
+      </div>
+    </div>
+
+    <!-- Transaction List -->
+    <div style="max-height: 340px; overflow-y: auto; padding: 8px 24px;">
+
+      <!-- Item 1 - Exact match, selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a;">
+        <span style="width: 18px; height: 18px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px; flex-shrink: 0;">✓</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">POS PURCHASE - SHOPRITE LEKKI</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦12,450</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">15 Mar 2026</span>
+            <span style="font-size: 10px; background: #2d2d5a; color: #818cf8; padding: 1px 6px; border-radius: 8px;">Exact match</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 2 - Exact match, selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a;">
+        <span style="width: 18px; height: 18px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px; flex-shrink: 0;">✓</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">POS PURCHASE - SHOPRITE LEKKI</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦8,200</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">02 Mar 2026</span>
+            <span style="font-size: 10px; background: #2d2d5a; color: #818cf8; padding: 1px 6px; border-radius: 8px;">Exact match</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 3 - Counterparty match, selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a;">
+        <span style="width: 18px; height: 18px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px; flex-shrink: 0;">✓</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">POS PURCHASE - SHOPRITE IKEJA</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦23,100</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">18 Feb 2026</span>
+            <span style="font-size: 10px; background: #1e3a2f; color: #4ade80; padding: 1px 6px; border-radius: 8px;">Same merchant</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 4 - Counterparty match, selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a;">
+        <span style="width: 18px; height: 18px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px; flex-shrink: 0;">✓</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">WEB PURCHASE - SHOPRITE ONLINE</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦15,800</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">10 Feb 2026</span>
+            <span style="font-size: 10px; background: #1e3a2f; color: #4ade80; padding: 1px 6px; border-radius: 8px;">Same merchant</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 5 - Counterparty match, selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a;">
+        <span style="width: 18px; height: 18px; border: 2px solid #4ade80; background: #4ade80; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #1a1a2e; font-size: 11px; flex-shrink: 0;">✓</span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">TRF TO SHOPRITE/PAYMENT</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦6,300</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">28 Jan 2026</span>
+            <span style="font-size: 10px; background: #1e3a2f; color: #4ade80; padding: 1px 6px; border-radius: 8px;">Same merchant</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 6 - Low confidence AI, NOT selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a2a4a; opacity: 0.7;">
+        <span style="width: 18px; height: 18px; border: 2px solid #555; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;"></span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">POS PURCHASE - SHOPRITE AJAH</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦4,500</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">15 Jan 2026</span>
+            <span style="font-size: 10px; background: #1e3a2f; color: #4ade80; padding: 1px 6px; border-radius: 8px;">Same merchant</span>
+            <span style="font-size: 10px; background: #3a2a1e; color: #fbbf24; padding: 1px 6px; border-radius: 8px;">AI: Personal — Shopping (42%)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 7 - Counterparty match, NOT selected -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; opacity: 0.7;">
+        <span style="width: 18px; height: 18px; border: 2px solid #555; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;"></span>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-size: 14px; color: #fff;">SHOPRITE GIFT CARD PURCHASE</span>
+            <span style="font-size: 14px; color: #f87171; font-weight: 500; flex-shrink: 0; margin-left: 12px;">-₦50,000</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 4px; align-items: center;">
+            <span style="font-size: 12px; color: #888;">05 Jan 2026</span>
+            <span style="font-size: 10px; background: #1e3a2f; color: #4ade80; padding: 1px 6px; border-radius: 8px;">Same merchant</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="padding: 16px 24px; border-top: 1px solid #2a2a4a; display: flex; justify-content: space-between; align-items: center;">
+      <button style="background: transparent; border: 1px solid #555; color: #aaa; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;">Skip</button>
+      <button style="background: #4ade80; color: #1a1a2e; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;">Apply to 5 Transactions</button>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Key Details</h3>
+  <ul style="line-height: 1.8;">
+    <li><strong>Match badges:</strong> "Exact match" (purple) for identical descriptions, "Same merchant" (green) for counterparty matches</li>
+    <li><strong>Low-confidence AI indicator:</strong> Yellow badge shows what AI suggested + confidence %, so user can make an informed choice</li>
+    <li><strong>Select All / individual checkboxes:</strong> All pre-selected by default, user deselects ones that don't fit</li>
+    <li><strong>Apply button:</strong> Dynamic count reflects current selection</li>
+    <li><strong>Skip button:</strong> Dismisses without applying — no penalty</li>
+  </ul>
+</div>
