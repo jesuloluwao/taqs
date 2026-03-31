@@ -1,7 +1,7 @@
 /**
  * TaxEase Nigeria — Reports Screen (US-048 / US-049)
  *
- * Three tabs: Income | Expenses | Year-on-Year
+ * Four tabs: Income | Expenses | Year-on-Year | By Account
  * Date range: This Year | Last Year | Custom
  * Charts: SVG bar (income), SVG doughnut (expenses), SVG dual-line (YoY)
  * Export: CSV + PDF via FAB (mobile) / header button (web)
@@ -11,6 +11,7 @@ import { useState, useMemo, useRef } from 'react';
 import { useQuery, useAction } from 'convex/react';
 import { Link } from 'react-router-dom';
 import { api } from '@convex/_generated/api';
+import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
 import { Skeleton } from '../components/Skeleton';
 import { toast } from 'sonner';
@@ -24,6 +25,9 @@ import {
   Table2,
   X,
   Info,
+  ChevronDown,
+  Check,
+  Landmark,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +35,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DateRangeMode = 'this_year' | 'last_year' | 'custom';
-type ActiveTab = 'income' | 'expenses' | 'year_on_year';
+type ActiveTab = 'income' | 'expenses' | 'year_on_year' | 'by_account';
 type ExportFormat = 'csv' | 'pdf';
 
 interface MonthlyData {
@@ -92,6 +96,21 @@ interface YearOnYearReport {
   priorMonthlyIncome: MonthlyData[];
   currentMonthlyExpenses: MonthlyData[];
   priorMonthlyExpenses: MonthlyData[];
+}
+
+interface ByAccountRow {
+  bankAccountId: string | null;
+  accountName: string;
+  income: number;
+  expenses: number;
+  net: number;
+  transactionCount: number;
+}
+
+interface ByAccountReport {
+  accounts: ByAccountRow[];
+  unlinked: ByAccountRow | null;
+  totals: { income: number; expenses: number; net: number; transactionCount: number };
 }
 
 interface DonutSegment {
@@ -709,6 +728,17 @@ export default function Reports() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
+  // ── Bank account filter ──
+  const [selectedBankAccountIds, setSelectedBankAccountIds] = useState<Id<'bankAccounts'>[]>([]);
+  const [includeUnlinked, setIncludeUnlinked] = useState(false);
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  const bankAccounts = useQuery(
+    api.bankAccounts.listByEntity,
+    activeEntityId ? { entityId: activeEntityId } : 'skip'
+  );
+
   // ── Chart interaction ──
   const [selectedBarMonth, setSelectedBarMonth] = useState<number | null>(null);
   const [selectedDoughnutIdx, setSelectedDoughnutIdx] = useState<number | null>(null);
@@ -726,20 +756,29 @@ export default function Reports() {
   const exportCsvAction = useAction((api as any).reportActions.exportCsv);
   const exportPdfAction = useAction((api as any).reportActions.exportPdf);
 
+  // ── Bank account filter args ──
+  const bankFilterArgs = useMemo(() => {
+    const args: Record<string, unknown> = {};
+    if (selectedBankAccountIds.length > 0) args.bankAccountIds = selectedBankAccountIds;
+    if (includeUnlinked) args.includeUnlinked = true;
+    return args;
+  }, [selectedBankAccountIds, includeUnlinked]);
+
   // ── Compute query args from date range mode ──
   const queryArgs = useMemo<Record<string, unknown> | null>(() => {
     if (!activeEntityId) return null;
     if (dateMode === 'this_year')
-      return { entityId: activeEntityId, taxYear: currentYear };
+      return { entityId: activeEntityId, taxYear: currentYear, ...bankFilterArgs };
     if (dateMode === 'last_year')
-      return { entityId: activeEntityId, taxYear: currentYear - 1 };
+      return { entityId: activeEntityId, taxYear: currentYear - 1, ...bankFilterArgs };
     if (!customStart) return null;
     return {
       entityId: activeEntityId,
       startDate: customStart,
       ...(customEnd ? { endDate: customEnd } : {}),
+      ...bankFilterArgs,
     };
-  }, [activeEntityId, dateMode, currentYear, customStart, customEnd]);
+  }, [activeEntityId, dateMode, currentYear, customStart, customEnd, bankFilterArgs]);
 
   const argsOrSkip = queryArgs ?? 'skip';
 
@@ -755,12 +794,32 @@ export default function Reports() {
   ) as ExpensesReport | null | undefined;
 
   const yoyQueryArgs =
-    activeEntityId ? { entityId: activeEntityId, currentYear } : 'skip';
+    activeEntityId ? { entityId: activeEntityId, currentYear, ...bankFilterArgs } : 'skip';
 
   const yoyData = useQuery(
     (api as any).reports.getYearOnYear,
     activeTab === 'year_on_year' ? yoyQueryArgs : 'skip'
   ) as YearOnYearReport | null | undefined;
+
+  // ── By Account query ──
+  const byAccountBaseArgs = useMemo<Record<string, unknown> | null>(() => {
+    if (!activeEntityId) return null;
+    if (dateMode === 'this_year')
+      return { entityId: activeEntityId, taxYear: currentYear };
+    if (dateMode === 'last_year')
+      return { entityId: activeEntityId, taxYear: currentYear - 1 };
+    if (!customStart) return null;
+    return {
+      entityId: activeEntityId,
+      startDate: customStart,
+      ...(customEnd ? { endDate: customEnd } : {}),
+    };
+  }, [activeEntityId, dateMode, currentYear, customStart, customEnd]);
+
+  const byAccountData = useQuery(
+    (api as any).reports.getByAccount,
+    activeTab === 'by_account' ? (byAccountBaseArgs ?? 'skip') : 'skip'
+  ) as ByAccountReport | null | undefined;
 
   // ── Doughnut segments ──
   const doughnutSegments: DonutSegment[] = useMemo(() => {
@@ -803,7 +862,8 @@ export default function Reports() {
   function buildFilename(ext: 'csv' | 'pdf'): string {
     const tabSlug =
       activeTab === 'income' ? 'income' :
-      activeTab === 'expenses' ? 'expenses' : 'year_on_year';
+      activeTab === 'expenses' ? 'expenses' :
+      activeTab === 'by_account' ? 'by_account' : 'year_on_year';
 
     const datePart =
       dateMode === 'this_year' ? `${currentYear}` :
@@ -865,7 +925,8 @@ export default function Reports() {
       if (format === 'csv') {
         const tabArg =
           activeTab === 'income' ? 'income' :
-          activeTab === 'expenses' ? 'expenses' : 'yearOnYear';
+          activeTab === 'expenses' ? 'expenses' :
+          activeTab === 'by_account' ? 'income' : 'yearOnYear';
 
         const result = await Promise.race([
           exportCsvAction({ entityId: activeEntityId, tab: tabArg, taxYear, startDate, endDate }),
@@ -971,10 +1032,88 @@ export default function Reports() {
         </div>
       )}
 
+      {/* Bank Account Filter */}
+      {bankAccounts && bankAccounts.length > 0 && (
+        <div className="relative mb-4" ref={accountDropdownRef}>
+          <button
+            onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-white hover:bg-neutral-50 text-body-sm font-medium text-neutral-700 transition-colors shadow-soft"
+          >
+            <Landmark className="w-4 h-4 text-neutral-400" />
+            {selectedBankAccountIds.length === 0 && !includeUnlinked
+              ? 'All accounts'
+              : `${selectedBankAccountIds.length + (includeUnlinked ? 1 : 0)} selected`}
+            <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {accountDropdownOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setAccountDropdownOpen(false)}
+              />
+              <div className="absolute left-0 top-full mt-1 z-40 w-72 bg-white rounded-xl border border-border shadow-medium py-1 animate-fade-in">
+                {/* All accounts option */}
+                <button
+                  onClick={() => {
+                    setSelectedBankAccountIds([]);
+                    setIncludeUnlinked(false);
+                    setAccountDropdownOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-body-sm hover:bg-neutral-50 transition-colors"
+                >
+                  <div className="w-4 h-4 flex items-center justify-center">
+                    {selectedBankAccountIds.length === 0 && !includeUnlinked && (
+                      <Check className="w-4 h-4 text-primary" />
+                    )}
+                  </div>
+                  <span className="text-neutral-700 font-medium">All accounts</span>
+                </button>
+                <div className="border-t border-border my-1" />
+                {/* Individual bank accounts */}
+                {bankAccounts.map((account: any) => {
+                  const isSelected = selectedBankAccountIds.includes(account._id);
+                  return (
+                    <button
+                      key={account._id}
+                      onClick={() => {
+                        setSelectedBankAccountIds((prev) =>
+                          isSelected
+                            ? prev.filter((id) => id !== account._id)
+                            : [...prev, account._id]
+                        );
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-body-sm hover:bg-neutral-50 transition-colors"
+                    >
+                      <div className="w-4 h-4 flex items-center justify-center">
+                        {isSelected && <Check className="w-4 h-4 text-primary" />}
+                      </div>
+                      <span className="text-neutral-700 truncate">
+                        {(account as any).accountName ?? (account as any).bankName ?? 'Unknown'}
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="border-t border-border my-1" />
+                {/* Unlinked option */}
+                <button
+                  onClick={() => setIncludeUnlinked((prev) => !prev)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-body-sm hover:bg-neutral-50 transition-colors"
+                >
+                  <div className="w-4 h-4 flex items-center justify-center">
+                    {includeUnlinked && <Check className="w-4 h-4 text-primary" />}
+                  </div>
+                  <span className="text-neutral-500 italic">Unlinked transactions</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="border-b border-border mb-6">
         <div className="flex gap-0 -mb-px">
-          {(['income', 'expenses', 'year_on_year'] as ActiveTab[]).map((tab) => (
+          {(['income', 'expenses', 'year_on_year', 'by_account'] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => switchTab(tab)}
@@ -988,7 +1127,9 @@ export default function Reports() {
                 ? 'Income'
                 : tab === 'expenses'
                 ? 'Expenses'
-                : 'Year-on-Year'}
+                : tab === 'year_on_year'
+                ? 'Year-on-Year'
+                : 'By Account'}
             </button>
           ))}
         </div>
@@ -1256,6 +1397,146 @@ export default function Reports() {
                 ) : (
                   <p className="text-body-sm text-neutral-400">No data for {yoyData.priorYear}.</p>
                 )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── BY ACCOUNT TAB ── */}
+      {activeTab === 'by_account' && (
+        <>
+          {byAccountData === undefined ? (
+            <ReportsSkeleton />
+          ) : !byAccountData || (byAccountData.accounts.length === 0 && !byAccountData.unlinked) ? (
+            <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center mb-4">
+                  <Landmark className="w-8 h-8 text-neutral-300" strokeWidth={1.5} />
+                </div>
+                <p className="text-heading-md text-neutral-900 mb-1">
+                  No account data for this period
+                </p>
+                <p className="text-body-sm text-neutral-500 mb-5 max-w-xs">
+                  Import bank transactions to see a breakdown by account.
+                </p>
+                <Link
+                  to="/app/import"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-body-sm font-medium hover:bg-primary/90 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Import Transactions
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 animate-fade-in">
+              {/* Summary cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <SummaryCard label="Total Income" value={formatNaira(byAccountData.totals.income)} />
+                <SummaryCard label="Total Expenses" value={formatNaira(byAccountData.totals.expenses)} />
+                <SummaryCard
+                  label="Net"
+                  value={formatNaira(byAccountData.totals.net)}
+                  subLabel={`${byAccountData.totals.transactionCount} transactions`}
+                />
+              </div>
+
+              {/* By Account table */}
+              <div className="bg-white rounded-xl border border-border shadow-soft overflow-hidden">
+                <div className="px-4 py-3 border-b border-border">
+                  <h2 className="text-heading-sm font-display text-neutral-900">Breakdown by Account</h2>
+                </div>
+                {/* Table header */}
+                <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2 border-b border-border bg-neutral-50">
+                  <span className="text-body-xs text-neutral-400 font-medium uppercase tracking-wide">Account</span>
+                  <span className="text-body-xs text-neutral-400 font-medium uppercase tracking-wide w-28 text-right">Income</span>
+                  <span className="text-body-xs text-neutral-400 font-medium uppercase tracking-wide w-28 text-right">Expenses</span>
+                  <span className="text-body-xs text-neutral-400 font-medium uppercase tracking-wide w-28 text-right">Net</span>
+                  <span className="text-body-xs text-neutral-400 font-medium uppercase tracking-wide w-16 text-right">Txns</span>
+                </div>
+                <div className="divide-y divide-border">
+                  {byAccountData.accounts.map((row) => (
+                    <button
+                      key={row.bankAccountId}
+                      onClick={() => {
+                        if (row.bankAccountId) {
+                          setSelectedBankAccountIds([row.bankAccountId as Id<'bankAccounts'>]);
+                          setIncludeUnlinked(false);
+                          setActiveTab('income');
+                        }
+                      }}
+                      className="w-full text-left px-4 py-3 hover:bg-neutral-50 transition-colors group"
+                    >
+                      {/* Desktop layout */}
+                      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-center">
+                        <span className="text-body-sm text-neutral-700 truncate group-hover:text-primary transition-colors">
+                          {row.accountName}
+                        </span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(row.income)}</span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(row.expenses)}</span>
+                        <span className={`text-body-sm font-mono w-28 text-right ${row.net >= 0 ? 'text-success' : 'text-danger'}`}>
+                          {formatNaira(row.net)}
+                        </span>
+                        <span className="text-body-xs text-neutral-400 w-16 text-right">{row.transactionCount}</span>
+                      </div>
+                      {/* Mobile layout */}
+                      <div className="sm:hidden">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-body-sm text-neutral-700 font-medium truncate group-hover:text-primary transition-colors">
+                            {row.accountName}
+                          </span>
+                          <span className="text-body-xs text-neutral-400 ml-2 flex-shrink-0">{row.transactionCount} txns</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-body-xs">
+                          <span className="text-neutral-500">In: <span className="font-mono text-neutral-700">{formatNaira(row.income)}</span></span>
+                          <span className="text-neutral-500">Out: <span className="font-mono text-neutral-700">{formatNaira(row.expenses)}</span></span>
+                          <span className={`font-mono ${row.net >= 0 ? 'text-success' : 'text-danger'}`}>Net: {formatNaira(row.net)}</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                  {/* Unlinked row */}
+                  {byAccountData.unlinked && (
+                    <button
+                      onClick={() => {
+                        setSelectedBankAccountIds([]);
+                        setIncludeUnlinked(true);
+                        setActiveTab('income');
+                      }}
+                      className="w-full text-left px-4 py-3 hover:bg-neutral-50 transition-colors group bg-neutral-50/50"
+                    >
+                      {/* Desktop layout */}
+                      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-center">
+                        <span className="text-body-sm text-neutral-500 italic truncate group-hover:text-primary transition-colors">
+                          Unlinked transactions
+                        </span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(byAccountData.unlinked.income)}</span>
+                        <span className="text-body-sm font-mono text-neutral-900 w-28 text-right">{formatNaira(byAccountData.unlinked.expenses)}</span>
+                        <span className={`text-body-sm font-mono w-28 text-right ${byAccountData.unlinked.net >= 0 ? 'text-success' : 'text-danger'}`}>
+                          {formatNaira(byAccountData.unlinked.net)}
+                        </span>
+                        <span className="text-body-xs text-neutral-400 w-16 text-right">{byAccountData.unlinked.transactionCount}</span>
+                      </div>
+                      {/* Mobile layout */}
+                      <div className="sm:hidden">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-body-sm text-neutral-500 italic truncate group-hover:text-primary transition-colors">
+                            Unlinked transactions
+                          </span>
+                          <span className="text-body-xs text-neutral-400 ml-2 flex-shrink-0">{byAccountData.unlinked.transactionCount} txns</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-body-xs">
+                          <span className="text-neutral-500">In: <span className="font-mono text-neutral-700">{formatNaira(byAccountData.unlinked.income)}</span></span>
+                          <span className="text-neutral-500">Out: <span className="font-mono text-neutral-700">{formatNaira(byAccountData.unlinked.expenses)}</span></span>
+                          <span className={`font-mono ${byAccountData.unlinked.net >= 0 ? 'text-success' : 'text-danger'}`}>
+                            Net: {formatNaira(byAccountData.unlinked.net)}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
