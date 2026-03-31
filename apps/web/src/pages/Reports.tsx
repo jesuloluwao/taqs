@@ -929,7 +929,7 @@ export default function Reports() {
           activeTab === 'by_account' ? 'income' : 'yearOnYear';
 
         const result = await Promise.race([
-          exportCsvAction({ entityId: activeEntityId, tab: tabArg, taxYear, startDate, endDate }),
+          exportCsvAction({ entityId: activeEntityId, tab: tabArg, taxYear, startDate, endDate, ...bankFilterArgs }),
           timeoutPromise,
         ]) as { csvContent: string; filename: string };
 
@@ -939,7 +939,7 @@ export default function Reports() {
         setExportSheetOpen(false);
       } else {
         const result = await Promise.race([
-          exportPdfAction({ entityId: activeEntityId, taxYear, startDate, endDate }),
+          exportPdfAction({ entityId: activeEntityId, taxYear, startDate, endDate, ...bankFilterArgs }),
           timeoutPromise,
         ]) as { storageId: string; downloadUrl: string };
 
