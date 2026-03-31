@@ -111,6 +111,23 @@ export default defineSchema({
     .index('by_providerAccountId', ['providerAccountId'])
     .index('by_status', ['status']),
 
+  bankAccounts: defineTable({
+    entityId: v.id('entities'),
+    userId: v.id('users'),
+    bankName: v.string(),
+    bankCode: v.string(),
+    accountNumber: v.optional(v.string()),
+    accountName: v.optional(v.string()),
+    nickname: v.string(),
+    currency: v.union(v.literal('NGN'), v.literal('USD'), v.literal('GBP'), v.literal('EUR')),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_entityId', ['entityId'])
+    .index('by_userId', ['userId'])
+    .index('by_entityId_isActive', ['entityId', 'isActive']),
+
   /**
    * OAuth PKCE state tokens for bank/payment OAuth flows (PRD-8).
    * Each entry is single-use and expires in 10 minutes.
@@ -133,6 +150,7 @@ export default defineSchema({
     entityId: v.id('entities'),
     userId: v.id('users'),
     connectedAccountId: v.optional(v.id('connectedAccounts')),
+    bankAccountId: v.optional(v.id('bankAccounts')),
     importJobId: v.optional(v.id('importJobs')),
     /** Unix timestamp (ms) of transaction */
     date: v.number(),
@@ -193,7 +211,8 @@ export default defineSchema({
     .index('by_entityId_taxYear', ['entityId', 'taxYear'])
     .index('by_entityId_date', ['entityId', 'date'])
     .index('by_entityId_type', ['entityId', 'type'])
-    .index('by_userId', ['userId']),
+    .index('by_userId', ['userId'])
+    .index('by_bankAccountId', ['bankAccountId']),
 
   /**
    * Tracks file import lifecycle: pending → processing → complete/failed.
@@ -202,6 +221,7 @@ export default defineSchema({
     entityId: v.id('entities'),
     userId: v.id('users'),
     connectedAccountId: v.optional(v.id('connectedAccounts')),
+    bankAccountId: v.optional(v.id('bankAccounts')),
     source: v.union(
       v.literal('pdf'),
       v.literal('csv'),
@@ -229,7 +249,8 @@ export default defineSchema({
   })
     .index('by_entityId', ['entityId'])
     .index('by_connectedAccountId', ['connectedAccountId'])
-    .index('by_userId', ['userId']),
+    .index('by_userId', ['userId'])
+    .index('by_bankAccountId', ['bankAccountId']),
 
   /**
    * Tracks batch AI categorisation operations (PRD-2).
