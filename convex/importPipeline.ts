@@ -544,7 +544,7 @@ export const processImport = action({
     const job = await ctx.runQuery((internal as any).importHelpers.getJob, { jobId });
     if (!job) throw new Error('Import job not found');
 
-    const { entityId, userId, storageId, source } = job;
+    const { entityId, userId, storageId, source, bankAccountId } = job;
     console.log(`[importPipeline] Job details — source: ${source}, storageId: ${storageId}`);
 
     if (!storageId) {
@@ -624,6 +624,7 @@ export const processImport = action({
           jobId,
           entityId,
           userId,
+          bankAccountId,
           transactions: chunk,
         });
         totalImported += result.totalImported;
@@ -673,6 +674,23 @@ export const processImport = action({
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[importPipeline] Rule-based categorisation failed: ${msg}`);
+      }
+
+      // ─── Salary Detection ──────────────────────────────────────────────
+      // Trigger salary detection asynchronously for salary earner users.
+      // Derive tax years from imported transactions.
+      try {
+        const taxYears = [...new Set(parsed.map((t: ParsedRow) => t.taxYear))];
+        for (const taxYear of taxYears) {
+          await ctx.runMutation(
+            internal.salaryDetectionHelpers.scheduleSalaryDetection,
+            { entityId, userId, taxYear }
+          );
+        }
+        console.log(`[importPipeline] Salary detection scheduled for ${taxYears.length} tax year(s)`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[importPipeline] Salary detection scheduling failed: ${msg}`);
       }
     }
   },

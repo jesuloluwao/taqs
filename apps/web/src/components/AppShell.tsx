@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Check,
   X,
+  Briefcase,
 } from 'lucide-react';
 import { useEntity } from '../contexts/EntityContext';
 
@@ -123,6 +124,7 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
   const { user } = useUser();
   const { signOut } = useClerk();
   const entities = useQuery(api.entityCrud.list);
+  const me = useQuery(api.userCrud.getMe);
   const { activeEntityId, setActiveEntityId } = useEntity();
   const [entityDropdownOpen, setEntityDropdownOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
@@ -249,6 +251,22 @@ function SidebarContent({ onNavItemClick }: { onNavItemClick?: () => void }) {
               </Link>
             );
           })}
+          {me?.userType === 'salary_earner' && (
+            <Link
+              to="/app/employment-income"
+              onClick={onNavItemClick}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-[13.5px] font-medium group ${
+                location.pathname === '/app/employment-income' || location.pathname.startsWith('/app/employment-income/')
+                  ? 'bg-primary-light text-primary'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white hover:translate-x-0.5'
+              }`}
+            >
+              <Briefcase className={`w-5 h-5 flex-shrink-0 transition-transform duration-150 ${
+                location.pathname === '/app/employment-income' ? '' : 'group-hover:scale-110'
+              }`} />
+              <span>Employment Income</span>
+            </Link>
+          )}
         </nav>
 
         {/* Divider + secondary navigation + logout */}

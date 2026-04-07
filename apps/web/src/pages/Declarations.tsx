@@ -9,6 +9,7 @@ import {
   Receipt,
   Info,
   CheckCircle2,
+  Lock,
 } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { useEntity } from '../contexts/EntityContext';
@@ -134,6 +135,67 @@ function ReliefField({ label, name, value, onChange, hint, required, relief }: R
   );
 }
 
+// ─── locked field component ──────────────────────────────────────────────────
+
+interface LockedReliefFieldProps {
+  label: string;
+  koboValue: number;
+  hint?: string;
+  relief?: string;
+}
+
+function LockedReliefField({ label, koboValue, hint, relief }: LockedReliefFieldProps) {
+  const [showInfo, setShowInfo] = useState(false);
+  return (
+    <div className="py-3.5 border-b border-border/60 last:border-0">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <label className="block text-sm font-medium text-neutral-800 mb-0.5">
+            {label}
+          </label>
+          {hint && <p className="text-xs text-neutral-500 mb-2 leading-snug">{hint}</p>}
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-sm font-medium select-none">₦</span>
+            <div className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-border bg-neutral-100 text-sm text-neutral-500 font-mono cursor-not-allowed select-none">
+              {koboValue > 0
+                ? (koboValue / 100).toLocaleString('en-NG', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+                : '0'}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <Lock className="w-3 h-3 text-neutral-400 flex-shrink-0" />
+            <span className="text-xs text-neutral-500">
+              From payslip —{' '}
+              <Link to="/app/employment-income" className="text-primary hover:underline">
+                edit in Employment Income
+              </Link>
+            </span>
+          </div>
+        </div>
+        {relief && (
+          <div className="relative flex-shrink-0 mt-7">
+            <button
+              type="button"
+              onMouseEnter={() => setShowInfo(true)}
+              onMouseLeave={() => setShowInfo(false)}
+              onClick={() => setShowInfo((v) => !v)}
+              className="text-neutral-400 hover:text-primary transition-colors"
+              aria-label="More info"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+            {showInfo && (
+              <div className="absolute bottom-full right-0 mb-2 px-2.5 py-2 bg-neutral-900 text-white text-xs rounded-lg shadow-medium z-20 w-52 leading-snug">
+                {relief}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── computed preview ─────────────────────────────────────────────────────────
 
 interface PreviewRow {
@@ -142,12 +204,15 @@ interface PreviewRow {
   isTotal?: boolean;
 }
 
-function computePreview(form: FormState): PreviewRow[] {
+function computePreview(
+  form: FormState,
+  lockedTotals?: { pension: number; nhis: number; nhf: number } | null
+): PreviewRow[] {
   const rent = ngnToKobo(form.annualRentPaid);
   const rentRelief = Math.min(Math.round(rent * 0.2), 500_000 * 100);
-  const pension = ngnToKobo(form.pensionContributions);
-  const nhis = ngnToKobo(form.nhisContributions);
-  const nhf = ngnToKobo(form.nhfContributions);
+  const pension = lockedTotals ? lockedTotals.pension : ngnToKobo(form.pensionContributions);
+  const nhis = lockedTotals ? lockedTotals.nhis : ngnToKobo(form.nhisContributions);
+  const nhf = lockedTotals ? lockedTotals.nhf : ngnToKobo(form.nhfContributions);
   const life = ngnToKobo(form.lifeInsurancePremiums);
   const mortgage = ngnToKobo(form.mortgageInterest);
   const total = rentRelief + pension + nhis + nhf + life + mortgage;
@@ -186,6 +251,13 @@ export default function Declarations() {
     activeEntityId ? { entityId: activeEntityId, taxYear } : 'skip'
   ) as DeclarationRecord | null | undefined;
 
+  // Check if confirmed payslip records exist (locks pension/NHIS/NHF)
+  const payslipStatus = useQuery(
+    api.employmentIncome.hasConfirmedRecords,
+    activeEntityId ? { entityId: activeEntityId, taxYear } : 'skip'
+  );
+  const payslipLocked = payslipStatus?.hasRecords === true;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saveDecl = useMutation((api as any).taxDeclarations.createOrUpdate);
 
@@ -222,7 +294,7 @@ export default function Declarations() {
 
   const hasAnyValue = Object.values(form).some((v) => v.trim() !== '');
   const isLoading = !initialised && activeEntityId;
-  const preview = computePreview(form);
+  const preview = computePreview(form, payslipLocked ? payslipStatus.totals : undefined);
 
   const handleSave = async () => {
     if (!activeEntityId) return;
@@ -232,9 +304,15 @@ export default function Declarations() {
         entityId: activeEntityId,
         taxYear,
         annualRentPaid: ngnToKobo(form.annualRentPaid),
-        pensionContributions: ngnToKobo(form.pensionContributions),
-        nhisContributions: ngnToKobo(form.nhisContributions),
-        nhfContributions: ngnToKobo(form.nhfContributions),
+        // When payslip records exist, omit pension/NHIS/NHF — the tax engine
+        // caller overrides them from employment income totals.
+        ...(payslipLocked
+          ? {}
+          : {
+              pensionContributions: ngnToKobo(form.pensionContributions),
+              nhisContributions: ngnToKobo(form.nhisContributions),
+              nhfContributions: ngnToKobo(form.nhfContributions),
+            }),
         lifeInsurancePremiums: ngnToKobo(form.lifeInsurancePremiums),
         mortgageInterest: ngnToKobo(form.mortgageInterest),
       });
@@ -336,30 +414,57 @@ export default function Declarations() {
                 required
                 relief="Relief = 20% of annual rent paid, capped at ₦500,000. Enter ₦0 if you own your home or pay no rent."
               />
-              <ReliefField
-                label="Pension Contributions"
-                name="pensionContributions"
-                value={form.pensionContributions}
-                onChange={handleFieldChange}
-                hint="Employee pension contributions (e.g. RSA/PFA)"
-                relief="Statutory pension contributions (employee portion) are fully deductible under NTA 2025."
-              />
-              <ReliefField
-                label="NHIS Contributions"
-                name="nhisContributions"
-                value={form.nhisContributions}
-                onChange={handleFieldChange}
-                hint="National Health Insurance Scheme payments"
-                relief="NHIS premium contributions are deductible."
-              />
-              <ReliefField
-                label="NHF Contributions"
-                name="nhfContributions"
-                value={form.nhfContributions}
-                onChange={handleFieldChange}
-                hint="National Housing Fund contributions"
-                relief="NHF contributions (2.5% of basic salary) are deductible."
-              />
+              {payslipLocked ? (
+                <LockedReliefField
+                  label="Pension Contributions"
+                  koboValue={payslipStatus.totals?.pension ?? 0}
+                  hint="Employee pension contributions (e.g. RSA/PFA)"
+                  relief="Statutory pension contributions (employee portion) are fully deductible under NTA 2025."
+                />
+              ) : (
+                <ReliefField
+                  label="Pension Contributions"
+                  name="pensionContributions"
+                  value={form.pensionContributions}
+                  onChange={handleFieldChange}
+                  hint="Employee pension contributions (e.g. RSA/PFA)"
+                  relief="Statutory pension contributions (employee portion) are fully deductible under NTA 2025."
+                />
+              )}
+              {payslipLocked ? (
+                <LockedReliefField
+                  label="NHIS Contributions"
+                  koboValue={payslipStatus.totals?.nhis ?? 0}
+                  hint="National Health Insurance Scheme payments"
+                  relief="NHIS premium contributions are deductible."
+                />
+              ) : (
+                <ReliefField
+                  label="NHIS Contributions"
+                  name="nhisContributions"
+                  value={form.nhisContributions}
+                  onChange={handleFieldChange}
+                  hint="National Health Insurance Scheme payments"
+                  relief="NHIS premium contributions are deductible."
+                />
+              )}
+              {payslipLocked ? (
+                <LockedReliefField
+                  label="NHF Contributions"
+                  koboValue={payslipStatus.totals?.nhf ?? 0}
+                  hint="National Housing Fund contributions"
+                  relief="NHF contributions (2.5% of basic salary) are deductible."
+                />
+              ) : (
+                <ReliefField
+                  label="NHF Contributions"
+                  name="nhfContributions"
+                  value={form.nhfContributions}
+                  onChange={handleFieldChange}
+                  hint="National Housing Fund contributions"
+                  relief="NHF contributions (2.5% of basic salary) are deductible."
+                />
+              )}
               <ReliefField
                 label="Life Insurance Premiums"
                 name="lifeInsurancePremiums"

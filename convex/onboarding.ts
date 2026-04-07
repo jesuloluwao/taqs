@@ -7,7 +7,7 @@ import { v } from 'convex/values';
  */
 export const saveUserType = mutation({
   args: {
-    userType: v.union(v.literal('freelancer'), v.literal('sme')),
+    userType: v.union(v.literal('freelancer'), v.literal('sme'), v.literal('salary_earner')),
   },
   handler: async (ctx, args) => {
     const user = await getOrCreateCurrentUser(ctx);
@@ -51,6 +51,63 @@ export const saveFreelancerProfile = mutation({
     });
 
     // Create first entity if none exists
+    const existing = await ctx.db
+      .query('entities')
+      .withIndex('by_userId', (q) => q.eq('userId', user._id))
+      .collect();
+
+    const active = existing.filter((e) => !e.deletedAt);
+    let entityId: string | undefined;
+
+    if (active.length === 0) {
+      entityId = await ctx.db.insert('entities', {
+        userId: user._id,
+        name: fullName || 'My Profile',
+        type: 'individual',
+        isDefault: true,
+        taxYearStart: 1,
+      });
+    }
+
+    return { userId: user._id, entityId };
+  },
+});
+
+/**
+ * Step 2 (Salary Earner): Save profile data and create individual entity.
+ */
+export const saveSalaryProfile = mutation({
+  args: {
+    firstName: v.string(),
+    lastName: v.string(),
+    preferredCurrency: v.union(
+      v.literal('NGN'),
+      v.literal('USD'),
+      v.literal('GBP'),
+      v.literal('EUR')
+    ),
+    employerName: v.string(),
+    jobTitle: v.optional(v.string()),
+    employmentType: v.union(
+      v.literal('full_time'),
+      v.literal('part_time'),
+      v.literal('contract')
+    ),
+    hasOtherIncome: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    if (!user) throw new Error('Not authenticated');
+
+    const fullName = `${args.firstName.trim()} ${args.lastName.trim()}`.trim();
+
+    await ctx.db.patch(user._id, {
+      fullName,
+      preferredCurrency: args.preferredCurrency,
+      updatedAt: Date.now(),
+    });
+
+    // Create individual entity if none exists
     const existing = await ctx.db
       .query('entities')
       .withIndex('by_userId', (q) => q.eq('userId', user._id))

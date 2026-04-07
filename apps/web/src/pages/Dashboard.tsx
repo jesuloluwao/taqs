@@ -797,6 +797,15 @@ export default function Dashboard() {
     activeEntityId ? { entityId: activeEntityId, taxYear } : 'skip',
   );
 
+  // Salary earner queries
+  const me = useQuery(api.userCrud.getMe);
+  const employmentRecords = useQuery(
+    api.employmentIncome.list,
+    me?.userType === 'salary_earner' && activeEntityId
+      ? { entityId: activeEntityId, taxYear }
+      : 'skip',
+  );
+
   // ---- Per-section loading states ----
   const summaryLoading = summary === undefined;
   const recentLoading = recentTransactions === undefined;
@@ -834,6 +843,14 @@ export default function Dashboard() {
 
   const isNilReturn = liabilityKobo === 0 && hasTransactions;
   const shouldShowDeadline = daysRemaining <= 60;
+
+  // Salary earner derived values
+  const confirmedRecords = employmentRecords?.filter((r: any) => r.status === 'confirmed') ?? [];
+  const totalEmploymentIncome = confirmedRecords.reduce((s: number, r: any) => s + r.grossSalary, 0);
+  const totalPayeCredits = confirmedRecords.reduce((s: number, r: any) => s + r.payeDeducted, 0);
+  const pendingCount = employmentRecords?.filter((r: any) => r.status === 'pending').length ?? 0;
+  const currentMonth = new Date().getMonth() + 1;
+  const isSalaryIncomplete = pendingCount > 0 || confirmedRecords.length < currentMonth;
 
   // ---------------------------------------------------------------------------
   // Full-page error
@@ -911,6 +928,44 @@ export default function Dashboard() {
           inflowKobo={uncategorisedInflowKobo}
           outflowKobo={uncategorisedOutflowKobo}
         />
+      )}
+
+      {/* Salary earner employment income card */}
+      {me?.userType === 'salary_earner' && !summaryLoading && !summaryError && (
+        <Link
+          to="/app/employment-income"
+          className="bg-white rounded-xl border border-border shadow-soft p-5 hover:shadow-medium transition-shadow block"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-body-sm font-semibold text-neutral-900">Employment Income</h3>
+            <div className="flex items-center gap-2">
+              {isSalaryIncomplete && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-xs font-medium">
+                  <Clock className="w-3 h-3" />
+                  Incomplete
+                </span>
+              )}
+              <ChevronRight className="w-4 h-4 text-neutral-400" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-neutral-500 mb-0.5">Gross Salary</p>
+              <p className="text-body font-semibold text-neutral-900">{formatNaira(totalEmploymentIncome)}</p>
+              <p className="text-xs text-neutral-400">{confirmedRecords.length} month{confirmedRecords.length !== 1 ? 's' : ''} confirmed</p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-500 mb-0.5">PAYE Credited</p>
+              <p className="text-body font-semibold text-success">{formatNaira(totalPayeCredits)}</p>
+            </div>
+            {incomeKobo > totalEmploymentIncome && (
+              <div>
+                <p className="text-xs text-neutral-500 mb-0.5">Other Income</p>
+                <p className="text-body font-semibold text-neutral-900">{formatNaira(incomeKobo - totalEmploymentIncome)}</p>
+              </div>
+            )}
+          </div>
+        </Link>
       )}
 
       {/* Tax Position Summary card — per-section loading */}

@@ -5,6 +5,7 @@ import type { Id } from '@convex/_generated/dataModel';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useEntity } from '../contexts/EntityContext';
+import { BankAccountSelector } from '../components/BankAccountSelector';
 import {
   Upload,
   FileText,
@@ -220,6 +221,8 @@ function UploadTab() {
   const navigate = useNavigate();
 
   const [uploadState, setUploadState] = useState<UploadState>({ phase: 'idle' });
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<Id<'bankAccounts'> | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -227,8 +230,8 @@ function UploadTab() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const processImport = useAction((api as any).importPipeline.processImport);
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  const startUpload = useCallback(
+    async (file: File, bankAccountId: Id<'bankAccounts'>) => {
       if (!activeEntityId) {
         toast.error('No entity selected. Please select a tax entity first.');
         return;
@@ -274,6 +277,7 @@ function UploadTab() {
           entityId: activeEntityId,
           source,
           storageId,
+          bankAccountId,
         }) as Id<'importJobs'>;
 
         // Step 4: Trigger processing
@@ -289,12 +293,37 @@ function UploadTab() {
 
         // Transition to processing (job watcher will move to complete/error)
         setUploadState({ phase: 'processing', jobId });
+        setPendingFile(null);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Import failed. Please try again.';
         setUploadState({ phase: 'error', message });
       }
     },
     [activeEntityId, generateUploadUrl, initiateImport, processImport]
+  );
+
+  const handleFile = useCallback(
+    (file: File) => {
+      if (selectedBankAccountId) {
+        // Account already selected — upload immediately
+        startUpload(file, selectedBankAccountId);
+      } else {
+        // No account yet — stash file and prompt for account selection
+        setPendingFile(file);
+      }
+    },
+    [selectedBankAccountId, startUpload]
+  );
+
+  const handleBankAccountChange = useCallback(
+    (bankAccountId: Id<'bankAccounts'>) => {
+      setSelectedBankAccountId(bankAccountId);
+      if (pendingFile) {
+        // File was dropped first — now we have both, start upload
+        startUpload(pendingFile, bankAccountId);
+      }
+    },
+    [pendingFile, startUpload]
   );
 
   const handleComplete = useCallback((totalImported: number, duplicatesSkipped: number) => {
@@ -312,6 +341,8 @@ function UploadTab() {
 
   const reset = useCallback(() => {
     setUploadState({ phase: 'idle' });
+    setSelectedBankAccountId(null);
+    setPendingFile(null);
   }, []);
 
   // ── Render by phase ────────────────────────────────────────────────────────
@@ -319,6 +350,33 @@ function UploadTab() {
   if (uploadState.phase === 'idle') {
     return (
       <div className="space-y-4">
+        {/* Bank account selector — shown above drop zone (or as prompt after file drop) */}
+        {activeEntityId && (
+          <div className="space-y-1.5">
+            {pendingFile && !selectedBankAccountId && (
+              <p className="text-body-sm font-medium text-neutral-700">
+                Which bank account is this statement from?
+              </p>
+            )}
+            <BankAccountSelector
+              entityId={activeEntityId}
+              value={selectedBankAccountId}
+              onChange={handleBankAccountChange}
+              placeholder="Select bank account"
+            />
+          </div>
+        )}
+
+        {/* Show file name if file is pending account selection */}
+        {pendingFile && !selectedBankAccountId && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <FileText className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <p className="text-body-sm text-amber-700">
+              <span className="font-medium">{pendingFile.name}</span> ready — select a bank account to start import
+            </p>
+          </div>
+        )}
+
         <DropZone onFile={handleFile} />
         <DuplicateExplainer />
       </div>

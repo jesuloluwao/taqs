@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { toast } from 'sonner';
-import { Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, CheckCircle2, AlertCircle, Loader2, UploadCloud, FileText, XCircle } from 'lucide-react';
+import { BankAccountSelector } from '../components/BankAccountSelector';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ const TURNOVER_RANGES = [
 
 const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'] as const;
 type Currency = (typeof CURRENCIES)[number];
-type UserType = 'freelancer' | 'sme';
+type UserType = 'freelancer' | 'sme' | 'salary_earner';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -164,6 +165,53 @@ function Step1({ selected, onSelect, onContinue }: Step1Props) {
               </div>
               <p className="text-body-sm text-neutral-500 mt-1">
                 I earn income from clients, gigs, or self-employment
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelect('salary_earner')}
+          className={`w-full text-left p-5 rounded-2xl border-2 transition-all duration-200 ${
+            selected === 'salary_earner'
+              ? 'border-primary bg-primary/5 shadow-medium'
+              : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50'
+          }`}
+        >
+          <div className="flex items-start gap-4">
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                selected === 'salary_earner' ? 'bg-primary' : 'bg-neutral-100'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`w-5 h-5 ${selected === 'salary_earner' ? 'text-white' : 'text-neutral-500'}`}
+              >
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                <line x1="6" y1="11" x2="18" y2="11" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <span className="font-display font-semibold text-neutral-900">Salary Earner</span>
+                {selected === 'salary_earner' && (
+                  <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Employed full-time or part-time. May also have side income.
               </p>
             </div>
           </div>
@@ -514,6 +562,329 @@ function Step2Sme({
   );
 }
 
+// ─── Step 2c: Salary Earner Form ─────────────────────────────────────────────
+
+interface SalaryEarnerFormErrors {
+  firstName?: string;
+  lastName?: string;
+  employerName?: string;
+}
+
+interface Step2SalaryEarnerProps {
+  firstName: string;
+  lastName: string;
+  employerName: string;
+  jobTitle: string;
+  employmentType: 'full_time' | 'part_time' | 'contract';
+  currency: Currency;
+  hasOtherIncome: boolean;
+  onChange: (field: string, value: string | boolean) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  loading: boolean;
+}
+
+function Step2SalaryEarner({
+  firstName,
+  lastName,
+  employerName,
+  jobTitle,
+  employmentType,
+  currency,
+  hasOtherIncome,
+  onChange,
+  onBack,
+  onContinue,
+  loading,
+}: Step2SalaryEarnerProps) {
+  const [errors, setErrors] = useState<SalaryEarnerFormErrors>({});
+
+  function validate() {
+    const e: SalaryEarnerFormErrors = {};
+    if (!firstName.trim()) e.firstName = 'First name is required';
+    if (!lastName.trim()) e.lastName = 'Last name is required';
+    if (!employerName.trim()) e.employerName = 'Employer name is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function handleContinue() {
+    if (validate()) onContinue();
+  }
+
+  return (
+    <div className="animate-slide-up">
+      <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
+        Tell us about your employment
+      </h2>
+      <p className="text-body text-neutral-500 mb-8">
+        We'll use this to personalise your tax profile.
+      </p>
+
+      <div className="flex flex-col gap-5 mb-8">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="First name" error={errors.firstName}>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => onChange('firstName', e.target.value)}
+              placeholder="Ada"
+              className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                errors.firstName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+              }`}
+            />
+          </Field>
+          <Field label="Last name" error={errors.lastName}>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => onChange('lastName', e.target.value)}
+              placeholder="Okafor"
+              className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                errors.lastName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+              }`}
+            />
+          </Field>
+        </div>
+
+        <Field label="Employer name" error={errors.employerName}>
+          <input
+            type="text"
+            value={employerName}
+            onChange={(e) => onChange('employerName', e.target.value)}
+            placeholder="e.g. Access Bank Plc"
+            className={`h-11 px-3 rounded-lg border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+              errors.employerName ? 'border-danger focus:border-danger' : 'border-border focus:border-primary'
+            }`}
+          />
+        </Field>
+
+        <Field label="Job title (optional)">
+          <input
+            type="text"
+            value={jobTitle}
+            onChange={(e) => onChange('jobTitle', e.target.value)}
+            placeholder="e.g. Senior Accountant"
+            className="h-11 px-3 rounded-lg border border-border bg-white text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+          />
+        </Field>
+
+        <Field label="Employment type">
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { value: 'full_time', label: 'Full-time' },
+              { value: 'part_time', label: 'Part-time' },
+              { value: 'contract', label: 'Contract' },
+            ] as const).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => onChange('employmentType', t.value)}
+                className={`h-11 rounded-lg border-2 text-sm font-medium transition-all ${
+                  employmentType === t.value
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-neutral-600 hover:border-primary/40'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Primary income currency">
+          <div className="grid grid-cols-4 gap-2">
+            {CURRENCIES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => onChange('currency', c)}
+                className={`h-11 rounded-lg border-2 text-sm font-medium transition-all ${
+                  currency === c
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-neutral-600 hover:border-primary/40'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-neutral-50">
+          <div>
+            <p className="text-sm font-medium text-neutral-900">Do you also earn from other sources?</p>
+            <p className="text-xs text-neutral-500 mt-0.5">e.g. freelance work, side business, rental income</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange('hasOtherIncome', !hasOtherIncome)}
+            className={`relative w-11 h-6 rounded-full transition-colors ${
+              hasOtherIncome ? 'bg-primary' : 'bg-neutral-300'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                hasOtherIncome ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={loading}
+          className="flex-1 h-12 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium rounded-xl transition-all hover:shadow-medium active:scale-[0.98] font-sans"
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Saving…
+            </span>
+          ) : (
+            'Continue'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 4b: Salary Setup Choice ────────────────────────────────────────────
+
+interface Step4SalarySetupProps {
+  onBack: () => void;
+  onChoice: (choice: 'payslip' | 'detect' | 'skip') => void;
+  loading: boolean;
+}
+
+function Step4SalarySetup({ onBack, onChoice, loading }: Step4SalarySetupProps) {
+  return (
+    <div className="animate-slide-up">
+      <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
+        Set up your salary income
+      </h2>
+      <p className="text-body text-neutral-500 mb-8">
+        How would you like to add your employment income details?
+      </p>
+
+      <div className="flex flex-col gap-4 mb-8">
+        <button
+          type="button"
+          onClick={() => onChoice('payslip')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-neutral-500"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-neutral-900">Enter payslip details now</span>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Manually enter your salary, deductions, and PAYE details
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChoice('detect')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-border bg-white hover:border-primary/40 hover:bg-neutral-100/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-neutral-500"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-neutral-900">Detect from bank statements</span>
+              <p className="text-body-sm text-neutral-500 mt-1">
+                Upload a bank statement and we'll detect your salary automatically
+              </p>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChoice('skip')}
+          disabled={loading}
+          className="w-full text-left p-5 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-200 disabled:opacity-60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-5 h-5 text-primary"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 8 12 12 14 14" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-display font-semibold text-primary">Skip for now</span>
+              <p className="text-body-sm text-primary/60 mt-1">
+                You can add your salary details later from the dashboard
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-12 px-6 rounded-xl border-2 border-border text-neutral-700 font-medium hover:bg-neutral-100/60 transition-colors font-sans"
+        >
+          Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 3: NIN / TIN ────────────────────────────────────────────────────────
 
 interface Step3Props {
@@ -630,7 +1001,8 @@ function Step3({ nin, firsTin, onChange, onBack, onContinue, loading }: Step3Pro
 
 // ─── Step 4: Connect Accounts ─────────────────────────────────────────────────
 
-/** Inline API-key form for Paystack / Flutterwave within onboarding */
+/** Inline API-key form for Paystack / Flutterwave within onboarding (currently unused — providers are "Coming soon") */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ApiKeyForm({
   provider,
   entityId,
@@ -701,6 +1073,77 @@ function ApiKeyForm({
   );
 }
 
+// ── Onboarding upload types ──────────────────────────────────────────────────
+type OnboardingUpload = {
+  id: string;
+  filename: string;
+  bankAccountNickname: string;
+  status: 'uploading' | 'processing' | 'complete' | 'error';
+  jobId?: Id<'importJobs'>;
+  errorMessage?: string;
+};
+
+// ── Job watcher for onboarding uploads ──────────────────────────────────────
+function OnboardingJobWatcher({
+  jobId,
+  onComplete,
+  onFailed,
+}: {
+  jobId: Id<'importJobs'>;
+  onComplete: () => void;
+  onFailed: (message: string) => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const job = useQuery((api as any).importJobs.get, { id: jobId }) as
+    | { status: string; errorMessage?: string }
+    | null
+    | undefined;
+
+  const notifiedRef = useRef(false);
+
+  useEffect(() => {
+    if (notifiedRef.current) return;
+    if (!job) return;
+
+    if (job.status === 'complete') {
+      notifiedRef.current = true;
+      onComplete();
+    } else if (job.status === 'failed') {
+      notifiedRef.current = true;
+      onFailed(job.errorMessage ?? 'Import failed. Please check the file format.');
+    }
+  }, [job, onComplete, onFailed]);
+
+  return null;
+}
+
+// ── Upload status row ───────────────────────────────────────────────────────
+function UploadStatusRow({ upload }: { upload: OnboardingUpload }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-neutral-50 border border-border text-sm">
+      <FileText className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-neutral-700 truncate">{upload.filename}</p>
+        <p className="text-[11px] text-neutral-400 truncate">{upload.bankAccountNickname}</p>
+      </div>
+      {upload.status === 'uploading' && (
+        <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+      )}
+      {upload.status === 'processing' && (
+        <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
+      )}
+      {upload.status === 'complete' && (
+        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+      )}
+      {upload.status === 'error' && (
+        <div className="flex items-center gap-1 flex-shrink-0" title={upload.errorMessage}>
+          <XCircle className="w-4 h-4 text-red-500" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Step4Props {
   onBack: () => void;
   onFinish: () => void;
@@ -709,16 +1152,189 @@ interface Step4Props {
 }
 
 function Step4({ onBack, onFinish, loading, entityId }: Step4Props) {
-  const [activeForm, setActiveForm] = useState<'paystack' | 'flutterwave' | null>(null);
-  const [linked, setLinked] = useState<Set<string>>(new Set());
+  const [uploadExpanded, setUploadExpanded] = useState(false);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<Id<'bankAccounts'> | null>(null);
+  const [selectedBankNickname, setSelectedBankNickname] = useState('');
+  const [uploads, setUploads] = useState<OnboardingUpload[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleLinked = (provider: string) => {
-    setLinked((prev) => new Set([...prev, provider]));
-    setActiveForm(null);
-  };
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const initiateImport = useMutation((api as any).transactions.initiateImport);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const processImport = useAction((api as any).importPipeline.processImport);
+
+  // Fetch bank accounts to resolve nicknames
+  const bankAccounts = useQuery(
+    api.bankAccounts.listByEntity,
+    entityId ? { entityId } : 'skip',
+  ) as Array<{ _id: Id<'bankAccounts'>; nickname: string }> | undefined;
+
+  const resolveNickname = useCallback(
+    (bankAccountId: Id<'bankAccounts'>) => {
+      const account = bankAccounts?.find((a) => a._id === bankAccountId);
+      return account?.nickname ?? 'Unknown account';
+    },
+    [bankAccounts],
+  );
+
+  // When bank account selection changes, update nickname and check pending file
+  const handleBankAccountChange = useCallback(
+    (bankAccountId: Id<'bankAccounts'>) => {
+      setSelectedBankAccountId(bankAccountId);
+      const nickname = resolveNickname(bankAccountId);
+      setSelectedBankNickname(nickname);
+    },
+    [resolveNickname],
+  );
+
+  const handleUploadFile = useCallback(
+    async (file: File, bankAccountId: Id<'bankAccounts'>, bankNickname: string) => {
+      if (!entityId) {
+        toast.error('Complete the previous steps first to create your entity.');
+        return;
+      }
+
+      const isPdf =
+        file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const isCsv =
+        file.type === 'text/csv' ||
+        file.type === 'application/csv' ||
+        file.name.toLowerCase().endsWith('.csv');
+
+      if (!isPdf && !isCsv) {
+        toast.error('Unsupported file type. Please upload a PDF or CSV file.');
+        return;
+      }
+
+      const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const newUpload: OnboardingUpload = {
+        id: uploadId,
+        filename: file.name,
+        bankAccountNickname: bankNickname,
+        status: 'uploading',
+      };
+
+      setUploads((prev) => [...prev, newUpload]);
+
+      try {
+        const uploadUrl = await generateUploadUrl();
+
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+        }
+
+        const { storageId } = await uploadResponse.json();
+
+        const source = isPdf ? 'pdf' : 'csv';
+        const jobId = (await initiateImport({
+          entityId,
+          source,
+          storageId,
+          bankAccountId,
+        })) as Id<'importJobs'>;
+
+        // Update to processing
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === uploadId ? { ...u, status: 'processing' as const, jobId } : u,
+          ),
+        );
+
+        // Fire-and-forget processing
+        processImport({ jobId }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'Processing failed';
+          setUploads((prev) =>
+            prev.map((u) =>
+              u.id === uploadId
+                ? { ...u, status: 'error' as const, errorMessage: msg }
+                : u,
+            ),
+          );
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Upload failed. Please try again.';
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === uploadId
+              ? { ...u, status: 'error' as const, errorMessage: message }
+              : u,
+          ),
+        );
+      }
+    },
+    [entityId, generateUploadUrl, initiateImport, processImport],
+  );
+
+  // Handle file selection — if no bank account selected, stash as pending
+  const handleFileSelected = useCallback(
+    (file: File) => {
+      if (selectedBankAccountId) {
+        handleUploadFile(file, selectedBankAccountId, selectedBankNickname);
+      } else {
+        setPendingFile(file);
+        toast.info('Which bank account is this statement from?', {
+          description: 'Select a bank account above, then the upload will start automatically.',
+          duration: 5000,
+        });
+      }
+    },
+    [selectedBankAccountId, selectedBankNickname, handleUploadFile],
+  );
+
+  // When bank account is selected and there's a pending file, upload it
+  useEffect(() => {
+    if (pendingFile && selectedBankAccountId) {
+      handleUploadFile(pendingFile, selectedBankAccountId, resolveNickname(selectedBankAccountId));
+      setPendingFile(null);
+    }
+  }, [pendingFile, selectedBankAccountId, handleUploadFile, resolveNickname]);
+
+  // ── Job watcher callbacks ────────────────────────────────────────────────
+  const makeOnComplete = useCallback(
+    (uploadId: string) => () => {
+      setUploads((prev) =>
+        prev.map((u) => (u.id === uploadId ? { ...u, status: 'complete' as const } : u)),
+      );
+    },
+    [],
+  );
+
+  const makeOnFailed = useCallback(
+    (uploadId: string) => (message: string) => {
+      setUploads((prev) =>
+        prev.map((u) =>
+          u.id === uploadId ? { ...u, status: 'error' as const, errorMessage: message } : u,
+        ),
+      );
+    },
+    [],
+  );
+
+  const hasUploads = uploads.length > 0;
 
   return (
     <div className="animate-slide-up">
+      {/* Job watchers for processing uploads */}
+      {uploads
+        .filter((u) => u.status === 'processing' && u.jobId)
+        .map((u) => (
+          <OnboardingJobWatcher
+            key={u.id}
+            jobId={u.jobId!}
+            onComplete={makeOnComplete(u.id)}
+            onFailed={makeOnFailed(u.id)}
+          />
+        ))}
+
       <h2 className="text-heading-lg font-display text-neutral-900 mb-2">
         Import your transactions
       </h2>
@@ -727,21 +1343,128 @@ function Step4({ onBack, onFinish, loading, entityId }: Step4Props) {
       </p>
 
       <div className="flex flex-col gap-3 mb-6">
-        {/* Upload bank statement */}
-        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
-          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm text-neutral-700">Upload bank statement</span>
-              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">After setup</span>
+        {/* Upload bank statement — interactive expandable card */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setUploadExpanded(!uploadExpanded)}
+            className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
+              uploadExpanded
+                ? 'border-primary bg-primary/5'
+                : hasUploads
+                ? 'border-emerald-300 bg-emerald-50'
+                : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-50'
+            }`}
+          >
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${hasUploads ? 'bg-emerald-100' : 'bg-neutral-100'}`}>
+              {hasUploads ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-neutral-500">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              )}
             </div>
-            <p className="text-xs text-neutral-400 mt-0.5">Available from the Transactions section</p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`font-medium text-sm ${hasUploads ? 'text-emerald-700' : 'text-neutral-700'}`}>
+                  Upload bank statement
+                </span>
+                {hasUploads && (
+                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {uploads.length} uploaded
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                {hasUploads
+                  ? `${uploads.filter((u) => u.status === 'complete').length} complete`
+                  : 'Upload a PDF or CSV bank statement'}
+              </p>
+            </div>
+          </button>
+
+          {/* Expanded upload area */}
+          {uploadExpanded && (
+            <div className="mt-2 p-4 rounded-xl border border-border bg-white space-y-3 animate-fade-in">
+              {/* Bank account selector */}
+              {entityId ? (
+                <div>
+                  <label className="block text-xs font-medium text-neutral-500 mb-1.5">
+                    Bank account {pendingFile && !selectedBankAccountId && (
+                      <span className="text-amber-600 font-normal"> — select to start upload</span>
+                    )}
+                  </label>
+                  <BankAccountSelector
+                    entityId={entityId}
+                    value={selectedBankAccountId}
+                    onChange={handleBankAccountChange}
+                    placeholder="Select bank account"
+                    compact
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <p className="text-xs text-amber-700">Complete the previous steps first to create your entity.</p>
+                </div>
+              )}
+
+              {/* Drop zone */}
+              {entityId && (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file) handleFileSelected(file);
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`relative cursor-pointer rounded-xl border-2 border-dashed transition-all duration-200 p-6 flex flex-col items-center gap-2 group ${
+                    isDragOver
+                      ? 'border-primary bg-primary/5 scale-[1.01]'
+                      : 'border-border hover:border-primary/50 hover:bg-neutral-50 bg-white'
+                  }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.csv,application/pdf,text/csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileSelected(file);
+                      // Reset input so same file can be re-selected
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                    isDragOver ? 'bg-primary text-white' : 'bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white'
+                  }`}>
+                    <UploadCloud className="w-5 h-5" strokeWidth={1.75} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-neutral-700">
+                      {isDragOver ? 'Drop it here' : 'Drag & drop or browse'}
+                    </p>
+                    <p className="text-xs text-neutral-400 mt-0.5">PDF or CSV bank statement</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload progress rows */}
+              {uploads.length > 0 && (
+                <div className="space-y-2">
+                  {uploads.map((upload) => (
+                    <UploadStatusRow key={upload.id} upload={upload} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Connect bank account */}
@@ -761,100 +1484,38 @@ function Step4({ onBack, onFinish, loading, entityId }: Step4Props) {
           </div>
         </div>
 
-        {/* Connect Paystack */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setActiveForm(activeForm === 'paystack' ? null : 'paystack')}
-            className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
-              linked.has('paystack')
-                ? 'border-emerald-300 bg-emerald-50'
-                : activeForm === 'paystack'
-                ? 'border-primary bg-primary/5'
-                : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-50'
-            }`}
-          >
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${linked.has('paystack') ? 'bg-emerald-100' : 'bg-neutral-100'}`}>
-              {linked.has('paystack') ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-neutral-500">
-                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                  <path d="M2 17l10 5 10-5" />
-                  <path d="M2 12l10 5 10-5" />
-                </svg>
-              )}
+        {/* Connect Paystack — disabled */}
+        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-neutral-700">Connect Paystack</span>
+              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">Coming soon</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`font-medium text-sm ${linked.has('paystack') ? 'text-emerald-700' : 'text-neutral-700'}`}>
-                  Connect Paystack
-                </span>
-                {linked.has('paystack') && (
-                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Connected</span>
-                )}
-              </div>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                {linked.has('paystack') ? 'Your Paystack account is linked' : 'Import payment records from your Paystack business account'}
-              </p>
-            </div>
-          </button>
-          {activeForm === 'paystack' && entityId && (
-            <ApiKeyForm provider="paystack" entityId={entityId} onSuccess={() => handleLinked('paystack')} />
-          )}
-          {activeForm === 'paystack' && !entityId && (
-            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <p className="text-xs text-amber-700">Complete the previous steps first to create your entity.</p>
-            </div>
-          )}
+            <p className="text-xs text-neutral-400 mt-0.5">Import payment records from your Paystack business account</p>
+          </div>
         </div>
 
-        {/* Connect Flutterwave */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setActiveForm(activeForm === 'flutterwave' ? null : 'flutterwave')}
-            className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${
-              linked.has('flutterwave')
-                ? 'border-emerald-300 bg-emerald-50'
-                : activeForm === 'flutterwave'
-                ? 'border-primary bg-primary/5'
-                : 'border-border bg-white hover:border-primary/40 hover:bg-neutral-50'
-            }`}
-          >
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${linked.has('flutterwave') ? 'bg-emerald-100' : 'bg-neutral-100'}`}>
-              {linked.has('flutterwave') ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-neutral-500">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                </svg>
-              )}
+        {/* Connect Flutterwave — disabled */}
+        <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-white opacity-60 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0 text-neutral-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-neutral-700">Connect Flutterwave</span>
+              <span className="text-xs font-medium bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">Coming soon</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`font-medium text-sm ${linked.has('flutterwave') ? 'text-emerald-700' : 'text-neutral-700'}`}>
-                  Connect Flutterwave
-                </span>
-                {linked.has('flutterwave') && (
-                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Connected</span>
-                )}
-              </div>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                {linked.has('flutterwave') ? 'Your Flutterwave account is linked' : 'Import transactions from your Flutterwave merchant account'}
-              </p>
-            </div>
-          </button>
-          {activeForm === 'flutterwave' && entityId && (
-            <ApiKeyForm provider="flutterwave" entityId={entityId} onSuccess={() => handleLinked('flutterwave')} />
-          )}
-          {activeForm === 'flutterwave' && !entityId && (
-            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <p className="text-xs text-amber-700">Complete the previous steps first to create your entity.</p>
-            </div>
-          )}
+            <p className="text-xs text-neutral-400 mt-0.5">Import transactions from your Flutterwave merchant account</p>
+          </div>
         </div>
 
         {/* Payoneer / Wise */}
@@ -890,11 +1551,11 @@ function Step4({ onBack, onFinish, loading, entityId }: Step4Props) {
           </div>
           <div className="flex-1 min-w-0">
             <span className="font-medium text-sm text-primary">
-              {linked.size > 0 ? 'Continue to dashboard' : "I'll do this later"}
+              {hasUploads ? 'Continue to dashboard' : "I'll do this later"}
             </span>
             <p className="text-xs text-primary/60 mt-0.5">
-              {linked.size > 0
-                ? `${linked.size} account${linked.size > 1 ? 's' : ''} connected — set up more in Settings`
+              {hasUploads
+                ? `${uploads.length} statement${uploads.length > 1 ? 's' : ''} uploaded — processing continues in background`
                 : 'Skip for now — add transactions manually'}
             </p>
           </div>
@@ -955,6 +1616,13 @@ export default function Onboarding() {
   const [industry, setIndustry] = useState('');
   const [annualTurnoverRange, setAnnualTurnoverRange] = useState('');
 
+  // Salary Earner step 2 state
+  const [employerName, setEmployerName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>('full_time');
+  const [hasOtherIncome, setHasOtherIncome] = useState(false);
+  const [salarySetupChoice, setSalarySetupChoice] = useState<'payslip' | 'detect' | 'skip' | null>(null);
+
   // Step 3 state
   const [nin, setNin] = useState('');
   const [firsTin, setFirsTin] = useState('');
@@ -975,6 +1643,7 @@ export default function Onboarding() {
   const saveUserType = useMutation(api.onboarding.saveUserType);
   const saveFreelancerProfile = useMutation(api.onboarding.saveFreelancerProfile);
   const saveSmeProfile = useMutation(api.onboarding.saveSmeProfile);
+  const saveSalaryProfile = useMutation(api.onboarding.saveSalaryProfile);
   const saveNinAndTin = useMutation(api.onboarding.saveNinAndTin);
   const completeOnboarding = useMutation(api.userCrud.completeOnboarding);
   const createDefaultPreferences = useMutation(api.userCrud.createDefaultPreferences);
@@ -1036,6 +1705,50 @@ export default function Onboarding() {
     }
   }
 
+  async function handleStep2SalaryEarnerContinue() {
+    setLoading(true);
+    try {
+      await saveSalaryProfile({
+        firstName,
+        lastName,
+        preferredCurrency: currency,
+        employerName,
+        jobTitle: jobTitle || undefined,
+        employmentType,
+        hasOtherIncome,
+      });
+      setStep(3);
+    } catch (err) {
+      console.error('Failed to save salary profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSalarySetupChoice(choice: 'payslip' | 'detect' | 'skip') {
+    setSalarySetupChoice(choice);
+    if (choice === 'payslip') {
+      setLoading(true);
+      try {
+        await seedCategories();
+        await createDefaultPreferences();
+        await completeOnboarding();
+        toast.success("You're all set! Let's enter your payslip details.");
+        window.location.href = '/app/payslip-entry';
+      } catch (err) {
+        console.error('Failed to complete onboarding:', err);
+      } finally {
+        setLoading(false);
+      }
+    } else if (choice === 'skip') {
+      await handleFinish();
+    }
+    // 'detect' — for now, also finish onboarding (bank statement upload available later)
+    if (choice === 'detect') {
+      await handleFinish();
+    }
+  }
+
   async function handleStep3Continue() {
     setLoading(true);
     try {
@@ -1071,6 +1784,16 @@ export default function Onboarding() {
     else if (field === 'lastName') setLastName(value);
     else if (field === 'profession') setProfession(value);
     else if (field === 'currency') setCurrency(value as Currency);
+  }
+
+  function handleSalaryEarnerFieldChange(field: string, value: string | boolean) {
+    if (field === 'firstName') setFirstName(value as string);
+    else if (field === 'lastName') setLastName(value as string);
+    else if (field === 'employerName') setEmployerName(value as string);
+    else if (field === 'jobTitle') setJobTitle(value as string);
+    else if (field === 'employmentType') setEmploymentType(value as 'full_time' | 'part_time' | 'contract');
+    else if (field === 'currency') setCurrency(value as Currency);
+    else if (field === 'hasOtherIncome') setHasOtherIncome(value as boolean);
   }
 
   function handleSmeFieldChange(field: string, value: string) {
@@ -1135,6 +1858,22 @@ export default function Onboarding() {
             />
           )}
 
+          {step === 2 && userType === 'salary_earner' && (
+            <Step2SalaryEarner
+              firstName={firstName}
+              lastName={lastName}
+              employerName={employerName}
+              jobTitle={jobTitle}
+              employmentType={employmentType}
+              currency={currency}
+              hasOtherIncome={hasOtherIncome}
+              onChange={handleSalaryEarnerFieldChange}
+              onBack={() => setStep(1)}
+              onContinue={handleStep2SalaryEarnerContinue}
+              loading={loading}
+            />
+          )}
+
           {step === 3 && (
             <Step3
               nin={nin}
@@ -1146,7 +1885,15 @@ export default function Onboarding() {
             />
           )}
 
-          {step === 4 && (
+          {step === 4 && userType === 'salary_earner' && (
+            <Step4SalarySetup
+              onBack={() => setStep(3)}
+              onChoice={handleSalarySetupChoice}
+              loading={loading}
+            />
+          )}
+
+          {step === 4 && userType !== 'salary_earner' && (
             <Step4
               onBack={() => setStep(3)}
               onFinish={handleFinish}

@@ -10,6 +10,7 @@ import {
   Info,
   Calendar,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   TrendingUp,
   Layers,
@@ -293,6 +294,17 @@ export default function TaxSummary() {
     activeEntityId ? { entityId: activeEntityId, taxYear } : 'skip'
   ) as IncomeBreakdown | null | undefined;
 
+  const employmentRecords = useQuery(
+    api.employmentIncome.list,
+    entity && taxYear
+      ? { entityId: entity._id, taxYear }
+      : 'skip'
+  );
+
+  const hasEstimatedSalary = employmentRecords?.some(
+    (r: any) => r.status === 'confirmed' && r.source === 'detected' && r.payeDeducted === 0
+  ) ?? false;
+
   const isLoading = summary === undefined || entity === undefined;
   const isLlc = entity?.type === 'llc';
 
@@ -477,12 +489,40 @@ export default function TaxSummary() {
           </div>
         )}
 
+        {/* ── Estimated Salary Warning ── */}
+        {!isLoading && hasEstimatedSalary && (
+          <div className="flex items-start gap-2.5 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              <p className="font-semibold">Salary figures are estimated (payslip not entered)</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Your tax estimate may be understated. Enter payslip details for accuracy.{' '}
+                <Link to="/app/employment-income" className="font-medium underline underline-offset-2">
+                  Complete payslip details →
+                </Link>
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Income Breakdown ── */}
         <ExpandableSection title="Income Breakdown" icon={TrendingUp}>
           {isLoading ? (
             <SkeletonRows count={5} />
           ) : (
             <>
+              {(summary?.totalEmploymentIncome ?? 0) > 0 && (
+                <>
+                  <SummaryRow
+                    label="Employment Income"
+                    value={summary?.totalEmploymentIncome ?? 0}
+                  />
+                  <SummaryRow
+                    label="Other Income"
+                    value={(summary?.totalGrossIncome ?? 0) - (summary?.totalEmploymentIncome ?? 0)}
+                  />
+                </>
+              )}
               <SummaryRow
                 label="Freelance / Client Work"
                 value={incomeBreakdown?.freelanceClient ?? 0}
@@ -511,7 +551,7 @@ export default function TaxSummary() {
                 <div className="mt-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                   <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                   {summary!.uncategorisedCount} uncategorised transaction
-                  {summary!.uncategorisedCount !== 1 ? 's' : ''} excluded.{' '}
+                  {summary!.uncategorisedCount !== 1 ? 's' : ''} pending review. Inflows are included; outflows stay non-deductible.{' '}
                   <Link to="/app/triage" className="font-medium underline underline-offset-2">
                     Categorise now
                   </Link>
@@ -686,6 +726,14 @@ export default function TaxSummary() {
                 negative
                 tooltip="Withholding tax already deducted at source by payers — offsets your PIT liability"
               />
+              {(summary?.payeCredits ?? 0) > 0 && (
+                <SummaryRow
+                  label="PAYE Credits"
+                  value={summary?.payeCredits ?? 0}
+                  negative
+                  tooltip="Pay-As-You-Earn tax already deducted by your employer — offsets your PIT liability"
+                />
+              )}
               <div className="mt-1 pt-1 border-t border-border">
                 <SummaryRow
                   label="Net PIT Payable"
@@ -840,6 +888,7 @@ interface TaxEngineReliefs {
 
 interface TaxSummaryData {
   totalGrossIncome: number;
+  totalEmploymentIncome: number;
   totalBusinessExpenses: number;
   assessableProfit: number;
   reliefs: TaxEngineReliefs;
@@ -847,6 +896,7 @@ interface TaxSummaryData {
   bands: PitBand[];
   grossTaxPayable: number;
   whtCredits: number;
+  payeCredits: number;
   netTaxPayable: number;
   minimumTaxApplied: boolean;
   cgtPayable: number;

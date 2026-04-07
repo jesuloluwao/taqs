@@ -6,6 +6,7 @@ import type { Id } from '@convex/_generated/dataModel';
 import { useEntity } from '../contexts/EntityContext';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import type { CategoryOption } from '../components/CategoryPickerModal';
+import { SimilarTransactionsModal, type SimilarTransaction } from '../components/SimilarTransactionsModal';
 import { toast } from 'sonner';
 import {
   CheckCircle2,
@@ -479,6 +480,19 @@ export default function Triage() {
   const [showReasoningTxId, setShowReasoningTxId] = useState<Id<'transactions'> | null>(null);
   const [processing, setProcessing] = useState(false);
 
+  // Smart batch categorisation state
+  const [showSimilarModal, setShowSimilarModal] = useState(false);
+  const [similarResults, setSimilarResults] = useState<SimilarTransaction[]>([]);
+  const [similarSourceCounterparty, setSimilarSourceCounterparty] = useState<string | null>(null);
+  const [modalCategoryInfo, setModalCategoryInfo] = useState<{
+    categoryId: Id<'categories'>;
+    categoryName: string;
+    categoryType: 'income' | 'business_expense' | 'personal_expense' | 'transfer';
+  } | null>(null);
+  // similarSourceId triggers the query; modalSourceId persists for the modal prop
+  const [similarSourceId, setSimilarSourceId] = useState<Id<'transactions'> | null>(null);
+  const [modalSourceId, setModalSourceId] = useState<Id<'transactions'> | null>(null);
+
   // AI bulk categorise state
   const [showAiConfirm, setShowAiConfirm] = useState(false);
   const [aiConfirmLoading, setAiConfirmLoading] = useState(false);
@@ -486,6 +500,27 @@ export default function Triage() {
 
   const autoCategoriseAction = useAction(api.transactionActions.autoCategorise);
   const cancelJobMutation = useMutation(api.categorisingJobs.cancel);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const findSimilarResult = useQuery(
+    (api as any).transactions.findSimilar,
+    similarSourceId ? { transactionId: similarSourceId } : 'skip'
+  ) as { matches: SimilarTransaction[]; sourceCounterparty: string | null } | undefined;
+
+  useEffect(() => {
+    if (showSimilarModal) return;
+
+    if (findSimilarResult && findSimilarResult.matches.length > 0 && similarSourceId && modalCategoryInfo) {
+      setSimilarResults([...findSimilarResult.matches]);
+      setSimilarSourceCounterparty(findSimilarResult.sourceCounterparty);
+      setShowSimilarModal(true);
+      setSimilarSourceId(null); // Return query to 'skip'
+    } else if (findSimilarResult && findSimilarResult.matches.length === 0 && similarSourceId) {
+      setSimilarSourceId(null);
+      setModalCategoryInfo(null);
+      setModalSourceId(null);
+    }
+  }, [findSimilarResult, similarSourceId, modalCategoryInfo, showSimilarModal]);
 
   const uncategorised = useMemo(() => rawList ?? [], [rawList]);
   const uncategorisedMap = useMemo(
@@ -695,6 +730,20 @@ export default function Triage() {
             })
           )
         );
+      }
+
+      // Trigger similar transactions check for the first applied transaction
+      const firstEntry = Object.entries(draftAssignments)[0];
+      if (firstEntry) {
+        const [txId, assignment] = firstEntry;
+        const typedId = txId as Id<'transactions'>;
+        setSimilarSourceId(typedId);
+        setModalSourceId(typedId);
+        setModalCategoryInfo({
+          categoryId: assignment.categoryId,
+          categoryName: assignment.categoryName,
+          categoryType: assignment.type,
+        });
       }
 
       clearStateForIds(updatedIds);
@@ -976,6 +1025,31 @@ export default function Triage() {
           jobId={activeAiJobId}
           onCancel={handleCancelAiJob}
           onComplete={handleAiComplete}
+        />
+      )}
+
+      {/* Similar transactions modal */}
+      {showSimilarModal && modalCategoryInfo && modalSourceId && similarResults.length > 0 && (
+        <SimilarTransactionsModal
+          similarTransactions={similarResults}
+          categoryName={modalCategoryInfo.categoryName}
+          categoryId={modalCategoryInfo.categoryId}
+          categoryType={modalCategoryInfo.categoryType}
+          sourceTransactionId={modalSourceId}
+          counterpartyName={similarSourceCounterparty}
+          onClose={() => {
+            setShowSimilarModal(false);
+            setSimilarResults([]);
+            setModalCategoryInfo(null);
+            setModalSourceId(null);
+          }}
+          onApplied={(count) => {
+            setShowSimilarModal(false);
+            setSimilarResults([]);
+            setModalCategoryInfo(null);
+            setModalSourceId(null);
+            toast.success(`Applied to ${count} transaction${count !== 1 ? 's' : ''}`);
+          }}
         />
       )}
     </div>
