@@ -47,4 +47,4 @@ jobs:
             echo "::error::CONVEX_DEPLOY_KEY secret is not set. Add it under Settings → Secrets and variables → Actions."
             exit 1
           fi
-          npx convex deploy --message "GitHub Actions @ ${GITHUB_SHA::7}"
+          npx convex deploy"
