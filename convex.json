@@ -5,7 +5,8 @@
     "externalPackages": [
       "@anthropic-ai/sdk",
       "firebase-admin",
-      "pdf-parse"
+      "pdf-parse",
+      "pdfkit"
     ]
   }
 }
