@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd apps/web && npx vite build",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL --cmd 'cd apps/web && npx vite build'; else cd apps/web && npx vite build; fi",
   "outputDirectory": "apps/web/dist",
   "installCommand": "npm install",
   "framework": "vite",
