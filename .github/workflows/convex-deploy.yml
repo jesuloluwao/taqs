@@ -1,0 +1,50 @@
+name: Deploy Convex
+
+# Pushes the schema and functions in convex/ to the Convex production
+# deployment.
+#
+#   • Run it on demand from the Actions tab ("Run workflow").
+#   • It also runs automatically when convex/ changes land on main, so the
+#     backend stays in sync with the frontend that calls it.
+#
+# Requires a CONVEX_DEPLOY_KEY repository secret
+# (Settings → Secrets and variables → Actions).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'convex/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/convex-deploy.yml'
+
+# Never let two deploys race; queue them instead.
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error::CONVEX_DEPLOY_KEY secret is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          npx convex deploy --message "GitHub Actions @ ${GITHUB_SHA::7}"
